@@ -1,0 +1,86 @@
+# DigitalOcean App Platform Spec
+# Deploy: doctl apps create --spec .do/app.yaml
+# Or configure via Dashboard > Apps > Create App
+
+name: silvana-therapy
+region: nyc
+
+services:
+  - name: web
+    github:
+      repo: TU_USUARIO/silvana-therapy
+      branch: main
+      deploy_on_push: true
+    dockerfile_path: Dockerfile
+    http_port: 8080
+    instance_count: 1
+    instance_size_slug: basic-xxs  # $5/mo — suficiente para MVP
+    
+    routes:
+      - path: /
+    
+    envs:
+      # ── Supabase
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        scope: BUILD_TIME
+        value: ${SUPABASE_URL}
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+        scope: BUILD_TIME
+        value: ${SUPABASE_ANON_KEY}
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        scope: RUN_TIME
+        type: SECRET
+        value: ${SERVICE_ROLE_KEY}
+      
+      # ── App URLs
+      - key: NEXT_PUBLIC_APP_URL
+        scope: BUILD_TIME
+        value: https://terapiasilvanalopez.com
+      - key: NEXT_PUBLIC_ADMIN_URL
+        scope: BUILD_TIME
+        value: https://admin.terapiasilvanalopez.com
+      
+      # ── Stripe
+      - key: STRIPE_SECRET_KEY
+        scope: RUN_TIME
+        type: SECRET
+      - key: STRIPE_WEBHOOK_SECRET
+        scope: RUN_TIME
+        type: SECRET
+      - key: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+        scope: BUILD_TIME
+      
+      # ── PayPal
+      - key: PAYPAL_CLIENT_ID
+        scope: RUN_TIME
+        type: SECRET
+      - key: PAYPAL_CLIENT_SECRET
+        scope: RUN_TIME
+        type: SECRET
+      - key: PAYPAL_WEBHOOK_ID
+        scope: RUN_TIME
+        type: SECRET
+      - key: PAYPAL_MODE
+        scope: RUN_TIME
+        value: live
+      
+      # ── Google Calendar
+      - key: GOOGLE_SERVICE_ACCOUNT_KEY_BASE64
+        scope: RUN_TIME
+        type: SECRET
+      - key: GOOGLE_CALENDAR_ID
+        scope: RUN_TIME
+      
+      # ── Email
+      - key: RESEND_API_KEY
+        scope: RUN_TIME
+        type: SECRET
+      - key: EMAIL_FROM
+        scope: RUN_TIME
+        value: "Silvana López <noreply@terapiasilvanalopez.com>"
+
+domains:
+  - domain: terapiasilvanalopez.com
+    type: PRIMARY
+  - domain: admin.terapiasilvanalopez.com
+    type: ALIAS
