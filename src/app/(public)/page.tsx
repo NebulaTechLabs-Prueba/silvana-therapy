@@ -9,6 +9,7 @@ import WhenToStartSection from '@/components/public/home/WhenToStartSection';
 import CTABanner from '@/components/public/home/CTABanner';
 import ProfileSection from '@/components/public/home/ProfileSection';
 import ContactSection from '@/components/public/home/ContactSection';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
 
 export const metadata = {
   title: 'Lda. Silvana López — Psicoterapia Online',
@@ -16,7 +17,16 @@ export const metadata = {
     'Un espacio para comenzar a sentirte mejor. Sesiones personalizadas y confidenciales. Primera consulta sin cargo.',
 };
 
-export default function HomePage() {
+export default async function HomePage() {
+  const supabase = await createServerSupabaseClient();
+  const { data: payMethods } = await supabase
+    .from('payment_methods')
+    .select('nombre, tipo')
+    .eq('activo', true)
+    .order('prioridad');
+
+  const activePaymentMethods = (payMethods ?? []).map((m: { nombre: string; tipo: string }) => ({ nombre: m.nombre, tipo: m.tipo }));
+
   return (
     <>
       <Navbar />
@@ -28,7 +38,7 @@ export default function HomePage() {
       <WhenToStartSection />
       <CTABanner />
       <ProfileSection />
-      <ContactSection />
+      <ContactSection paymentMethods={activePaymentMethods} />
       <Footer />
     </>
   );

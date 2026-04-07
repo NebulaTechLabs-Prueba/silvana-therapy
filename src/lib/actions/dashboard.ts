@@ -2,6 +2,7 @@
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
+import { getClientTime } from '@/lib/utils/timezone';
 
 // ============================================================
 // Dashboard Server Actions — CRUD for all dashboard sections
@@ -24,22 +25,38 @@ export async function updateProfile(data: {
   direccion: string;
   horario: string;
   bio: string;
+  working_hours?: Record<string, { start: string; end: string; enabled: boolean }>;
 }) {
   const supabase = await getSupabase();
+  const update: Record<string, unknown> = {
+    nombre: data.nombre,
+    especialidad: data.especialidad,
+    cedula: data.cedula,
+    notification_email: data.email,
+    telefono: data.telefono,
+    direccion: data.direccion,
+    horario: data.horario,
+    bio: data.bio,
+  };
+  if (data.working_hours) {
+    update.working_hours = data.working_hours;
+  }
   const { error } = await supabase
     .from('admin_settings')
-    .update({
-      nombre: data.nombre,
-      especialidad: data.especialidad,
-      cedula: data.cedula,
-      notification_email: data.email,
-      telefono: data.telefono,
-      direccion: data.direccion,
-      horario: data.horario,
-      bio: data.bio,
-    })
+    .update(update)
     .not('id', 'is', null); // update the single row
   if (error) return { success: false, error: error.message };
+
+  // Sync display name and phone to Supabase Auth user metadata
+  const phone = data.telefono?.replace(/[^+\d]/g, '') || '';
+  const { error: authError } = await supabase.auth.updateUser({
+    data: { full_name: data.nombre },
+    ...(phone.length >= 8 ? { phone } : {}),
+  });
+  if (authError) {
+    console.error('[Profile] auth.updateUser error:', authError.message);
+  }
+
   revalidatePath(DASH);
   return { success: true };
 }
@@ -54,7 +71,26 @@ export async function updateNotepad(text: string) {
   return { success: true };
 }
 
+export async function updateNickname(name: string) {
+  const supabase = await getSupabase();
+  const { error } = await supabase
+    .from('admin_settings')
+    .update({ nickname: name })
+    .not('id', 'is', null);
+  if (error) return { success: false, error: error.message };
+  revalidatePath(DASH);
+  return { success: true };
+}
+
 // ─── Services ───────────────────────────────────────────────
+
+function toSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // strip accents
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+}
 
 export async function upsertService(data: {
   id?: string;
@@ -62,34 +98,48 @@ export async function upsertService(data: {
   descripcion: string;
   color: string;
   active?: boolean;
+  duracion?: number;
+  precio?: string | null;
+  is_free?: boolean;
+  modalidad?: string;
+  features?: string[];
+  tag?: string;
+  typeLabel?: string;
+  subtitle?: string;
 }) {
   const supabase = await getSupabase();
+  const slug = toSlug(data.nombre);
+
+  const row = {
+    name: data.nombre,
+    slug,
+    description: data.descripcion,
+    color: data.color,
+    active: data.active ?? true,
+    duration_min: data.duracion ?? 50,
+    price: data.precio || null,
+    is_free: data.is_free ?? false,
+    modality: data.modalidad || 'Online · Videollamada',
+    features: data.features ?? [],
+    tag: data.tag || null,
+    type_label: data.typeLabel || null,
+    subtitle: data.subtitle || null,
+  };
 
   if (data.id) {
-    // Update
     const { error } = await supabase
       .from('services')
-      .update({
-        name: data.nombre,
-        description: data.descripcion,
-        color: data.color,
-        active: data.active ?? true,
-      })
+      .update(row)
       .eq('id', data.id);
     if (error) return { success: false, error: error.message };
   } else {
-    // Insert
     const { error } = await supabase
       .from('services')
-      .insert({
-        name: data.nombre,
-        description: data.descripcion,
-        color: data.color,
-        active: data.active ?? true,
-      });
+      .insert(row);
     if (error) return { success: false, error: error.message };
   }
   revalidatePath(DASH);
+  revalidatePath('/services');
   return { success: true };
 }
 
@@ -180,6 +230,7 @@ export async function upsertBooking(data: {
   tipo: string;
   notas: string;
   estado: string;
+  pais?: string;
 }) {
   const supabase = await getSupabase();
 
@@ -196,6 +247,10 @@ export async function upsertBooking(data: {
 
   if (existing) {
     clientId = existing.id;
+    // Update country if provided
+    if (data.pais) {
+      await supabase.from('clients').update({ country: data.pais }).eq('id', clientId);
+    }
   } else {
     const { data: newClient, error: clientErr } = await supabase
       .from('clients')
@@ -203,6 +258,7 @@ export async function upsertBooking(data: {
         full_name: data.paciente,
         email: data.email,
         phone: data.telefono,
+        country: data.pais || null,
       })
       .select('id')
       .single();
@@ -210,8 +266,13 @@ export async function upsertBooking(data: {
     clientId = newClient.id;
   }
 
-  // Build the preferred_date from fecha + hora
-  const preferredDate = `${data.fecha}T${data.hora}:00`;
+  // Build the preferred_date from fecha + hora (Argentina time)
+  const preferredDate = `${data.fecha}T${data.hora}:00-03:00`;
+
+  // Compute client-local time if country differs from Argentina
+  const clientLocalTime = data.pais && data.pais !== 'Argentina' && data.pais !== 'Otro' && data.fecha && data.hora
+    ? getClientTime(data.fecha, data.hora, data.pais)
+    : null;
 
   // Find a service matching the tipo, or use the first service
   const { data: svc } = await supabase
@@ -223,7 +284,13 @@ export async function upsertBooking(data: {
 
   if (!serviceId) return { success: false, error: 'No services found' };
 
-  const bookingStatus = data.estado === 'confirmada' ? 'confirmed' : 'pending';
+  const statusMap: Record<string, string> = {
+    'confirmada': 'confirmed', 'confirmed': 'confirmed',
+    'cancelada': 'cancelled', 'cancelled': 'cancelled',
+    'completada': 'completed', 'completed': 'completed',
+    'rechazada': 'rejected', 'rejected': 'rejected',
+  };
+  const bookingStatus = statusMap[data.estado] || 'pending';
 
   if (data.id) {
     const { error } = await supabase
@@ -232,6 +299,7 @@ export async function upsertBooking(data: {
         preferred_date: preferredDate,
         status: bookingStatus,
         admin_notes: data.notas || null,
+        client_local_time: clientLocalTime,
       })
       .eq('id', data.id);
     if (error) return { success: false, error: error.message };
@@ -244,6 +312,7 @@ export async function upsertBooking(data: {
         preferred_date: preferredDate,
         status: bookingStatus,
         admin_notes: data.notas || null,
+        client_local_time: clientLocalTime,
       });
     if (error) return { success: false, error: error.message };
   }
@@ -356,6 +425,47 @@ export async function togglePaymentMethodActive(id: string, activo: boolean) {
     .from('payment_methods')
     .update({ activo })
     .eq('id', id);
+  if (error) return { success: false, error: error.message };
+  revalidatePath(DASH);
+  return { success: true };
+}
+
+// ─── Admin Links (Tutoriales) ──────────────────────────────
+
+export async function upsertAdminLink(data: { id?: string; title: string; url: string }) {
+  const supabase = await getSupabase();
+  if (data.id) {
+    const { error } = await supabase
+      .from('admin_links')
+      .update({ title: data.title, url: data.url })
+      .eq('id', data.id);
+    if (error) return { success: false, error: error.message };
+  } else {
+    const { error } = await supabase
+      .from('admin_links')
+      .insert({ title: data.title, url: data.url });
+    if (error) return { success: false, error: error.message };
+  }
+  revalidatePath(DASH);
+  return { success: true };
+}
+
+export async function deleteAdminLink(id: string) {
+  const supabase = await getSupabase();
+  const { error } = await supabase.from('admin_links').delete().eq('id', id);
+  if (error) return { success: false, error: error.message };
+  revalidatePath(DASH);
+  return { success: true };
+}
+
+// ─── Security Question ─────────────────────────────────────
+
+export async function updateSecurityQuestion(question: string, answer: string) {
+  const supabase = await getSupabase();
+  const { error } = await supabase
+    .from('admin_settings')
+    .update({ security_question: question, security_answer: answer })
+    .not('id', 'is', null);
   if (error) return { success: false, error: error.message };
   revalidatePath(DASH);
   return { success: true };

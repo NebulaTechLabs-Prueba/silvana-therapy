@@ -26,13 +26,14 @@ export async function generateMetadata({ params }: Props) {
 export default async function ServiceDetailPage({ params }: Props) {
   const { slug } = await params;
   const supabase = await createServerSupabaseClient();
-  const { data: service } = await supabase
-    .from('services')
-    .select('*')
-    .eq('slug', slug)
-    .eq('active', true)
-    .single();
 
+  const [serviceRes, settingsRes, payMethodsRes] = await Promise.all([
+    supabase.from('services').select('*').eq('slug', slug).eq('active', true).single(),
+    supabase.from('admin_settings').select('working_hours').limit(1).single(),
+    supabase.from('payment_methods').select('nombre').eq('activo', true).order('prioridad'),
+  ]);
+
+  const service = serviceRes.data;
   if (!service) notFound();
 
   return (
@@ -47,7 +48,7 @@ export default async function ServiceDetailPage({ params }: Props) {
           {service.name}
         </h1>
       </div>
-      <ServiceDetailClient service={service} />
+      <ServiceDetailClient service={service} workingHours={settingsRes.data?.working_hours ?? null} activePaymentMethods={(payMethodsRes.data ?? []).map((m: { nombre: string }) => m.nombre)} />
       <Footer />
     </>
   );

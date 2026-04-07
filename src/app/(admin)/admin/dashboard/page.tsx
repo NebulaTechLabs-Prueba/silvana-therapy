@@ -24,15 +24,16 @@ export default async function DashboardPage() {
   const userName = (user.user_metadata?.full_name as string) || undefined;
 
   // Fetch all dashboard data in parallel
-  const [settingsRes, servicesRes, invoicesRes, bookingsRes, paymentMethodsRes] = await Promise.all([
+  const [settingsRes, servicesRes, invoicesRes, bookingsRes, paymentMethodsRes, linksRes] = await Promise.all([
     supabase.from('admin_settings').select('*').limit(1).single(),
     supabase.from('services').select('*').order('sort_order'),
     supabase.from('invoices').select('*').order('fecha', { ascending: false }),
     supabase
       .from('bookings')
-      .select('*, client:clients(*), service:services(name)')
+      .select('*, client:clients(*), service:services(name, duration_min), payment_links(*)')
       .order('preferred_date', { ascending: true }),
     supabase.from('payment_methods').select('*').order('prioridad'),
+    supabase.from('admin_links').select('*').order('sort_order'),
   ]);
 
   return (
@@ -44,6 +45,7 @@ export default async function DashboardPage() {
       initialInvoices={invoicesRes.data ?? []}
       initialBookings={bookingsRes.data ?? []}
       initialPaymentMethods={paymentMethodsRes.data ?? []}
+      initialLinks={linksRes.data ?? []}
     />
   );
 }

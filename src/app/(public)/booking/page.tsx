@@ -9,16 +9,33 @@ export const metadata = {
 };
 
 export default async function BookingPage() {
-  // Fetch the free consultation service from Supabase
   const supabase = await createServerSupabaseClient();
-  const { data: service } = await supabase
-    .from('services')
-    .select('id, name, duration_min')
-    .eq('is_free', true)
-    .eq('active', true)
-    .order('sort_order')
-    .limit(1)
-    .single();
+
+  // Fetch service + working hours in parallel
+  const [serviceRes, settingsRes, payMethodsRes] = await Promise.all([
+    supabase
+      .from('services')
+      .select('id, name, duration_min, is_free')
+      .eq('is_free', true)
+      .eq('active', true)
+      .order('sort_order')
+      .limit(1)
+      .single(),
+    supabase
+      .from('admin_settings')
+      .select('working_hours')
+      .limit(1)
+      .single(),
+    supabase
+      .from('payment_methods')
+      .select('nombre')
+      .eq('activo', true)
+      .order('prioridad'),
+  ]);
+
+  const service = serviceRes.data;
+  const workingHours = settingsRes.data?.working_hours ?? null;
+  const activePaymentMethods = (payMethodsRes.data ?? []).map((m: { nombre: string }) => m.nombre);
 
   return (
     <>
@@ -38,6 +55,9 @@ export default async function BookingPage() {
         serviceId={service?.id ?? ''}
         serviceName={service?.name ?? 'Primera consulta gratuita'}
         serviceDuration={service?.duration_min ?? 50}
+        workingHours={workingHours}
+        isFree={service?.is_free ?? true}
+        activePaymentMethods={activePaymentMethods}
       />
       <Footer />
     </>

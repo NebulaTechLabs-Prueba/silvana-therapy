@@ -77,7 +77,7 @@ export default function ConfirmationClient() {
         <Row label="Modalidad" value="Online · Videollamada" />
         <Row
           label="Precio"
-          value={data.service.price === 'Gratis' ? 'Gratis' : `$${data.service.price} USD`}
+          value={data.service.price === 'Gratis' ? 'Gratis' : data.service.price}
           highlight
         />
         {data.form.nombre && (

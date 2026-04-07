@@ -1,6 +1,11 @@
 import SectionEyebrow from '@/components/ui/SectionEyebrow';
 
-export default function ContactSection() {
+interface PaymentMethodInfo {
+  nombre: string;
+  tipo: string;
+}
+
+export default function ContactSection({ paymentMethods = [] }: { paymentMethods?: PaymentMethodInfo[] }) {
   return (
     <section
       id="contacto"
@@ -90,17 +95,28 @@ export default function ContactSection() {
             <h4 className="text-[0.72rem] tracking-[0.1em] uppercase text-text-light mb-4">
               Medios de pago
             </h4>
-            <div className="flex items-center gap-3.5 text-[0.85rem] text-text-mid mb-3">
-              <img src="/images/paypal-logo.svg" alt="PayPal" className="h-7 w-auto shrink-0" />
-              <span className="text-[0.8rem] text-text-light">Valor de sesión + 10%</span>
-            </div>
-            <div className="flex items-center gap-3.5 text-[0.85rem] text-text-mid">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-7 h-7 text-text-mid shrink-0">
-                <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
-                <line x1="1" y1="10" x2="23" y2="10" />
-              </svg>
-              <span className="text-[0.8rem] text-text-light">Stripe · Valor estándar de sesión</span>
-            </div>
+            {paymentMethods.length > 0 ? (
+              <div className="flex flex-col gap-3">
+                {paymentMethods.map((m) => (
+                  <div key={m.nombre} className="flex items-center gap-3.5 text-[0.85rem] text-text-mid">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-6 h-6 text-green-deep shrink-0">
+                      {m.tipo === 'PayPal' ? (
+                        <circle cx="12" cy="12" r="10" />
+                      ) : m.tipo === 'Tarjeta' ? (
+                        <><rect x="1" y="4" width="22" height="16" rx="2" ry="2" /><line x1="1" y1="10" x2="23" y2="10" /></>
+                      ) : m.tipo === 'Transferencia' ? (
+                        <><path d="M21 12V7H5a2 2 0 010-4h14v4" /><path d="M3 12v5h16a2 2 0 010 4H5v-4" /></>
+                      ) : (
+                        <><circle cx="12" cy="12" r="10" /><path d="M12 6v6l4 2" /></>
+                      )}
+                    </svg>
+                    <span className="text-[0.8rem] text-text-mid">{m.nombre}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[0.82rem] text-text-light italic">Próximamente</p>
+            )}
           </div>
 
           <div className="mt-8 bg-white border border-green-pale rounded-2xl p-7">

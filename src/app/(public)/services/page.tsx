@@ -81,14 +81,16 @@ export default async function ServicesPage() {
                 <div className="font-serif text-[2rem] font-light text-text-dark">
                   {svc.is_free ? (
                     <span className="text-green-deep">Gratis</span>
-                  ) : (
+                  ) : svc.price ? (
                     <>
                       {svc.price} <small className="text-[0.7rem] font-sans text-text-light">USD</small>
                     </>
+                  ) : (
+                    <span className="text-green-deep">Consultar</span>
                   )}
                 </div>
                 <Link
-                  href={svc.is_free ? '/booking' : `/services/${svc.slug}`}
+                  href={svc.is_free ? '/booking' : (svc.slug ? `/services/${svc.slug}` : '/booking')}
                   className="inline-flex items-center gap-2.5 bg-green-deep text-[#fff] py-3.5 px-7 rounded-full text-[0.82rem] font-normal tracking-[0.06em] no-underline transition-all duration-250 hover:bg-text-dark hover:-translate-y-0.5"
                 >
                   {svc.is_free ? 'Reservar gratis' : 'Ver y reservar'}

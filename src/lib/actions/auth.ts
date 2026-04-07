@@ -1,6 +1,7 @@
 'use server';
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { loginSchema } from '@/lib/validators/schemas';
@@ -83,8 +84,9 @@ export async function requestPasswordResetAction(
   }
 
   const supabase = await createServerSupabaseClient();
+  const siteUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${process.env.NEXT_PUBLIC_ADMIN_URL}/auth/reset-password`,
+    redirectTo: `${siteUrl}/login`,
   });
 
   // Always return success even if email doesn't exist
@@ -96,6 +98,65 @@ export async function requestPasswordResetAction(
   return {
     success: true,
     data: 'Si el email existe, recibirás instrucciones para restablecer tu contraseña.',
+  };
+}
+
+// ─── Security Question Recovery ──────────────────────────
+
+export async function getSecurityQuestionAction(): Promise<ActionResult<string>> {
+  // Use admin client — this runs on the unauthenticated login page
+  const supabase = createAdminClient();
+  const { data } = await supabase
+    .from('admin_settings')
+    .select('security_question')
+    .limit(1)
+    .single();
+
+  if (!data?.security_question) {
+    return { success: false, error: 'No hay pregunta de seguridad configurada.' };
+  }
+
+  return { success: true, data: data.security_question };
+}
+
+export async function verifySecurityAnswerAction(
+  _prevState: ActionResult | null,
+  formData: FormData
+): Promise<ActionResult> {
+  const answer = (formData.get('answer') as string)?.trim().toLowerCase();
+
+  if (!answer) {
+    return { success: false, error: 'Ingresa tu respuesta.' };
+  }
+
+  // Use admin client — this runs on the unauthenticated login page
+  const supabase = createAdminClient();
+  const { data } = await supabase
+    .from('admin_settings')
+    .select('security_answer, notification_email')
+    .limit(1)
+    .single();
+
+  if (!data?.security_answer) {
+    return { success: false, error: 'No hay pregunta de seguridad configurada.' };
+  }
+
+  if (answer !== data.security_answer.trim().toLowerCase()) {
+    return { success: false, error: 'Respuesta incorrecta.' };
+  }
+
+  // Answer correct — send password reset email to the admin
+  const siteUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+  const email = data.notification_email;
+  if (email) {
+    await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${siteUrl}/login`,
+    });
+  }
+
+  return {
+    success: true,
+    data: 'Respuesta correcta. Se envió un enlace de restablecimiento a tu correo.',
   };
 }
 

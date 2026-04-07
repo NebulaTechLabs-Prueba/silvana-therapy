@@ -2,8 +2,10 @@
 // @ts-nocheck -- Inherited from original JS dashboard. Will be typed progressively as we wire to DB.
 
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { logoutAction } from "@/lib/actions/auth";
-import { updateProfile, updateNotepad, upsertService, deleteService, toggleServiceActive, upsertInvoice, deleteInvoice, upsertBooking, deleteBooking, updateBookingStatus, upsertPaymentMethod, deletePaymentMethod, togglePaymentMethodActive } from '@/lib/actions/dashboard';
+import { updateProfile, updateNotepad, updateNickname, upsertService, deleteService, toggleServiceActive, upsertInvoice, deleteInvoice, upsertBooking, deleteBooking, updateBookingStatus, upsertPaymentMethod, deletePaymentMethod, togglePaymentMethodActive, upsertAdminLink, deleteAdminLink, updateSecurityQuestion } from '@/lib/actions/dashboard';
+import { getClientTime } from '@/lib/utils/timezone';
 
 interface DashboardClientProps {
   userEmail: string;
@@ -13,6 +15,7 @@ interface DashboardClientProps {
   initialInvoices?: any[];
   initialBookings?: any[];
   initialPaymentMethods?: any[];
+  initialLinks?: any[];
 }
 
 /* ═══ LOGO SVG (from Silvana's website) ═══ */
@@ -53,6 +56,7 @@ const I = {
 const DIAS_ES = ["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"];
 const MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 const HORAS = ["08:00","09:00","10:00","11:00","12:00","13:00","14:00","15:00","16:00","17:00","18:00","19:00"];
+const PAISES = ['','Argentina','Venezuela','Colombia','México','Chile','Perú','Ecuador','España','Estados Unidos','Panamá','República Dominicana','Costa Rica','Uruguay','Bolivia','Paraguay','Guatemala','Honduras','El Salvador','Nicaragua','Cuba','Otro'];
 const TC = {
   Individual:{bg:"#f0f5f0",text:"#2a3528",dot:"#4a7a4a"},
   Pareja:{bg:"#e8eff4",text:"#2b4a6e",dot:"#5a82b0"},
@@ -146,8 +150,8 @@ function makeInvHTML(inv, acc) {
   const bc = inv.estado === 'pagada' ? 'bp' : inv.estado === 'pendiente' ? 'bpn' : 'bv';
   parts.push('<div class="ib" style="text-align:right"><h4>Para</h4><p><strong>' + inv.paciente + '</strong></p><h4 style="margin-top:14px">Fecha</h4><p>' + inv.fecha + '</p><h4 style="margin-top:14px">Estado</h4><p><span class="bd ' + bc + '">' + inv.estado + '</span></p></div></div>');
   parts.push('<table><thead><tr><th>Concepto</th><th>Cant.</th><th style="text-align:right">Monto</th></tr></thead>');
-  parts.push('<tbody><tr><td>' + inv.concepto + '</td><td>1</td><td style="text-align:right">$' + inv.monto.toLocaleString() + ' MXN</td></tr>');
-  parts.push('<tr class="tr"><td colspan="2">Total</td><td style="text-align:right">$' + inv.monto.toLocaleString() + ' MXN</td></tr></tbody></table>');
+  parts.push('<tbody><tr><td>' + inv.concepto + '</td><td>1</td><td style="text-align:right">$' + inv.monto.toLocaleString() + ' USD</td></tr>');
+  parts.push('<tr class="tr"><td colspan="2">Total</td><td style="text-align:right">$' + inv.monto.toLocaleString() + ' USD</td></tr></tbody></table>');
   if (inv.estado !== 'pagada') {
     parts.push('<div class="lb"><div style="font-size:10px;color:#849884;margin-bottom:5px">LINK DE PAGO</div><a href="' + inv.link + '">' + inv.link + '</a></div>');
   }
@@ -158,12 +162,12 @@ function makeInvHTML(inv, acc) {
 /* ═══════════════════════════════════════════
    MAIN COMPONENT
    ═══════════════════════════════════════════ */
-export default function SilvanaDashboard({ userEmail, userName, initialSettings, initialServices, initialInvoices, initialBookings, initialPaymentMethods }: DashboardClientProps) {
+export default function SilvanaDashboard({ userEmail, userName, initialSettings, initialServices, initialInvoices, initialBookings, initialPaymentMethods, initialLinks }: DashboardClientProps) {
   const [section, setSection] = useState('inicio');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [toast, setToast] = useState(null);
   const show = msg => { setToast(msg); setTimeout(() => setToast(null), 2800); };
-  const [searchTerm, setSearchTerm] = useState('');
+  const router = useRouter();
 
   const [account, setAccount] = useState({
     nombre: initialSettings?.nombre || userName || 'Lda. Silvana López',
@@ -175,32 +179,35 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
     horario: initialSettings?.horario || 'Lun-Vie 9:00-18:00',
     bio: initialSettings?.bio || 'Licenciada en Psicología, especialista en psicoterapia online. Acompaño procesos de bienestar emocional desde un enfoque cálido y personalizado.'
   });
+  const defaultWH = {monday:{start:'09:00',end:'18:00',enabled:true},tuesday:{start:'09:00',end:'18:00',enabled:true},wednesday:{start:'09:00',end:'18:00',enabled:true},thursday:{start:'09:00',end:'18:00',enabled:true},friday:{start:'09:00',end:'14:00',enabled:true},saturday:{start:'00:00',end:'00:00',enabled:false},sunday:{start:'00:00',end:'00:00',enabled:false}};
+  const [workingHours, setWorkingHours] = useState(initialSettings?.working_hours || defaultWH);
   const [editAcc, setEditAcc] = useState(false);
   const [accF, setAccF] = useState({...account});
+  const [accWH, setAccWH] = useState({...workingHours});
 
   /* Services */
   const [services, setServices] = useState(() => {
     if (initialServices && initialServices.length > 0) {
-      return initialServices.map(s => ({ id: s.id, nombre: s.name, descripcion: s.description || '', color: s.color || '#8fb08f', active: s.active !== false }));
+      return initialServices.map(s => ({ id: s.id, nombre: s.name, descripcion: s.description || '', color: s.color || '#8fb08f', active: s.active !== false, duracion: s.duration_min || 50, precio: s.price || '', is_free: s.is_free ?? false, modalidad: s.modality || 'Online · Videollamada', features: Array.isArray(s.features) ? s.features.join('\n') : '', tag: s.tag || '', typeLabel: s.type_label || '', subtitle: s.subtitle || '', precioTipo: s.is_free ? 'gratis' : (s.price ? 'precio' : 'oculto') }));
     }
     return [];
   });
   const [svcModal, setSvcModal] = useState(false);
-  const [svcF, setSvcF] = useState({nombre:'',descripcion:'',color:'#8fb08f'});
+  const [svcF, setSvcF] = useState({nombre:'',descripcion:'',color:'#8fb08f',duracion:50,precioTipo:'oculto',precio:'',modalidad:'Online · Videollamada',features:'',tag:'',typeLabel:'',subtitle:''});
   const [eSvcId, setESvcId] = useState(null);
 
   /* Security */
   const [secEmail, setSecEmail] = useState('silvana@psicoterapia.com');
   const [secNewEmail, setSecNewEmail] = useState('');
   const [secPwd, setSecPwd] = useState({current:'',new1:'',new2:''});
-  const [secQuestion, setSecQuestion] = useState('¿Nombre de tu primera mascota?');
-  const [secAnswer, setSecAnswer] = useState('••••••••');
+  const [secQuestion, setSecQuestion] = useState(initialSettings?.security_question || '¿Nombre de tu primera mascota?');
+  const [secAnswer, setSecAnswer] = useState(initialSettings?.security_answer || '');
   const [recoveryEmail, setRecoveryEmail] = useState('silvana.backup@gmail.com');
   const [twoFA, setTwoFA] = useState(false);
   const [secEditModal, setSecEditModal] = useState(null); /* 'email'|'password'|'question'|'recovery'|null */
 
   const [darkMode, setDarkMode] = useState(false);
-  const [nickname, setNickname] = useState('Silvana');
+  const [nickname, setNickname] = useState(initialSettings?.nickname || 'Silvana');
 
   /* Dynamic theme tokens — Silvana palette */
   const dm = darkMode;
@@ -216,17 +223,16 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
   const bgSub = dm ? '#1a1a1a' : '#f0f5f0';
   const borderC = dm ? '#2a2a2a' : '#e2ede2';
   const [notepad, setNotepad] = useState(initialSettings?.notepad || '');
-  const [tutorialLinks, setTutorialLinks] = useState([
-    {id:1, title:'Guía de inicio rápido', url:'https://docs.silvanalopez.com/inicio'},
-    {id:2, title:'Cómo crear facturas', url:'https://docs.silvanalopez.com/facturas'},
-    {id:3, title:'Configurar métodos de pago', url:'https://docs.silvanalopez.com/pagos'},
-  ]);
+  const [tutorialLinks, setTutorialLinks] = useState(() => {
+    if (initialLinks && initialLinks.length > 0) return initialLinks.map(l => ({id:l.id,title:l.title,url:l.url}));
+    return [];
+  });
   const [newLink, setNewLink] = useState({title:'',url:''});
   const [logoutConfirm, setLogoutConfirm] = useState(false);
 
   const [invoices, setInvoices] = useState(initialInvoices || []);
   const [invModal, setInvModal] = useState(false);
-  const [invF, setInvF] = useState({paciente:'',concepto:'Sesión individual',monto:'',estado:'pendiente'});
+  const [invF, setInvF] = useState({paciente:'',concepto:'',monto:'',estado:'pendiente',metodoPago:'',link:''});
   const [eInvId, setEInvId] = useState(null);
   const [openMenu, setOpenMenu] = useState(null);
   const [invFilter, setInvFilter] = useState('todos');
@@ -234,6 +240,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
 
   const [reservas, setReservas] = useState(() => {
     if (initialBookings && initialBookings.length > 0) {
+      const statusToEs = {pending:'pendiente',confirmed:'confirmada',cancelled:'cancelada',completed:'completada',rejected:'rechazada',accepted:'aceptada',payment_pending:'pago pendiente',rescheduled:'reagendada',expired:'expirada'};
       return initialBookings.map(b => {
         const dt = b.preferred_date ? new Date(b.preferred_date) : null;
         return {
@@ -243,10 +250,19 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
           telefono: b.client?.phone || '',
           fecha: dt ? dt.toISOString().slice(0, 10) : '',
           hora: dt ? dt.toISOString().slice(11, 16) : '',
-          duracion: b.duration || 60,
+          duracion: b.service?.duration_min || 60,
           tipo: b.service?.name || 'Individual',
           notas: b.admin_notes || '',
-          estado: b.status || 'pendiente',
+          estado: statusToEs[b.status] || b.status || 'pendiente',
+          pais: b.client?.country || '',
+          paymentLinks: (b.payment_links || []).map(pl => ({
+            id: pl.id,
+            url: pl.url,
+            provider: pl.provider,
+            amount: pl.amount,
+            total: pl.total,
+            status: pl.status,
+          })),
         };
       });
     }
@@ -256,7 +272,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
   const [calDate, setCalDate] = useState(new Date(TODAY));
   const [selRes, setSelRes] = useState(null);
   const [resModal, setResModal] = useState(false);
-  const [resF, setResF] = useState({paciente:'',email:'',telefono:'',fecha:'',hora:'',duracion:60,tipo:'Individual',notas:'',estado:'pendiente'});
+  const [resF, setResF] = useState({paciente:'',email:'',telefono:'',fecha:'',hora:'',duracion:60,tipo:'Individual',notas:'',estado:'pendiente',pais:''});
   const [eResId, setEResId] = useState(null);
 
   const [metodos, setMetodos] = useState(() => {
@@ -301,7 +317,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
     if (eInvId) {
       setInvoices(p => p.map(i => i.id === eInvId ? {...i,...invF,monto:Number(invF.monto)} : i));
       show('Factura actualizada');
-      setInvModal(false); setEInvId(null); setInvF({paciente:'',concepto:'Sesión individual',monto:'',estado:'pendiente'});
+      setInvModal(false); setEInvId(null); setInvF({paciente:'',concepto:'',monto:'',estado:'pendiente',metodoPago:'',link:''});
       try { await upsertInvoice({id: eInvId, paciente: invF.paciente, concepto: invF.concepto, monto: Number(invF.monto), estado: invF.estado, link: invF.link}); } catch(e) { show('Error al guardar factura'); }
     } else {
       const nid = Math.max(0,...invoices.map(i=>i.id))+1;
@@ -318,7 +334,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
     if (em) msgs.push('correo');
     if (wa) msgs.push('WhatsApp');
     show('Factura creada' + (msgs.length ? ' · ' + msgs.join(' y ') + ' enviado' : ''));
-    setConfirmModal(null); setInvF({paciente:'',concepto:'Sesión individual',monto:'',estado:'pendiente'});
+    setConfirmModal(null); setInvF({paciente:'',concepto:'',monto:'',estado:'pendiente',metodoPago:'',link:''});
   };
   const exportCSV = () => {
     const rows = [['ID','Paciente','Concepto','Monto','Estado','Fecha','Link']];
@@ -345,10 +361,8 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
   const copyLnk = link => { navigator.clipboard?.writeText(link); show('Link copiado'); };
 
   const fInvs = useMemo(() => {
-    let l = invFilter === 'todos' ? invoices : invoices.filter(i => i.estado === invFilter);
-    if (searchTerm) l = l.filter(i => i.paciente.toLowerCase().includes(searchTerm.toLowerCase()));
-    return l;
-  }, [invoices, invFilter, searchTerm]);
+    return invFilter === 'todos' ? invoices : invoices.filter(i => i.estado === invFilter);
+  }, [invoices, invFilter]);
 
   /* Reserva ops */
   const saveRes = async () => {
@@ -356,17 +370,28 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
     if (eResId) {
       setReservas(p => p.map(r => r.id === eResId ? {...r,...resF,duracion:Number(resF.duracion)} : r));
       show('Cita actualizada');
-      try { await upsertBooking({id: eResId, paciente: resF.paciente, email: resF.email, telefono: resF.telefono, fecha: resF.fecha, hora: resF.hora, duracion: Number(resF.duracion), tipo: resF.tipo, notas: resF.notas, estado: resF.estado}); } catch(e) { show('Error al guardar cita'); }
+      try { await upsertBooking({id: eResId, paciente: resF.paciente, email: resF.email, telefono: resF.telefono, fecha: resF.fecha, hora: resF.hora, duracion: Number(resF.duracion), tipo: resF.tipo, notas: resF.notas, estado: resF.estado, pais: resF.pais}); router.refresh(); } catch(e) { show('Error al guardar cita'); }
     } else {
       const nid = Math.max(0,...reservas.map(r=>r.id))+1;
       setReservas(p => [...p,{...resF,id:nid,duracion:Number(resF.duracion)}]);
       show('Cita creada');
-      try { await upsertBooking({paciente: resF.paciente, email: resF.email, telefono: resF.telefono, fecha: resF.fecha, hora: resF.hora, duracion: Number(resF.duracion), tipo: resF.tipo, notas: resF.notas, estado: resF.estado}); } catch(e) { show('Error al guardar cita'); }
+      try { await upsertBooking({paciente: resF.paciente, email: resF.email, telefono: resF.telefono, fecha: resF.fecha, hora: resF.hora, duracion: Number(resF.duracion), tipo: resF.tipo, notas: resF.notas, estado: resF.estado, pais: resF.pais}); router.refresh(); } catch(e) { show('Error al guardar cita'); }
     }
     setResModal(false); setEResId(null);
-    setResF({paciente:'',email:'',telefono:'',fecha:'',hora:'',duracion:60,tipo:'Individual',notas:'',estado:'pendiente'});
+    setResF({paciente:'',email:'',telefono:'',fecha:'',hora:'',duracion:60,tipo:'Individual',notas:'',estado:'pendiente',pais:''});
   };
-  const delRes = async id => { setReservas(p=>p.filter(r=>r.id!==id)); if(selRes?.id===id) setSelRes(null); show('Cita eliminada'); try { await deleteBooking(id); } catch(e) { show('Error al eliminar cita'); } };
+  const delRes = async id => {
+    const booking = reservas.find(r => r.id === id);
+    const links = booking?.paymentLinks || [];
+    if (links.length > 0) {
+      const activeLinks = links.filter(l => l.status === 'active' || l.status === 'paid');
+      const msg = activeLinks.length > 0
+        ? `Esta cita tiene ${activeLinks.length} enlace(s) de pago asociado(s). Los enlaces se desvincularan de la cita pero no se eliminaran.\n\n¿Desea continuar?`
+        : '¿Desea eliminar esta cita?';
+      if (!window.confirm(msg)) return;
+    }
+    setReservas(p=>p.filter(r=>r.id!==id)); if(selRes?.id===id) setSelRes(null); show('Cita eliminada'); try { await deleteBooking(id); router.refresh(); } catch(e) { show('Error al eliminar cita'); }
+  };
 
   /* Método ops */
   const saveMet = async () => {
@@ -415,18 +440,6 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
 
   return (
     <div style={{display:'flex',minHeight:'100vh',fontFamily:"'DM Sans',sans-serif",background:darkMode?'#141414':'#fdfcfa',color:darkMode?'#e0e0e0':'#2a3528',transition:'background .3s, color .3s'}}>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300;1,400&family=DM+Sans:wght@300;400;500;600;700&display=swap');
-        @keyframes fadeIn{from{opacity:0}to{opacity:1}}
-        @keyframes slideUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
-        @keyframes slideIn{from{opacity:0;transform:translateX(-14px)}to{opacity:1;transform:translateX(0)}}
-        @keyframes toastIn{from{opacity:0;transform:translateY(14px) scale(.96)}to{opacity:1;transform:translateY(0) scale(1)}}
-        @keyframes panelIn{from{opacity:0;transform:translateX(16px)}to{opacity:1;transform:translateX(0)}}
-        input:focus,select:focus,textarea:focus{border-color:#4a7a4a!important;box-shadow:0 0 0 3px rgba(74,122,74,.1)!important}
-        ::-webkit-scrollbar{width:5px}::-webkit-scrollbar-thumb{background:#c8ddc8;border-radius:6px}
-        @media(max-width:860px){.psb{transform:translateX(-100%)!important;position:fixed!important;z-index:900}.psb.open{transform:translateX(0)!important}.pmc{margin-left:0!important}.pmb{display:flex!important}}
-      `}</style>
-
       {/* SIDEBAR — Silvana brand */}
       <aside className={'psb' + (sidebarOpen ? ' open' : '')} style={{width:248,background:'#2a3528',color:'#c8ddc8',display:'flex',flexDirection:'column',position:'fixed',top:0,left:0,bottom:0,zIndex:900,transition:'transform .3s'}}>
         <div style={{padding:'22px 20px 16px',borderBottom:'1px solid rgba(200,221,200,.12)'}}>
@@ -449,7 +462,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
         </nav>
         <div style={{padding:'12px 16px',borderTop:'1px solid rgba(200,221,200,.12)',display:'flex',alignItems:'center',gap:10}}>
           <div style={{width:32,height:32,borderRadius:9,background:'linear-gradient(135deg,#4a7a4a,#8fb08f)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,fontWeight:500,color:'#fff'}}>SL</div>
-          <div><div style={{fontSize:12,fontWeight:500,color:'#f0f5f0'}}>{nickname}</div><div style={{fontSize:10,color:'rgba(200,221,200,.4)'}}>Psicóloga</div></div>
+          <div><div style={{fontSize:12,fontWeight:500,color:'#f0f5f0'}}>{nickname}</div><div style={{fontSize:10,color:'rgba(200,221,200,.4)'}}>{initialSettings?.especialidad || 'Psicóloga'}</div></div>
         </div>
       </aside>
 
@@ -460,9 +473,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
             <button className="pmb" onClick={()=>setSidebarOpen(!sidebarOpen)} style={{display:'none',border:'none',background:'none',cursor:'pointer',color:txSub,alignItems:'center',justifyContent:'center'}}>{I.menu}</button>
             <h1 style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:20,margin:0,color:txMain,fontWeight:400}}>{navItems.find(n=>n.key===section)?.label}</h1>
           </div>
-          <div style={{display:'flex',alignItems:'center',gap:7,background:dm?'#1e1e1e':'#f0f5f0',borderRadius:10,padding:'7px 13px',border:'1px solid '+(dm?'#333':'#e2ede2')}}>
-            <span style={{color:'#849884'}}>{I.search}</span>
-            <input placeholder="Buscar..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)} style={{border:'none',background:'none',outline:'none',fontSize:13,color:txMain,width:130,fontFamily:"'DM Sans',sans-serif"}}/>
+          <div style={{display:'flex',alignItems:'center',gap:10}}>
           </div>
         </header>
 
@@ -506,12 +517,19 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                     </div>
                     <div><h2 style={{margin:0,fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:20,fontWeight:400}}>{account.nombre}</h2><p style={{margin:0,color:'#849884',fontSize:13,fontWeight:300}}>{account.especialidad}</p></div>
                   </div>
-                  <button onClick={()=>{setEditAcc(true);setAccF({...account})}} style={btnP}>{I.edit} Editar</button>
+                  <button onClick={()=>{setEditAcc(true);setAccF({...account});setAccWH({...workingHours})}} style={btnP}>{I.edit} Editar</button>
                 </div>
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'14px 26px'}}>
-                  {[['Email',account.email],['Teléfono',account.telefono],['Dirección',account.direccion],['Horario',account.horario],['Cédula',account.cedula]].map(([l,v],i) => (
+                  {[['Email',account.email],['Teléfono',account.telefono],['Dirección',account.direccion],['Cédula',account.cedula]].map(([l,v],i) => (
                     <div key={i}><div style={{fontSize:10,color:'#849884',fontWeight:500,textTransform:'uppercase',letterSpacing:'.5px',marginBottom:2}}>{l}</div><div style={{fontSize:14,fontWeight:400}}>{v}</div></div>
                   ))}
+                </div>
+                <div style={{marginTop:16}}><div style={{fontSize:10,color:'#849884',fontWeight:500,textTransform:'uppercase',letterSpacing:'.5px',marginBottom:6}}>Horario de atención</div>
+                  <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
+                    {[['monday','Lun'],['tuesday','Mar'],['wednesday','Mié'],['thursday','Jue'],['friday','Vie'],['saturday','Sáb'],['sunday','Dom']].map(([k,l])=>(
+                      <span key={k} style={{padding:'4px 10px',borderRadius:16,fontSize:11,background:workingHours[k]?.enabled?'#f0f5f0':'#f8f8f6',color:workingHours[k]?.enabled?'#4a7a4a':'#c8ddc8',border:'1px solid '+(workingHours[k]?.enabled?'#c8ddc8':'#e8e8e8')}}>{l} {workingHours[k]?.enabled ? workingHours[k].start+'–'+workingHours[k].end : 'Cerrado'}</span>
+                    ))}
+                  </div>
                 </div>
                 <div style={{marginTop:16}}><div style={{fontSize:10,color:'#849884',fontWeight:500,textTransform:'uppercase',letterSpacing:'.5px',marginBottom:2}}>Biografía</div><div style={{fontSize:13,color:'#4e6050',lineHeight:1.6,fontWeight:300}}>{account.bio}</div></div>
               </div>
@@ -523,21 +541,24 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
                     Servicios ofrecidos
                   </h3>
-                  <button onClick={()=>{setESvcId(null);setSvcF({nombre:'',descripcion:'',color:'#8fb08f',active:true});setSvcModal(true)}} style={{...btnP,fontSize:12,padding:'7px 15px'}}>{I.plus} Nuevo</button>
+                  <button onClick={()=>{setESvcId(null);setSvcF({nombre:'',descripcion:'',color:'#8fb08f',duracion:50,precioTipo:'oculto',precio:'',modalidad:'Online · Videollamada',features:'',tag:'',typeLabel:'',subtitle:''});setSvcModal(true)}} style={{...btnP,fontSize:12,padding:'7px 15px'}}>{I.plus} Nuevo</button>
                 </div>
                 <div style={{display:'grid',gap:10}}>
                   {services.map(svc => (
-                    <div key={svc.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'14px 16px',background:dm?'#1a1a1a':'#f0f5f0',borderRadius:12,border:'1px solid '+(dm?'#333':'#e2ede2')}}>
-                      <div style={{display:'flex',alignItems:'center',gap:12}}>
+                    <div key={svc.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'14px 16px',background:dm?'#1a1a1a':'#f0f5f0',borderRadius:12,border:'1px solid '+(dm?'#333':'#e2ede2'),gap:12}}>
+                      <div style={{display:'flex',alignItems:'center',gap:12,flex:1,minWidth:0}}>
                         <div style={{width:10,height:10,borderRadius:'50%',background:svc.color,flexShrink:0}}/>
-                        <div>
+                        <div style={{minWidth:0}}>
                           <div style={{fontSize:14,fontWeight:500}}>{svc.nombre}</div>
-                          <div style={{fontSize:12,color:'#849884',fontWeight:300}}>{svc.descripcion}</div>
+                          <div style={{fontSize:12,color:'#849884',fontWeight:300,display:'flex',gap:8,flexWrap:'wrap',marginTop:2}}>
+                            <span>{svc.duracion || 50} min</span>
+                            <span>{svc.precioTipo==='gratis'?'Gratis':svc.precioTipo==='precio'?'$'+svc.precio+' USD':'Precio oculto'}</span>
+                          </div>
                         </div>
                       </div>
-                      <div style={{display:'flex',gap:6,alignItems:'center'}}>
+                      <div style={{display:'flex',gap:6,alignItems:'center',flexShrink:0}}>
                         <button onClick={async ()=>{const nv=!(svc.active!==false);setServices(p=>p.map(s=>s.id===svc.id?{...s,active:nv}:s));try{await toggleServiceActive(svc.id,nv)}catch(e){show('Error al cambiar estado')};show(nv?'Servicio activado':'Servicio desactivado')}} style={{width:36,height:20,borderRadius:10,border:'none',background:svc.active!==false?'#4a7a4a':'#c8ddc8',cursor:'pointer',position:'relative',transition:'background .3s'}}><div style={{width:14,height:14,borderRadius:'50%',background:'#fff',position:'absolute',top:3,left:svc.active!==false?19:3,transition:'left .3s',boxShadow:'0 1px 3px rgba(0,0,0,.15)'}}/></button>
-                        <button onClick={()=>{setESvcId(svc.id);setSvcF({nombre:svc.nombre,descripcion:svc.descripcion,color:svc.color});setSvcModal(true)}} style={{border:'none',background:'#e2ede2',borderRadius:7,width:30,height:30,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#4a7a4a'}}>{I.edit}</button>
+                        <button onClick={()=>{setESvcId(svc.id);setSvcF({nombre:svc.nombre,descripcion:svc.descripcion,color:svc.color,duracion:svc.duracion||50,precioTipo:svc.precioTipo||'oculto',precio:svc.precio||'',modalidad:svc.modalidad||'Online · Videollamada',features:svc.features||'',tag:svc.tag||'',typeLabel:svc.typeLabel||'',subtitle:svc.subtitle||''});setSvcModal(true)}} style={{border:'none',background:'#e2ede2',borderRadius:7,width:30,height:30,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#4a7a4a'}}>{I.edit}</button>
                         <button onClick={async ()=>{setServices(p=>p.filter(s=>s.id!==svc.id));show('Servicio eliminado');try{await deleteService(svc.id)}catch(e){show('Error al eliminar servicio')}}} style={{border:'none',background:'#FFEBEE',borderRadius:7,width:30,height:30,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#C62828'}}>{I.trash}</button>
                       </div>
                     </div>
@@ -547,27 +568,75 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
               </div>
 
               {/* Edit Account Modal */}
-              <Modal dark={dm} open={editAcc} onClose={()=>setEditAcc(false)} title="Editar Cuenta" width={540}>
+              <Modal dark={dm} open={editAcc} onClose={()=>setEditAcc(false)} title="Editar Cuenta" width={600}>
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                   <Field label="Nombre"><input style={inp} value={accF.nombre} onChange={e=>setAccF({...accF,nombre:e.target.value})}/></Field>
                   <Field label="Especialidad"><input style={inp} value={accF.especialidad} onChange={e=>setAccF({...accF,especialidad:e.target.value})}/></Field>
                   <Field label="Email"><input style={inp} value={accF.email} onChange={e=>setAccF({...accF,email:e.target.value})}/></Field>
                   <Field label="Teléfono"><input style={inp} value={accF.telefono} onChange={e=>setAccF({...accF,telefono:e.target.value})}/></Field>
                   <Field label="Cédula"><input style={inp} value={accF.cedula} onChange={e=>setAccF({...accF,cedula:e.target.value})}/></Field>
-                  <Field label="Horario"><input style={inp} value={accF.horario} onChange={e=>setAccF({...accF,horario:e.target.value})}/></Field>
                 </div>
                 <Field label="Dirección"><input style={inp} value={accF.direccion} onChange={e=>setAccF({...accF,direccion:e.target.value})}/></Field>
                 <Field label="Biografía"><textarea style={{...inp,minHeight:70,resize:'vertical'}} value={accF.bio} onChange={e=>setAccF({...accF,bio:e.target.value})}/></Field>
+                <Field label="Horario de atención">
+                  <div style={{border:'1px solid #c8ddc8',borderRadius:10,overflow:'hidden'}}>
+                    {[['monday','Lunes'],['tuesday','Martes'],['wednesday','Miércoles'],['thursday','Jueves'],['friday','Viernes'],['saturday','Sábado'],['sunday','Domingo']].map(([key,label])=>(
+                      <div key={key} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 12px',borderBottom:'1px solid #e2ede2',background:accWH[key]?.enabled?'transparent':'#f8f8f6'}}>
+                        <button onClick={()=>setAccWH(p=>({...p,[key]:{...p[key],enabled:!p[key]?.enabled}}))} style={{width:34,height:18,borderRadius:9,border:'none',background:accWH[key]?.enabled?'#4a7a4a':'#c8ddc8',cursor:'pointer',position:'relative',transition:'background .3s',flexShrink:0}}><div style={{width:12,height:12,borderRadius:'50%',background:'#fff',position:'absolute',top:3,left:accWH[key]?.enabled?19:3,transition:'left .3s',boxShadow:'0 1px 2px rgba(0,0,0,.15)'}}/></button>
+                        <span style={{width:80,fontSize:13,fontWeight:500,color:accWH[key]?.enabled?'#2a3528':'#849884'}}>{label}</span>
+                        {accWH[key]?.enabled ? (
+                          <div style={{display:'flex',alignItems:'center',gap:6,flex:1}}>
+                            <input type="time" style={{...inp,padding:'5px 8px',fontSize:12,width:100,marginBottom:0}} value={accWH[key]?.start||'09:00'} onChange={e=>setAccWH(p=>({...p,[key]:{...p[key],start:e.target.value}}))}/>
+                            <span style={{fontSize:11,color:'#849884'}}>a</span>
+                            <input type="time" style={{...inp,padding:'5px 8px',fontSize:12,width:100,marginBottom:0}} value={accWH[key]?.end||'18:00'} onChange={e=>setAccWH(p=>({...p,[key]:{...p[key],end:e.target.value}}))}/>
+                          </div>
+                        ) : (
+                          <span style={{fontSize:12,color:'#849884',fontStyle:'italic'}}>Cerrado</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </Field>
                 <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:4}}>
                   <button onClick={()=>setEditAcc(false)} style={btnS}>Cancelar</button>
-                  <button onClick={async ()=>{setAccount({...accF});setEditAcc(false);show('Cuenta actualizada');try{await updateProfile(accF)}catch(e){show('Error al guardar cuenta')}}} style={btnP}>{I.check} Guardar</button>
+                  <button onClick={async ()=>{
+                    const horarioText = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'].filter(k=>accWH[k]?.enabled).map(k=>{const labels={monday:'Lun',tuesday:'Mar',wednesday:'Mié',thursday:'Jue',friday:'Vie',saturday:'Sáb',sunday:'Dom'};return labels[k]+' '+accWH[k].start+'-'+accWH[k].end}).join(', ');
+                    const updAcc = {...accF, horario: horarioText};
+                    setAccount(updAcc);setWorkingHours({...accWH});setEditAcc(false);show('Cuenta actualizada');
+                    try{await updateProfile({...updAcc, working_hours: accWH})}catch(e){show('Error al guardar cuenta')}
+                  }} style={btnP}>{I.check} Guardar</button>
                 </div>
               </Modal>
 
               {/* Service Modal */}
-              <Modal dark={dm} open={svcModal} onClose={()=>{setSvcModal(false);setESvcId(null)}} title={eSvcId?'Editar Servicio':'Nuevo Servicio'} width={440}>
+              <Modal dark={dm} open={svcModal} onClose={()=>{setSvcModal(false);setESvcId(null)}} title={eSvcId?'Editar Servicio':'Nuevo Servicio'} width={560}>
                 <Field label="Nombre del servicio"><input style={inp} value={svcF.nombre} onChange={e=>setSvcF({...svcF,nombre:e.target.value})} placeholder="Ej: Cita Gratuita, Sesión de pareja..."/></Field>
-                <Field label="Descripción"><input style={inp} value={svcF.descripcion} onChange={e=>setSvcF({...svcF,descripcion:e.target.value})} placeholder="Breve descripción del servicio"/></Field>
+                <Field label="Subtítulo (opcional)"><input style={inp} value={svcF.subtitle} onChange={e=>setSvcF({...svcF,subtitle:e.target.value})} placeholder="Ej: Sin cargo · Sin compromiso"/></Field>
+                <Field label="Descripción"><textarea style={{...inp,minHeight:60,resize:'vertical'}} value={svcF.descripcion} onChange={e=>setSvcF({...svcF,descripcion:e.target.value})} placeholder="Breve descripción del servicio"/></Field>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                  <Field label="Duración (minutos)"><input type="number" min="10" step="5" style={inp} value={svcF.duracion} onChange={e=>setSvcF({...svcF,duracion:Number(e.target.value)||50})}/></Field>
+                  <Field label="Modalidad"><input style={inp} value={svcF.modalidad} onChange={e=>setSvcF({...svcF,modalidad:e.target.value})} placeholder="Online · Videollamada"/></Field>
+                </div>
+                <Field label="Precio">
+                  <div style={{display:'flex',gap:6,marginBottom:8}}>
+                    {[{v:'gratis',l:'Gratuito'},{v:'precio',l:'Con precio'},{v:'oculto',l:'Ocultar precio'}].map(o=>(
+                      <button key={o.v} onClick={()=>setSvcF({...svcF,precioTipo:o.v})} style={{padding:'6px 14px',borderRadius:20,border:'1.5px solid',fontSize:12,cursor:'pointer',fontFamily:"'DM Sans',sans-serif",borderColor:svcF.precioTipo===o.v?'#4a7a4a':'#c8ddc8',background:svcF.precioTipo===o.v?'#f0f5f0':'transparent',color:svcF.precioTipo===o.v?'#4a7a4a':'#849884',fontWeight:svcF.precioTipo===o.v?500:400}}>{o.l}</button>
+                    ))}
+                  </div>
+                  {svcF.precioTipo==='precio' && (
+                    <div style={{display:'flex',alignItems:'center',gap:6}}>
+                      <span style={{fontSize:14,color:'#849884'}}>$</span>
+                      <input type="number" min="0" step="1" style={{...inp,width:100,marginBottom:0}} value={svcF.precio} onChange={e=>setSvcF({...svcF,precio:e.target.value})} placeholder="45"/>
+                      <span style={{fontSize:12,color:'#849884'}}>USD</span>
+                    </div>
+                  )}
+                  {svcF.precioTipo==='oculto' && <p style={{fontSize:11,color:'#849884',margin:'2px 0 0',fontStyle:'italic'}}>El precio no se mostrará en la página pública</p>}
+                </Field>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                  <Field label="Etiqueta (opcional)"><input style={inp} value={svcF.tag} onChange={e=>setSvcF({...svcF,tag:e.target.value})} placeholder="Ej: Consulta inicial"/></Field>
+                  <Field label="Tipo (opcional)"><input style={inp} value={svcF.typeLabel} onChange={e=>setSvcF({...svcF,typeLabel:e.target.value})} placeholder="Ej: Proceso continuo"/></Field>
+                </div>
+                <Field label="Características (una por línea)"><textarea style={{...inp,minHeight:80,resize:'vertical',fontSize:12,lineHeight:1.6}} value={svcF.features} onChange={e=>setSvcF({...svcF,features:e.target.value})} placeholder={"Sesión personalizada de 50 minutos\nEnfoque integrativo\nPlan terapéutico a medida"}/></Field>
                 <Field label="Color identificador">
                   <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
                     {['#4a7a4a','#5a82b0','#8fb08f','#c4956a','#8b5a8b','#b04a4a','#4a6a8b','#6a8b4a'].map(c => (
@@ -579,8 +648,9 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                   <button onClick={()=>{setSvcModal(false);setESvcId(null)}} style={btnS}>Cancelar</button>
                   <button onClick={async ()=>{
                     if(!svcF.nombre) return;
-                    if(eSvcId){setServices(p=>p.map(s=>s.id===eSvcId?{...s,...svcF}:s));show('Servicio actualizado');try{await upsertService({id:eSvcId,nombre:svcF.nombre,descripcion:svcF.descripcion,color:svcF.color})}catch(e){show('Error al guardar servicio')}}
-                    else{const nid=Math.max(0,...services.map(s=>s.id))+1;setServices(p=>[...p,{...svcF,id:nid,active:true}]);show('Servicio creado');try{await upsertService({nombre:svcF.nombre,descripcion:svcF.descripcion,color:svcF.color})}catch(e){show('Error al guardar servicio')}}
+                    const svcData = {nombre:svcF.nombre,descripcion:svcF.descripcion,color:svcF.color,duracion:svcF.duracion,precio:svcF.precioTipo==='precio'?svcF.precio:null,is_free:svcF.precioTipo==='gratis',modalidad:svcF.modalidad,features:svcF.features.split('\n').map(f=>f.trim()).filter(Boolean),tag:svcF.tag,typeLabel:svcF.typeLabel,subtitle:svcF.subtitle};
+                    if(eSvcId){setServices(p=>p.map(s=>s.id===eSvcId?{...s,...svcF}:s));show('Servicio actualizado');try{await upsertService({id:eSvcId,...svcData})}catch(e){show('Error al guardar servicio')}}
+                    else{const nid=Math.max(0,...services.map(s=>s.id))+1;setServices(p=>[...p,{...svcF,id:nid,active:true}]);show('Servicio creado');try{await upsertService(svcData)}catch(e){show('Error al guardar servicio')}}
                     setSvcModal(false);setESvcId(null);
                   }} style={btnP}>{I.check} {eSvcId?'Actualizar':'Crear'}</button>
                 </div>
@@ -599,7 +669,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                 </div>
                 <div style={{display:'flex',gap:8}}>
                   <button onClick={exportCSV} style={{...btnS,fontSize:12,padding:'7px 15px'}}>{I.download} CSV</button>
-                  <button onClick={()=>{setEInvId(null);setInvF({paciente:'',concepto:'Sesión individual',monto:'',estado:'pendiente'});setInvModal(true)}} style={{...btnP,fontSize:12,padding:'7px 15px'}}>{I.plus} Nueva</button>
+                  <button onClick={()=>{setEInvId(null);setInvF({paciente:'',concepto:'',monto:'',estado:'pendiente',metodoPago:'',link:''});setInvModal(true)}} style={{...btnP,fontSize:12,padding:'7px 15px'}}>{I.plus} Nueva</button>
                 </div>
               </div>
               <div style={{...CARD,overflow:'hidden'}}>
@@ -613,26 +683,19 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                     <tbody>
                       {fInvs.map((inv, idx) => (
                         <tr key={inv.id} style={{borderBottom:'1px solid '+(dm?'#2a2a2a':'#f0f5f0')}} onMouseEnter={e=>e.currentTarget.style.background=(dm?'#252525':'#f0f5f0')} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
-                          <td style={{padding:'11px 13px',color:'#849884',fontSize:12,fontFamily:'monospace'}}>{String(inv.id).padStart(4,'0')}</td>
+                          <td style={{padding:'11px 13px',color:'#849884',fontSize:12,fontFamily:'monospace'}}>{String(idx + 1).padStart(4,'0')}</td>
                           <td style={{padding:'11px 13px',fontWeight:500}}>{inv.paciente}</td>
                           <td style={{padding:'11px 13px',color:'#4e6050'}}>{inv.concepto}</td>
                           <td style={{padding:'11px 13px',fontWeight:500}}>{'$'+inv.monto.toLocaleString()}</td>
                           <td style={{padding:'11px 13px'}}><span style={bdg(inv.estado==='pagada'?'green':inv.estado==='pendiente'?'yellow':'red')}>{inv.estado}</span></td>
                           <td style={{padding:'11px 13px',color:'#849884',whiteSpace:'nowrap',fontSize:12}}>{inv.fecha}</td>
                           <td style={{padding:'11px 13px',position:'relative'}}>
-                            <button onClick={()=>setOpenMenu(openMenu===inv.id?null:inv.id)} style={{border:'none',background:openMenu===inv.id?'#f0f5f0':'none',borderRadius:8,width:32,height:32,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#849884'}}>{I.dots}</button>
-                            {openMenu === inv.id && (
-                              <DropMenu onClose={()=>setOpenMenu(null)} items={[
-                                {label:'Ver factura',icon:I.eye,action:()=>prevInv(inv)},
-                                {label:'Descargar',icon:I.download,action:()=>dlInv(inv)},
-                                {label:'Copiar link',icon:I.link,action:()=>copyLnk(inv.link)},
-                                {label:'Enviar correo',icon:I.mail,action:()=>show('Correo enviado a '+inv.paciente)},
-                                {label:'Enviar WhatsApp',icon:I.msg,action:()=>show('WhatsApp enviado a '+inv.paciente)},
-                                {divider:true},
-                                {label:'Editar',icon:I.edit,action:()=>{setEInvId(inv.id);setInvF({paciente:inv.paciente,concepto:inv.concepto,monto:inv.monto,estado:inv.estado});setInvModal(true)}},
-                                {label:'Eliminar',icon:I.trash,danger:true,action:async ()=>{setInvoices(p=>p.filter(i=>i.id!==inv.id));show('Eliminada');try{await deleteInvoice(inv.id)}catch(e){show('Error al eliminar')}}},
-                              ]}/>
-                            )}
+                            <div style={{display:'flex',gap:5}}>
+                              <button title="Ver" onClick={()=>prevInv(inv)} style={{border:'none',background:'#f0f5f0',borderRadius:7,width:30,height:30,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#4a7a4a'}}>{I.eye}</button>
+                              <button title="Descargar" onClick={()=>dlInv(inv)} style={{border:'none',background:'#f0f5f0',borderRadius:7,width:30,height:30,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#4a7a4a'}}>{I.download}</button>
+                              <button title="Editar" onClick={()=>{setEInvId(inv.id);setInvF({paciente:inv.paciente,concepto:inv.concepto,monto:inv.monto,estado:inv.estado,metodoPago:'',link:inv.link||''});setInvModal(true)}} style={{border:'none',background:'#e2ede2',borderRadius:7,width:30,height:30,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#4a7a4a'}}>{I.edit}</button>
+                              <button title="Eliminar" onClick={async ()=>{setInvoices(p=>p.filter(i=>i.id!==inv.id));show('Eliminada');try{await deleteInvoice(inv.id)}catch(e){show('Error al eliminar')}}} style={{border:'none',background:'#FFEBEE',borderRadius:7,width:30,height:30,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#C62828'}}>{I.trash}</button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -644,15 +707,26 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
 
               <Modal dark={dm} open={invModal} onClose={()=>{setInvModal(false);setEInvId(null)}} title={eInvId?'Editar Factura':'Nueva Factura'}>
                 <Field label="Paciente"><input style={inp} value={invF.paciente} onChange={e=>setInvF({...invF,paciente:e.target.value})} placeholder="Nombre del paciente"/></Field>
-                <Field label="Concepto"><select style={sel} value={invF.concepto} onChange={e=>setInvF({...invF,concepto:e.target.value})}><option>Sesión individual</option><option>Terapia de pareja</option><option>Terapia familiar</option><option>Evaluación psicométrica</option><option>Informe psicológico</option><option>Otro</option></select></Field>
+                <Field label="Concepto"><select style={sel} value={invF.concepto} onChange={e=>setInvF({...invF,concepto:e.target.value})}>{services.filter(s=>s.active!==false).map(s=>(<option key={s.id} value={s.nombre}>{s.nombre}</option>))}<option>Otro</option></select></Field>
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
-                  <Field label="Monto (MXN)"><input style={inp} type="number" value={invF.monto} onChange={e=>setInvF({...invF,monto:e.target.value})} placeholder="0.00"/></Field>
-                  <Field label="Estado"><select style={sel} value={invF.estado} onChange={e=>setInvF({...invF,estado:e.target.value})}><option value="pendiente">Pendiente</option><option value="pagada">Pagada</option><option value="vencida">Vencida</option></select></Field>
+                  <Field label="Monto (USD)"><input style={inp} type="number" value={invF.monto} onChange={e=>setInvF({...invF,monto:e.target.value})} placeholder="0.00"/></Field>
+                  <Field label="Estado"><select style={sel} value={invF.estado} onChange={e=>setInvF({...invF,estado:e.target.value})}><option value="pendiente">Pendiente</option><option value="pagada">Pagada</option><option value="vencida">Vencida</option><option value="cancelada">Cancelada</option></select></Field>
                 </div>
-                {!eInvId && <div style={{background:'#f0f5f0',borderRadius:10,padding:'11px 14px',display:'flex',alignItems:'center',gap:9,marginBottom:14,border:'1px solid #c8ddc8'}}><span style={{color:'#4a7a4a'}}>{I.link}</span><span style={{fontSize:12,color:'#4a7a4a'}}>Se generará link de cobro + notificación</span></div>}
+                {!eInvId ? (
+                  <>
+                    <Field label="Método de pago">{metodos.filter(m=>m.activo).length > 0 ? (
+                      <select style={sel} value={invF.metodoPago||''} onChange={e=>setInvF({...invF,metodoPago:e.target.value})}><option value="">Seleccionar método...</option>{metodos.filter(m=>m.activo).map(m=>(<option key={m.id} value={m.id}>{m.nombre}</option>))}</select>
+                    ) : (
+                      <div style={{background:'#FFEBEE',borderRadius:10,padding:'11px 14px',fontSize:12,color:'#C62828',border:'1px solid #ffcdd2'}}>No hay métodos de pago activos. Configura uno en "Métodos de Pago" primero.</div>
+                    )}</Field>
+                    <div style={{background:'#f0f5f0',borderRadius:10,padding:'11px 14px',display:'flex',alignItems:'center',gap:9,marginBottom:14,border:'1px solid #c8ddc8'}}><span style={{color:'#4a7a4a'}}>{I.link}</span><span style={{fontSize:12,color:'#4a7a4a'}}>Se generará link de cobro + notificación</span></div>
+                  </>
+                ) : (
+                  <Field label="Link de pago"><input style={inp} value={invF.link} onChange={e=>setInvF({...invF,link:e.target.value})} placeholder="https://..."/></Field>
+                )}
                 <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
                   <button onClick={()=>{setInvModal(false);setEInvId(null)}} style={btnS}>Cancelar</button>
-                  <button onClick={saveInv} style={btnP}>{I.check} {eInvId ? 'Actualizar' : 'Continuar'}</button>
+                  <button onClick={saveInv} disabled={!eInvId && metodos.filter(m=>m.activo).length===0} style={{...btnP,opacity:(!eInvId && metodos.filter(m=>m.activo).length===0)?0.5:1}}>{I.check} {eInvId ? 'Actualizar' : 'Continuar'}</button>
                 </div>
               </Modal>
 
@@ -662,7 +736,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                     <div style={{...CARD,padding:16,marginBottom:16}}>
                       <div style={{display:'flex',justifyContent:'space-between',marginBottom:6}}>
                         <span style={{fontWeight:500}}>{confirmModal.paciente}</span>
-                        <span style={{fontWeight:500,color:'#4a7a4a'}}>{'$'+confirmModal.monto?.toLocaleString()+' MXN'}</span>
+                        <span style={{fontWeight:500,color:'#4a7a4a'}}>{'$'+confirmModal.monto?.toLocaleString()+' USD'}</span>
                       </div>
                       <div style={{fontSize:12,color:'#849884'}}>{confirmModal.concepto}</div>
                       <div style={{fontSize:11,color:'#4a7a4a',marginTop:6,display:'flex',alignItems:'center',gap:6}}>{I.link} {confirmModal.link}</div>
@@ -699,8 +773,8 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                     <button onClick={()=>setCalDate(new Date(TODAY))} style={{...btnS,fontSize:11,padding:'5px 12px'}}>Hoy</button>
                   </div>
                   <div style={{display:'flex',gap:4}}>
-                    {['week','month'].map(v => (
-                      <button key={v} onClick={()=>setCalView(v)} style={{padding:'6px 14px',borderRadius:8,border:'1.5px solid',fontSize:12,fontWeight:500,cursor:'pointer',fontFamily:"'DM Sans',sans-serif",borderColor:calView===v?'#4a7a4a':'#c8ddc8',background:calView===v?'#f0f5f0':'#fdfcfa',color:calView===v?'#4a7a4a':'#4e6050'}}>{v === 'week' ? 'Semana' : 'Mes'}</button>
+                    {['week','month','list'].map(v => (
+                      <button key={v} onClick={()=>setCalView(v)} style={{padding:'6px 14px',borderRadius:8,border:'1.5px solid',fontSize:12,fontWeight:500,cursor:'pointer',fontFamily:"'DM Sans',sans-serif",borderColor:calView===v?'#4a7a4a':'#c8ddc8',background:calView===v?'#f0f5f0':'#fdfcfa',color:calView===v?'#4a7a4a':'#4e6050'}}>{v === 'week' ? 'Semana' : v === 'month' ? 'Mes' : 'Lista'}</button>
                     ))}
                     <button onClick={()=>{setEResId(null);setResF({paciente:'',email:'',telefono:'',fecha:'',hora:'',duracion:60,tipo:'Individual',notas:'',estado:'pendiente'});setResModal(true)}} style={{...btnP,fontSize:12,padding:'6px 13px',marginLeft:4}}>{I.plus} Cita</button>
                   </div>
@@ -785,6 +859,40 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                     </div>
                   </div>
                 )}
+
+                {calView === 'list' && (
+                  <div style={{...CARD,overflow:'hidden'}}>
+                    <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
+                      <thead><tr style={{borderBottom:'2px solid '+(dm?'#333':'#e2ede2')}}>
+                        {['Fecha','Hora','Paciente','Tipo','Duración','Estado',''].map(h => (
+                          <th key={h} style={{padding:'11px 13px',textAlign:'left',fontSize:10,fontWeight:500,color:'#849884',textTransform:'uppercase',letterSpacing:'.5px',whiteSpace:'nowrap'}}>{h}</th>
+                        ))}
+                      </tr></thead>
+                      <tbody>
+                        {[...reservas].sort((a,b) => (a.fecha+a.hora).localeCompare(b.fecha+b.hora)).map(ev => {
+                          const tc = TC[ev.tipo] || TC.Individual;
+                          return (
+                            <tr key={ev.id} onClick={()=>setSelRes(ev)} style={{borderBottom:'1px solid '+(dm?'#2a2a2a':'#f0f5f0'),cursor:'pointer',background:selRes?.id===ev.id?(dm?'#1a2e1f':'#f0f5f0'):'transparent'}} onMouseEnter={e=>{if(selRes?.id!==ev.id)e.currentTarget.style.background=(dm?'#252525':'#f8fbf8')}} onMouseLeave={e=>{if(selRes?.id!==ev.id)e.currentTarget.style.background='transparent'}}>
+                              <td style={{padding:'11px 13px',whiteSpace:'nowrap',fontSize:12,color:'#4e6050'}}>{ev.fecha}</td>
+                              <td style={{padding:'11px 13px',fontWeight:500}}>{ev.hora}</td>
+                              <td style={{padding:'11px 13px',fontWeight:500}}>{ev.paciente}</td>
+                              <td style={{padding:'11px 13px'}}><span style={{background:tc.bg,color:tc.text,borderLeft:'2px solid '+tc.dot,padding:'2px 8px',borderRadius:4,fontSize:11}}>{ev.tipo}</span></td>
+                              <td style={{padding:'11px 13px',color:'#849884'}}>{ev.duracion} min</td>
+                              <td style={{padding:'11px 13px'}}><span style={bdg(ev.estado==='confirmada'||ev.estado==='completada'?'green':ev.estado==='cancelada'||ev.estado==='rechazada'?'red':'yellow')}>{ev.estado}</span></td>
+                              <td style={{padding:'11px 13px'}}>
+                                <div style={{display:'flex',gap:6}}>
+                                  <button onClick={e=>{e.stopPropagation();setEResId(ev.id);setResF({...ev});setResModal(true)}} style={{border:'none',background:'#f0f5f0',borderRadius:7,width:28,height:28,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#4a7a4a'}}>{I.edit}</button>
+                                  <button onClick={e=>{e.stopPropagation();delRes(ev.id)}} style={{border:'none',background:'#FFEBEE',borderRadius:7,width:28,height:28,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#C62828'}}>{I.trash}</button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                    {reservas.length === 0 && <div style={{padding:36,textAlign:'center',color:'#849884',fontSize:14}}>No hay citas registradas</div>}
+                  </div>
+                )}
               </div>
 
               {selRes && (
@@ -793,7 +901,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                     <div style={{padding:'16px 16px 10px',borderBottom:'1px solid #e2ede2',display:'flex',justifyContent:'space-between',alignItems:'start'}}>
                       <div>
                         <h3 style={{margin:0,fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:16,fontWeight:400}}>{selRes.paciente}</h3>
-                        <span style={{...bdg(selRes.estado==='confirmada'?'green':'yellow'),marginTop:5,display:'inline-block'}}>{selRes.estado}</span>
+                        <span style={{...bdg(selRes.estado==='confirmada'||selRes.estado==='completada'?'green':selRes.estado==='cancelada'||selRes.estado==='rechazada'?'red':'yellow'),marginTop:5,display:'inline-block'}}>{selRes.estado}</span>
                       </div>
                       <button onClick={()=>setSelRes(null)} style={{border:'none',background:'#f0f5f0',borderRadius:7,width:28,height:28,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#849884'}}>{I.close}</button>
                     </div>
@@ -822,20 +930,51 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
 
               <Modal dark={dm} open={resModal} onClose={()=>{setResModal(false);setEResId(null)}} title={eResId?'Editar Cita':'Nueva Cita'} width={520}>
                 <Field label="Paciente"><input style={inp} value={resF.paciente} onChange={e=>setResF({...resF,paciente:e.target.value})} placeholder="Nombre completo"/></Field>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'0 14px'}}>
                   <Field label="Email"><input style={inp} type="email" value={resF.email} onChange={e=>setResF({...resF,email:e.target.value})} placeholder="correo@mail.com"/></Field>
                   <Field label="Teléfono"><input style={inp} value={resF.telefono} onChange={e=>setResF({...resF,telefono:e.target.value})} placeholder="+54 9 11 0000-0000"/></Field>
+                  <Field label="País"><select style={sel} value={resF.pais} onChange={e=>setResF({...resF,pais:e.target.value})}>{PAISES.map(p=><option key={p} value={p}>{p||'— Sin país —'}</option>)}</select></Field>
                 </div>
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'0 14px'}}>
                   <Field label="Fecha"><input style={inp} type="date" value={resF.fecha} onChange={e=>setResF({...resF,fecha:e.target.value})}/></Field>
                   <Field label="Hora"><select style={sel} value={resF.hora} onChange={e=>setResF({...resF,hora:e.target.value})}><option value="">—</option>{HORAS.map(h=><option key={h}>{h}</option>)}</select></Field>
                   <Field label="Duración"><select style={sel} value={resF.duracion} onChange={e=>setResF({...resF,duracion:e.target.value})}><option value={30}>30 min</option><option value={60}>60 min</option><option value={90}>90 min</option><option value={120}>120 min</option></select></Field>
                 </div>
+                {resF.pais && resF.pais !== 'Argentina' && resF.pais !== 'Otro' && resF.fecha && resF.hora && (() => {
+                  const localTime = getClientTime(resF.fecha, resF.hora, resF.pais);
+                  return localTime ? (
+                    <div style={{background:'#f0f7f0',border:'1px solid #c8dcc8',borderRadius:12,padding:'10px 14px',marginBottom:8,display:'flex',alignItems:'center',gap:10}}>
+                      <span style={{fontSize:16}}>🌎</span>
+                      <span style={{fontSize:13,color:'#4a7a4a'}}>
+                        <strong>{resF.pais}</strong> — {localTime} hs <span style={{color:'#849884',fontWeight:300}}>(Argentina {resF.hora} hs)</span>
+                      </span>
+                    </div>
+                  ) : null;
+                })()}
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                   <Field label="Tipo"><select style={sel} value={resF.tipo} onChange={e=>setResF({...resF,tipo:e.target.value})}><option>Individual</option><option>Pareja</option><option>Familiar</option><option>Evaluación</option></select></Field>
                   <Field label="Estado"><select style={sel} value={resF.estado} onChange={e=>setResF({...resF,estado:e.target.value})}><option value="pendiente">Pendiente</option><option value="confirmada">Confirmada</option><option value="cancelada">Cancelada</option></select></Field>
                 </div>
                 <Field label="Notas"><textarea style={{...inp,minHeight:55,resize:'vertical'}} value={resF.notas} onChange={e=>setResF({...resF,notas:e.target.value})} placeholder="Observaciones..."/></Field>
+                {eResId && (() => {
+                  const booking = reservas.find(r => r.id === eResId);
+                  const links = booking?.paymentLinks || [];
+                  return links.length > 0 ? (
+                    <div style={{marginBottom:14}}>
+                      <label style={{display:'block',fontSize:11,fontWeight:500,color:'#849884',marginBottom:5,letterSpacing:'.5px',textTransform:'uppercase',fontFamily:"'DM Sans',sans-serif"}}>Enlaces de pago</label>
+                      <div style={{display:'flex',flexDirection:'column',gap:6}}>
+                        {links.map(pl => (
+                          <div key={pl.id} style={{display:'flex',alignItems:'center',gap:8,background:'#f8faf8',border:'1px solid #e0e8e0',borderRadius:10,padding:'8px 12px'}}>
+                            <span style={{fontSize:11,color:pl.status==='paid'?'#4a7a4a':pl.status==='active'?'#b08050':'#849884',fontWeight:500,textTransform:'uppercase',minWidth:50}}>{pl.status==='paid'?'Pagado':pl.status==='active'?'Activo':pl.status==='expired'?'Expirado':'Cancelado'}</span>
+                            <span style={{fontSize:12,color:'#2a3528',flex:1}}>{pl.provider} · ${pl.total}</span>
+                            <button onClick={()=>{navigator.clipboard?.writeText(pl.url);show('Link copiado')}} style={{border:'none',background:'#e8f0e8',borderRadius:6,padding:'4px 8px',fontSize:11,cursor:'pointer',color:'#4a7a4a'}}>Copiar</button>
+                            <a href={pl.url} target="_blank" rel="noopener noreferrer" style={{border:'none',background:'#e8f0e8',borderRadius:6,padding:'4px 8px',fontSize:11,cursor:'pointer',color:'#4a7a4a',textDecoration:'none'}}>Abrir</a>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null;
+                })()}
                 <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
                   <button onClick={()=>{setResModal(false);setEResId(null)}} style={btnS}>Cancelar</button>
                   <button onClick={saveRes} style={btnP}>{I.check} {eResId?'Actualizar':'Crear'}</button>
@@ -949,7 +1088,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                 {metF.tipo==='Transferencia' && <>
                   <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                     <Field label="Banco"><input style={inp} value={metF.banco} onChange={e=>setMetF({...metF,banco:e.target.value})} placeholder="BBVA, Santander..."/></Field>
-                    <Field label="Moneda"><input style={inp} value={metF.moneda} onChange={e=>setMetF({...metF,moneda:e.target.value})} placeholder="USD, EUR, MXN..."/></Field>
+                    <Field label="Moneda"><input style={inp} value={metF.moneda} onChange={e=>setMetF({...metF,moneda:e.target.value})} placeholder="USD, EUR, USD..."/></Field>
                   </div>
                   <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                     <Field label="Cuenta visible (para cliente)"><input style={inp} value={metF.cuentaVisible} onChange={e=>setMetF({...metF,cuentaVisible:e.target.value})} placeholder="**** 4521"/></Field>
@@ -1029,7 +1168,10 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                 <Field label="Cómo quieres que te llamemos">
                   <input style={inp} value={nickname} onChange={e=>setNickname(e.target.value)} placeholder="Tu nombre o apodo"/>
                 </Field>
-                <p style={{fontSize:12,color:'#849884',margin:0,fontWeight:300}}>Se usa en el saludo del panel de inicio y en la barra lateral.</p>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:8}}>
+                  <p style={{fontSize:12,color:'#849884',margin:0,fontWeight:300}}>Se usa en el saludo del panel de inicio y en la barra lateral.</p>
+                  <button onClick={async ()=>{try{await updateNickname(nickname);show('Nombre guardado')}catch(e){show('Error al guardar')}}} style={btnP}>{I.check} Guardar</button>
+                </div>
               </div>
 
               {/* Dark / Light mode */}
@@ -1190,7 +1332,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                 <Field label="Respuesta"><input style={inp} type="password" value={secAnswer} onChange={e=>setSecAnswer(e.target.value)} placeholder="Tu respuesta"/></Field>
                 <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
                   <button onClick={()=>setSecEditModal(null)} style={btnS}>Cancelar</button>
-                  <button onClick={()=>{setSecEditModal(null);show('Pregunta de seguridad guardada')}} style={btnP}>{I.check} Guardar</button>
+                  <button onClick={async ()=>{setSecEditModal(null);show('Pregunta de seguridad guardada');try{await updateSecurityQuestion(secQuestion,secAnswer)}catch(e){show('Error al guardar')}}} style={btnP}>{I.check} Guardar</button>
                 </div>
               </Modal>
 
@@ -1226,8 +1368,8 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                         <div style={{fontSize:11,color:'#4a7a4a',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{link.url}</div>
                       </div>
                       <div style={{display:'flex',gap:6,marginLeft:10,flexShrink:0}}>
-                        <button onClick={()=>{window.open(link.url,'_blank')}} style={{border:'none',background:'#e2ede2',borderRadius:7,width:30,height:30,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#4a7a4a'}}>{I.eye}</button>
-                        <button onClick={()=>{setTutorialLinks(p=>p.filter(l=>l.id!==link.id));show('Enlace eliminado')}} style={{border:'none',background:'#FFEBEE',borderRadius:7,width:30,height:30,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#C62828'}}>{I.trash}</button>
+                        <button onClick={()=>{const u=link.url.match(/^https?:\/\//)?link.url:'https://'+link.url;window.open(u,'_blank')}} style={{border:'none',background:'#e2ede2',borderRadius:7,width:30,height:30,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#4a7a4a'}}>{I.eye}</button>
+                        <button onClick={async ()=>{setTutorialLinks(p=>p.filter(l=>l.id!==link.id));show('Enlace eliminado');try{await deleteAdminLink(link.id)}catch(e){show('Error al eliminar enlace')}}} style={{border:'none',background:'#FFEBEE',borderRadius:7,width:30,height:30,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#C62828'}}>{I.trash}</button>
                       </div>
                     </div>
                   ))}
@@ -1240,12 +1382,13 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                     <input style={{...inp,fontSize:12}} value={newLink.title} onChange={e=>setNewLink({...newLink,title:e.target.value})} placeholder="Título"/>
                     <input style={{...inp,fontSize:12}} value={newLink.url} onChange={e=>setNewLink({...newLink,url:e.target.value})} placeholder="https://..."/>
                   </div>
-                  <button onClick={()=>{
+                  <button onClick={async ()=>{
                     if(!newLink.title||!newLink.url) return;
-                    const nid = Math.max(0,...tutorialLinks.map(l=>l.id))+1;
-                    setTutorialLinks(p=>[...p,{id:nid,...newLink}]);
+                    const tmpId = 'tmp-'+Date.now();
+                    setTutorialLinks(p=>[...p,{id:tmpId,...newLink}]);
                     setNewLink({title:'',url:''});
                     show('Enlace agregado');
+                    try{await upsertAdminLink({title:newLink.title,url:newLink.url})}catch(e){show('Error al guardar enlace')}
                   }} style={{...btnP,fontSize:12,padding:'7px 16px'}}>{I.plus} Agregar</button>
                 </div>
               </div>

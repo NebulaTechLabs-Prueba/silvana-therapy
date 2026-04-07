@@ -25,7 +25,7 @@ export const createBookingSchema = z.object({
     .optional(),
   preferred_date: z
     .string()
-    .datetime()
+    .datetime({ offset: true })
     .optional(),
   service_id: z
     .string()
@@ -34,13 +34,21 @@ export const createBookingSchema = z.object({
     .string()
     .min(10)
     .max(64),
+  preferred_payment: z
+    .string()
+    .max(100)
+    .optional(),
+  client_local_time: z
+    .string()
+    .max(10)
+    .optional(),
 });
 
 // ─── Admin: Accept Booking ────────────────────────────────
 
 export const acceptBookingSchema = z.object({
   booking_id: z.string().uuid(),
-  confirmed_date: z.string().datetime('Fecha inválida'),
+  confirmed_date: z.string().datetime({ offset: true, message: 'Fecha inválida' }),
   admin_notes: z.string().max(2000).optional(),
 });
 
@@ -55,7 +63,7 @@ export const rejectBookingSchema = z.object({
 
 export const rescheduleBookingSchema = z.object({
   booking_id: z.string().uuid(),
-  new_date: z.string().datetime('Fecha inválida'),
+  new_date: z.string().datetime({ offset: true, message: 'Fecha inválida' }),
   notify_client: z.boolean().default(true),
 });
 

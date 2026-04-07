@@ -72,6 +72,8 @@ export interface Booking {
   admin_notes: string | null;
   rejection_reason: string | null;
   idempotency_key: string | null;
+  preferred_payment: string | null;
+  client_local_time: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -93,7 +95,7 @@ export interface Payment {
 
 export interface PaymentLink {
   id: string;
-  booking_id: string;
+  booking_id: string | null;
   provider: PaymentProvider;
   provider_link_id: string | null;
   url: string;
@@ -211,6 +213,8 @@ export interface CreateBookingDTO {
   preferred_date?: string;
   service_id: string;
   idempotency_key: string;
+  preferred_payment?: string;
+  client_local_time?: string;
 }
 
 export interface AcceptBookingDTO {

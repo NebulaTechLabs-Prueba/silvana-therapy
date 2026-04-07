@@ -11,15 +11,38 @@ const MONTHS_S = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep',
 
 const DEFAULT_SLOTS = ['09:00', '10:00', '11:00', '15:00', '16:00', '17:00'];
 
-function getNextBusinessDays(count: number): { label: string; iso: string }[] {
+type DaySchedule = { start: string; end: string; enabled: boolean };
+type WorkingHoursMap = Record<string, DaySchedule> | null;
+
+const DAY_KEYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+
+function isDayEnabled(dayOfWeek: number, wh: WorkingHoursMap): boolean {
+  if (!wh) return dayOfWeek !== 0 && dayOfWeek !== 6;
+  return wh[DAY_KEYS[dayOfWeek]]?.enabled ?? false;
+}
+
+function getSlotsForDay(dayOfWeek: number, wh: WorkingHoursMap): string[] {
+  if (!wh) return DEFAULT_SLOTS;
+  const day = wh[DAY_KEYS[dayOfWeek]];
+  if (!day?.enabled) return [];
+  const [sh] = day.start.split(':').map(Number);
+  const [eh] = day.end.split(':').map(Number);
+  const slots: string[] = [];
+  for (let h = sh; h < eh; h++) {
+    slots.push(`${String(h).padStart(2, '0')}:00`);
+  }
+  return slots;
+}
+
+function getNextAvailableDays(count: number, wh: WorkingHoursMap): { label: string; iso: string }[] {
   const dates: { label: string; iso: string }[] = [];
   const d = new Date();
   d.setDate(d.getDate() + 1);
   while (dates.length < count) {
-    const day = d.getDay();
-    if (day !== 0 && day !== 6) {
+    const dow = d.getDay();
+    if (isDayEnabled(dow, wh)) {
       dates.push({
-        label: `${DAYS[day]} ${d.getDate()} ${MONTHS_S[d.getMonth()]}`,
+        label: `${DAYS[dow]} ${d.getDate()} ${MONTHS_S[d.getMonth()]}`,
         iso: d.toISOString().slice(0, 10),
       });
     }
@@ -30,10 +53,12 @@ function getNextBusinessDays(count: number): { label: string; iso: string }[] {
 
 interface Props {
   service: Service;
+  workingHours?: WorkingHoursMap;
+  activePaymentMethods?: string[];
 }
 
-export default function ServiceDetailClient({ service }: Props) {
-  const dates = useMemo(() => getNextBusinessDays(5), []);
+export default function ServiceDetailClient({ service, workingHours = null, activePaymentMethods = [] }: Props) {
+  const dates = useMemo(() => getNextAvailableDays(5, workingHours), [workingHours]);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
   const router = useRouter();
@@ -91,8 +116,9 @@ export default function ServiceDetailClient({ service }: Props) {
             ¿Cómo funciona?
           </p>
           <p className="text-[0.88rem] text-text-mid leading-[1.7]">
-            Elige una fecha y hora disponible, completa tus datos y recibirás un email
-            de confirmación con el enlace de videollamada. Rápido y sin complicaciones.
+            {service.is_free
+              ? 'Elige una fecha y hora disponible, completa tus datos y recibirás un email de confirmación con el enlace de videollamada. Rápido y sin complicaciones.'
+              : 'Elige una fecha y hora disponible, completa tus datos y recibirás un enlace de pago por correo electrónico o WhatsApp para confirmar tu cita.'}
           </p>
         </div>
       </div>
@@ -104,8 +130,10 @@ export default function ServiceDetailClient({ service }: Props) {
             Precio
           </p>
           <div className={`font-serif text-[2.6rem] font-light leading-none mb-5 ${service.is_free ? 'text-green-deep' : 'text-text-dark'}`}>
-            {service.is_free ? 'Gratis' : (
+            {service.is_free ? 'Gratis' : service.price ? (
               <>{service.price} <small className="text-[0.7rem] font-sans text-text-light">USD</small></>
+            ) : (
+              <span className="text-green-deep">Consultar</span>
             )}
           </div>
 
@@ -146,7 +174,7 @@ export default function ServiceDetailClient({ service }: Props) {
             Horarios
           </p>
           <div className="flex flex-wrap gap-2">
-            {DEFAULT_SLOTS.map((t) => (
+            {(selectedDate ? getSlotsForDay(new Date(selectedDate + 'T12:00:00').getDay(), workingHours) : DEFAULT_SLOTS).map((t) => (
               <button
                 key={t}
                 onClick={() => setSelectedTime(t)}
@@ -169,7 +197,9 @@ export default function ServiceDetailClient({ service }: Props) {
             <ArrowIcon />
           </button>
           <p className="text-[0.72rem] text-text-light text-center mt-3">
-            Sin pago por adelantado · Cancela hasta 24h antes
+            {service.is_free
+              ? 'Sin pago por adelantado · Cancela hasta 24h antes'
+              : 'Tras agendar, recibirás un enlace de pago a tu correo o WhatsApp'}
           </p>
         </div>
       </div>

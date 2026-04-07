@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import { getClientTime } from '@/lib/utils/timezone';
 
 /* ─── Constants ─── */
 const MONTHS = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
@@ -14,22 +15,102 @@ const STEP_LABELS = ['Fecha y hora', 'Tus datos', 'Confirmar'];
 
 const DEFAULT_SLOTS = ['09:00','10:00','11:00','15:00','16:00','17:00'];
 
+type DaySchedule = { start: string; end: string; enabled: boolean };
+type WorkingHoursMap = Record<string, DaySchedule>;
+
+const DAY_KEYS = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
+
+function getSlotsForDay(dayOfWeek: number, wh: WorkingHoursMap | null): string[] {
+  if (!wh) return DEFAULT_SLOTS;
+  const key = DAY_KEYS[dayOfWeek];
+  const day = wh[key];
+  if (!day?.enabled) return [];
+  // Generate hourly slots between start and end
+  const [sh, sm] = day.start.split(':').map(Number);
+  const [eh, em] = day.end.split(':').map(Number);
+  const startMin = sh * 60 + (sm || 0);
+  const endMin = eh * 60 + (em || 0);
+  const slots: string[] = [];
+  for (let m = startMin; m < endMin; m += 60) {
+    const h = Math.floor(m / 60);
+    const min = m % 60;
+    slots.push(`${String(h).padStart(2,'0')}:${String(min).padStart(2,'0')}`);
+  }
+  return slots;
+}
+
+function isDayEnabled(dayOfWeek: number, wh: WorkingHoursMap | null): boolean {
+  if (!wh) return dayOfWeek !== 0 && dayOfWeek !== 6; // default: no weekends
+  const key = DAY_KEYS[dayOfWeek];
+  return wh[key]?.enabled ?? false;
+}
+
+const COUNTRIES = ['Venezuela','Colombia','México','Argentina','Chile','Perú','Ecuador','España','Estados Unidos','Panamá','República Dominicana','Costa Rica','Uruguay','Bolivia','Paraguay','Guatemala','Honduras','El Salvador','Nicaragua','Cuba','Otro'];
+
 interface Props {
   serviceId: string;
   serviceName: string;
   serviceDuration: number;
+  workingHours?: WorkingHoursMap | null;
+  isFree?: boolean;
+  activePaymentMethods?: string[];
 }
 
 /* ─── Component ─── */
-export default function BookingFormClient({ serviceId, serviceName, serviceDuration }: Props) {
+export default function BookingFormClient({ serviceId: propServiceId, serviceName: propServiceName, serviceDuration: propServiceDuration, workingHours = null, isFree = true, activePaymentMethods = [] }: Props) {
   const router = useRouter();
   const [step, setStep] = useState(1);
 
-  // Step 1 state
-  const [calY, setCalY] = useState(() => new Date().getFullYear());
-  const [calM, setCalM] = useState(() => new Date().getMonth());
-  const [selDate, setSelDate] = useState<string | null>(null);
-  const [selTime, setSelTime] = useState<string | null>(null);
+  // Service data — may be overridden from sessionStorage for paid services
+  const [svcId, setSvcId] = useState(propServiceId);
+  const [svcName, setSvcName] = useState(propServiceName);
+  const [svcDuration, setSvcDuration] = useState(propServiceDuration);
+  const [svcPrice, setSvcPrice] = useState<string>(isFree ? 'Gratis' : 'Consultar');
+  const [effectiveIsFree, setEffectiveIsFree] = useState(isFree);
+
+  // Check sessionStorage for service data + pre-selected date/time (coming from ServiceDetailClient)
+  useEffect(() => {
+    try {
+      const stored = sessionStorage.getItem('sl_service');
+      if (stored) {
+        const svc = JSON.parse(stored);
+        if (svc.id) setSvcId(svc.id);
+        if (svc.title) setSvcName(svc.title);
+        if (svc.duration) setSvcDuration(parseInt(svc.duration) || propServiceDuration);
+        if (svc.price) {
+          setSvcPrice(svc.price === 'Gratis' ? 'Gratis' : `$${svc.price} USD`);
+          if (svc.price !== 'Gratis') setEffectiveIsFree(false);
+        }
+      }
+      // Clear sessionStorage after reading to prevent stale data on next visit
+      sessionStorage.removeItem('sl_date');
+      sessionStorage.removeItem('sl_time');
+    } catch {}
+  }, [propServiceDuration]);
+
+  // Step 1 state — initialize from sessionStorage if available (pre-selected in ServiceDetailClient)
+  const [calY, setCalY] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const sd = sessionStorage.getItem('sl_date');
+      if (sd) return new Date(sd + 'T12:00:00').getFullYear();
+    }
+    return new Date().getFullYear();
+  });
+  const [calM, setCalM] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const sd = sessionStorage.getItem('sl_date');
+      if (sd) return new Date(sd + 'T12:00:00').getMonth();
+    }
+    return new Date().getMonth();
+  });
+  const [selDate, setSelDate] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') return sessionStorage.getItem('sl_date');
+    return null;
+  });
+  const [selTime, setSelTime] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') return sessionStorage.getItem('sl_time');
+    return null;
+  });
 
   // Step 2 state
   const [nombre, setNombre] = useState('');
@@ -37,9 +118,15 @@ export default function BookingFormClient({ serviceId, serviceName, serviceDurat
   const [email, setEmail] = useState('');
   const [tel, setTel] = useState('');
   const [motivo, setMotivo] = useState('');
+  const [pais, setPais] = useState('');
+  const [metodoPago, setMetodoPago] = useState('');
 
   // Loading
   const [submitting, setSubmitting] = useState(false);
+
+  // Hydration guard — sessionStorage values only exist on client
+  const [hasMounted, setHasMounted] = useState(false);
+  useEffect(() => { setHasMounted(true); }, []);
 
   /* ─── Calendar helpers ─── */
   const today = new Date();
@@ -80,14 +167,19 @@ export default function BookingFormClient({ serviceId, serviceName, serviceDurat
 
   /* ─── Submit ─── */
   const handleConfirm = useCallback(async () => {
-    if (!selDate || !selTime || !serviceId) return;
+    if (!selDate || !selTime || !svcId) return;
     setSubmitting(true);
 
-    // Build ISO datetime for preferred_date
-    const preferredDate = `${selDate}T${selTime}:00.000Z`;
+    // Build ISO datetime for preferred_date (Argentina time)
+    const preferredDate = `${selDate}T${selTime}:00-03:00`;
+
+    // Compute client-local time if country differs from Argentina
+    const clientLocalTime = pais && pais !== 'Argentina' && pais !== 'Otro'
+      ? getClientTime(selDate, selTime, pais)
+      : null;
 
     // Generate idempotency key to prevent duplicate submissions
-    const idempotencyKey = `${email.trim()}-${serviceId}-${selDate}-${selTime}-${Date.now()}`;
+    const idempotencyKey = `${svcId.slice(0,8)}-${selDate}-${selTime}-${Date.now()}`;
 
     try {
       const res = await fetch('/api/bookings', {
@@ -97,10 +189,13 @@ export default function BookingFormClient({ serviceId, serviceName, serviceDurat
           full_name: `${nombre.trim()} ${apellido.trim()}`,
           email: email.trim(),
           phone: tel.trim() || undefined,
+          country: pais || undefined,
           reason: motivo.trim() || undefined,
           preferred_date: preferredDate,
-          service_id: serviceId,
+          service_id: svcId,
           idempotency_key: idempotencyKey,
+          preferred_payment: metodoPago || undefined,
+          client_local_time: clientLocalTime || undefined,
         }),
       });
 
@@ -110,9 +205,9 @@ export default function BookingFormClient({ serviceId, serviceName, serviceDurat
       // Store data for confirmation page
       sessionStorage.setItem('sl_code', data.booking?.id?.slice(0, 8)?.toUpperCase() || `SL-${Date.now().toString().slice(-6)}`);
       sessionStorage.setItem('sl_service', JSON.stringify({
-        title: serviceName,
-        price: 'Gratis',
-        duration: `${serviceDuration} min`,
+        title: svcName,
+        price: svcPrice,
+        duration: `${svcDuration} min`,
       }));
       sessionStorage.setItem('sl_form', JSON.stringify({ nombre, apellido, email, tel }));
       sessionStorage.setItem('sl_date', selDate);
@@ -124,7 +219,7 @@ export default function BookingFormClient({ serviceId, serviceName, serviceDurat
     } finally {
       setSubmitting(false);
     }
-  }, [nombre, apellido, email, tel, motivo, serviceId, serviceName, serviceDuration, selDate, selTime, router]);
+  }, [nombre, apellido, email, tel, motivo, pais, metodoPago, svcId, svcName, svcDuration, effectiveIsFree, selDate, selTime, router]);
 
   /* ─── Step progress bar ─── */
   function StepsBar() {
@@ -168,15 +263,24 @@ export default function BookingFormClient({ serviceId, serviceName, serviceDurat
           <p className="text-[0.65rem] tracking-[0.15em] uppercase text-text-light mb-4">
             Resumen
           </p>
-          <SumRow label="Servicio" value={serviceName} />
-          <SumRow label="Duración" value={`${serviceDuration} min`} />
+          <SumRow label="Servicio" value={svcName} />
+          <SumRow label="Duración" value={`${svcDuration} min`} />
           <SumRow label="Modalidad" value="Online" />
           {selDate && <SumRow label="Fecha" value={formatDate(selDate)} />}
-          {selTime && <SumRow label="Hora" value={selTime} />}
+          {selTime && <SumRow label="Hora" value={`${selTime} (Argentina)`} />}
+          {selDate && selTime && pais && pais !== 'Argentina' && pais !== 'Otro' && (() => {
+            const local = getClientTime(selDate, selTime, pais);
+            return local ? (
+              <div className="flex justify-between py-2 border-b border-green-pale">
+                <span className="text-[0.8rem] text-text-light">En tu país</span>
+                <span className="text-[0.8rem] text-green-deep font-normal">{local} ({pais})</span>
+              </div>
+            ) : null;
+          })()}
           <div className="flex justify-between pt-4 mt-2 border-t border-green-pale">
             <span className="text-[0.85rem] text-text-light">Total</span>
-            <span className="font-serif text-[1.6rem] font-light text-green-deep">
-              Gratis
+            <span className={`font-serif text-[1.6rem] font-light ${effectiveIsFree ? 'text-green-deep' : 'text-text-dark'}`}>
+              {svcPrice}
             </span>
           </div>
         </div>
@@ -225,9 +329,9 @@ export default function BookingFormClient({ serviceId, serviceName, serviceDurat
                 const iso = `${calY}-${String(calM+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
                 const d = new Date(calY, calM, day);
                 const dow = d.getDay();
-                const isPast = iso < todayStr;
-                const isWeekend = dow === 0 || dow === 6;
-                const isOff = isPast || isWeekend;
+                const isPast = iso < todayStr || (iso === todayStr);
+                const isDayClosed = !isDayEnabled(dow, workingHours);
+                const isOff = isPast || isDayClosed;
                 const isSel = iso === selDate;
                 const isToday = iso === todayStr;
 
@@ -236,14 +340,14 @@ export default function BookingFormClient({ serviceId, serviceName, serviceDurat
                     key={day}
                     disabled={isOff}
                     onClick={() => pickDate(iso)}
-                    className={`aspect-square rounded-xl text-[0.82rem] transition-all duration-200 border cursor-pointer bg-transparent ${
-                      isSel
+                    className={`aspect-square rounded-xl text-[0.82rem] transition-all duration-200 border cursor-pointer ${
+                      hasMounted && isSel
                         ? 'bg-green-deep text-[#fff] border-green-deep'
                         : isOff
-                          ? 'text-green-pale border-transparent cursor-default'
+                          ? 'bg-transparent text-green-pale border-transparent cursor-default'
                           : isToday
-                            ? 'border-green-mid text-text-dark hover:bg-green-lightest'
-                            : 'border-transparent text-text-dark hover:bg-green-lightest hover:border-green-pale'
+                            ? 'bg-transparent border-green-mid text-text-dark hover:bg-green-lightest'
+                            : 'bg-transparent border-transparent text-text-dark hover:bg-green-lightest hover:border-green-pale'
                     }`}
                   >
                     {day}
@@ -258,14 +362,14 @@ export default function BookingFormClient({ serviceId, serviceName, serviceDurat
             </p>
             {selDate && (
               <div className="grid grid-cols-4 max-md:grid-cols-3 max-sm:grid-cols-2 gap-2 mb-6">
-                {DEFAULT_SLOTS.map(t => (
+                {getSlotsForDay(new Date(selDate + 'T12:00:00').getDay(), workingHours).map(t => (
                   <button
                     key={t}
                     onClick={() => pickTime(t)}
-                    className={`py-2 px-4 rounded-full border text-[0.82rem] transition-all duration-200 cursor-pointer bg-transparent ${
-                      selTime === t
+                    className={`py-2 px-4 rounded-full border text-[0.82rem] transition-all duration-200 cursor-pointer ${
+                      hasMounted && selTime === t
                         ? 'bg-green-deep text-[#fff] border-green-deep'
-                        : 'border-green-soft text-text-mid hover:bg-green-pale hover:border-green-deep hover:text-green-deep'
+                        : 'bg-transparent border-green-soft text-text-mid hover:bg-green-pale hover:border-green-deep hover:text-green-deep'
                     }`}
                   >
                     {t}
@@ -352,6 +456,20 @@ export default function BookingFormClient({ serviceId, serviceName, serviceDurat
 
             <div className="flex flex-col gap-1.5 mb-5">
               <label className="text-[0.65rem] tracking-[0.12em] uppercase text-text-light font-medium">
+                País
+              </label>
+              <select
+                value={pais}
+                onChange={e => setPais(e.target.value)}
+                className="text-[0.88rem] py-3 px-4 border border-green-pale rounded-xl bg-[#fff] text-text-dark outline-none transition-all focus:border-green-deep focus:shadow-[0_0_0_3px_rgba(74,122,74,0.1)] cursor-pointer"
+              >
+                <option value="">Selecciona tu país</option>
+                {COUNTRIES.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+
+            <div className="flex flex-col gap-1.5 mb-5">
+              <label className="text-[0.65rem] tracking-[0.12em] uppercase text-text-light font-medium">
                 ¿Qué te trae por aquí? (opcional)
               </label>
               <textarea
@@ -361,6 +479,33 @@ export default function BookingFormClient({ serviceId, serviceName, serviceDurat
                 className="text-[0.88rem] py-3 px-4 border border-green-pale rounded-xl bg-[#fff] text-text-dark outline-none transition-all focus:border-green-deep focus:shadow-[0_0_0_3px_rgba(74,122,74,0.1)] min-h-[85px] resize-y font-[inherit]"
               />
             </div>
+
+            {!effectiveIsFree && activePaymentMethods.length > 0 && (
+              <div className="flex flex-col gap-1.5 mb-5">
+                <label className="text-[0.65rem] tracking-[0.12em] uppercase text-text-light font-medium">
+                  ¿Cómo prefieres pagar?
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {activePaymentMethods.map(m => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setMetodoPago(m)}
+                      className={`py-2 px-5 rounded-full border text-[0.82rem] cursor-pointer transition-all duration-200 ${
+                        metodoPago === m
+                          ? 'bg-green-deep text-[#fff] border-green-deep'
+                          : 'bg-[#fff] text-text-mid border-green-soft hover:bg-green-pale'
+                      }`}
+                    >
+                      {m}
+                    </button>
+                  ))}
+                </div>
+                <span className="text-[0.72rem] text-text-light">
+                  Recibirás un enlace de pago tras agendar
+                </span>
+              </div>
+            )}
 
             <div className="bg-green-lightest rounded-xl p-4 text-[0.82rem] text-text-mid mb-6">
               Tu información es estrictamente confidencial y solo se usa para gestionar tu cita.
@@ -396,11 +541,15 @@ export default function BookingFormClient({ serviceId, serviceName, serviceDurat
               <p className="text-[0.65rem] tracking-[0.15em] uppercase text-text-light mb-3">
                 Detalles de la cita
               </p>
-              <ReviewRow label="Servicio" value={serviceName} />
+              <ReviewRow label="Servicio" value={svcName} />
               {selDate && <ReviewRow label="Fecha" value={formatDateFull(selDate)} />}
-              {selTime && <ReviewRow label="Hora" value={`${selTime} hs`} />}
-              <ReviewRow label="Duración" value={`${serviceDuration} min`} />
-              <ReviewRow label="Precio" value="Gratis" highlight />
+              {selTime && <ReviewRow label="Hora (Argentina)" value={`${selTime} hs`} />}
+              {selDate && selTime && pais && pais !== 'Argentina' && pais !== 'Otro' && (() => {
+                const local = getClientTime(selDate, selTime, pais);
+                return local ? <ReviewRow label={`Hora (${pais})`} value={`${local} hs`} /> : null;
+              })()}
+              <ReviewRow label="Duración" value={`${svcDuration} min`} />
+              <ReviewRow label="Precio" value={svcPrice} highlight />
             </div>
 
             {/* User data */}
@@ -411,6 +560,8 @@ export default function BookingFormClient({ serviceId, serviceName, serviceDurat
               <ReviewRow label="Nombre" value={`${nombre} ${apellido}`} />
               <ReviewRow label="Email" value={email} />
               {tel && <ReviewRow label="WhatsApp" value={tel} />}
+              {pais && <ReviewRow label="País" value={pais} />}
+              {metodoPago && <ReviewRow label="Método de pago" value={metodoPago} />}
             </div>
 
             <div className="flex gap-3">

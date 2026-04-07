@@ -21,7 +21,7 @@ export async function createBooking(dto: CreateBookingDTO): Promise<Booking> {
 
   if (existingClient) {
     clientId = existingClient.id;
-    // Update client info in case it changed
+    // Update client info and mark as returning
     await supabase
       .from('clients')
       .update({
@@ -29,6 +29,7 @@ export async function createBooking(dto: CreateBookingDTO): Promise<Booking> {
         phone: dto.phone || null,
         country: dto.country || null,
         reason: dto.reason || null,
+        is_returning: true,
       })
       .eq('id', clientId);
   } else {
@@ -56,6 +57,8 @@ export async function createBooking(dto: CreateBookingDTO): Promise<Booking> {
       service_id: dto.service_id,
       preferred_date: dto.preferred_date || null,
       idempotency_key: dto.idempotency_key,
+      preferred_payment: dto.preferred_payment || null,
+      client_local_time: dto.client_local_time || null,
     })
     .select('*, client:clients(*), service:services(*)')
     .single();

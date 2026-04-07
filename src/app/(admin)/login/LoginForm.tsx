@@ -1,9 +1,9 @@
 'use client';
 
 import { useFormState, useFormStatus } from 'react-dom';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { loginAction, requestPasswordResetAction, type ActionResult } from '@/lib/actions/auth';
+import { loginAction, requestPasswordResetAction, getSecurityQuestionAction, verifySecurityAnswerAction, type ActionResult } from '@/lib/actions/auth';
 
 /**
  * Login Form (Client Component)
@@ -20,8 +20,19 @@ const initialState: ActionResult | null = null;
 export default function LoginForm() {
   const [loginState, loginFormAction] = useFormState(loginAction, initialState);
   const [resetState, resetFormAction] = useFormState(requestPasswordResetAction, initialState);
+  const [securityState, securityFormAction] = useFormState(verifySecurityAnswerAction, initialState);
   const [showPassword, setShowPassword] = useState(false);
-  const [mode, setMode] = useState<'login' | 'reset'>('login');
+  const [mode, setMode] = useState<'login' | 'reset' | 'security'>('login');
+  const [securityQuestion, setSecurityQuestion] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (mode === 'security' && !securityQuestion) {
+      getSecurityQuestionAction().then(res => {
+        if (res.success && res.data) setSecurityQuestion(res.data as string);
+        else setSecurityQuestion(null);
+      });
+    }
+  }, [mode, securityQuestion]);
 
   return (
     <div
@@ -300,7 +311,7 @@ export default function LoginForm() {
 
             <SubmitButton label="Iniciar sesión" />
           </form>
-        ) : (
+        ) : mode === 'reset' ? (
           <form action={resetFormAction}>
             <p style={{ fontSize: 13, color: '#4e6050', marginBottom: '1.25rem', lineHeight: 1.6 }}>
               Ingresa tu email y te enviaremos un enlace para restablecer tu contraseña.
@@ -380,7 +391,21 @@ export default function LoginForm() {
 
             <SubmitButton label="Enviar enlace" />
 
-            <div style={{ textAlign: 'center', marginTop: '1rem' }}>
+            <div style={{ textAlign: 'center', marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center' }}>
+              <button
+                type="button"
+                onClick={() => setMode('security')}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#849884',
+                  fontSize: 12,
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                }}
+              >
+                Recuperar con pregunta de seguridad
+              </button>
               <button
                 type="button"
                 onClick={() => setMode('login')}
@@ -399,7 +424,60 @@ export default function LoginForm() {
               </button>
             </div>
           </form>
-        )}
+        ) : mode === 'security' ? (
+          <form action={securityFormAction}>
+            <p style={{ fontSize: 13, color: '#4e6050', marginBottom: '1.25rem', lineHeight: 1.6 }}>
+              Responde tu pregunta de seguridad para recibir un enlace de restablecimiento.
+            </p>
+
+            {securityQuestion ? (
+              <>
+                <div style={{ padding: '12px 14px', background: '#f0f5f0', border: '1px solid #c8ddc8', borderRadius: 10, marginBottom: '1.25rem', fontSize: 14, color: '#2a3528', fontWeight: 500 }}>
+                  {securityQuestion}
+                </div>
+
+                <div style={{ marginBottom: '1.25rem' }}>
+                  <label htmlFor="security-answer" style={{ display: 'block', fontSize: 12, fontWeight: 500, color: '#4e6050', marginBottom: '0.5rem', letterSpacing: '0.04em', textTransform: 'uppercase' as const }}>
+                    Tu respuesta
+                  </label>
+                  <input
+                    id="security-answer"
+                    name="answer"
+                    type="text"
+                    required
+                    className="login-input"
+                    placeholder="Escribe tu respuesta..."
+                    style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: '1.5px solid #c8ddc8', fontSize: 14, fontFamily: "'DM Sans', sans-serif", color: '#2a3528', background: '#fdfcfa', outline: 'none', transition: 'all 0.2s', boxSizing: 'border-box' as const }}
+                  />
+                </div>
+              </>
+            ) : (
+              <div style={{ padding: '10px 14px', background: '#FFEBEE', border: '1px solid #ffcdd2', borderRadius: 8, color: '#c62828', fontSize: 13, marginBottom: '1.25rem' }}>
+                No hay pregunta de seguridad configurada. Usa el enlace por correo.
+              </div>
+            )}
+
+            {securityState?.success && securityState.data != null && (
+              <div role="status" style={{ padding: '10px 14px', background: '#f0f5f0', border: '1px solid #c8ddc8', borderRadius: 8, color: '#4a7a4a', fontSize: 13, marginBottom: '1.25rem' }}>
+                {String(securityState.data)}
+              </div>
+            )}
+
+            {securityState && !securityState.success && securityState.error && (
+              <div role="alert" style={{ padding: '10px 14px', background: '#FFEBEE', border: '1px solid #ffcdd2', borderRadius: 8, color: '#c62828', fontSize: 13, marginBottom: '1.25rem' }}>
+                {securityState.error}
+              </div>
+            )}
+
+            {securityQuestion && <SubmitButton label="Verificar respuesta" />}
+
+            <div style={{ textAlign: 'center', marginTop: '1rem' }}>
+              <button type="button" onClick={() => setMode('reset')} style={{ background: 'none', border: 'none', color: '#4a7a4a', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', textDecoration: 'underline', textUnderlineOffset: 3 }}>
+                ← Volver a recuperación por correo
+              </button>
+            </div>
+          </form>
+        ) : null}
 
         {/* Footer */}
         <div
