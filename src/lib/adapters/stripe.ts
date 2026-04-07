@@ -6,9 +6,14 @@ import Stripe from 'stripe';
  * The service layer calls these methods without knowing Stripe internals.
  */
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2024-12-18.acacia',
-});
+let _stripe: Stripe | null = null;
+function getStripe() {
+  if (!_stripe) {
+    if (!process.env.STRIPE_SECRET_KEY) throw new Error('STRIPE_SECRET_KEY is not configured');
+    _stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2024-12-18.acacia' });
+  }
+  return _stripe;
+}
 
 export interface CreatePaymentLinkParams {
   amount: number;           // In dollars (e.g., 60.00)
@@ -42,7 +47,7 @@ export async function createStripePaymentLink(
   const { amount, currency = 'usd', bookingId, clientEmail, clientName, description } = params;
 
   // Create a Stripe Checkout Session (acts as a payment link)
-  const session = await stripe.checkout.sessions.create({
+  const session = await getStripe().checkout.sessions.create({
     payment_method_types: ['card'],
     mode: 'payment',
     customer_email: clientEmail,
@@ -82,7 +87,7 @@ export function verifyStripeWebhook(
   body: string | Buffer,
   signature: string
 ): Stripe.Event {
-  return stripe.webhooks.constructEvent(
+  return getStripe().webhooks.constructEvent(
     body,
     signature,
     process.env.STRIPE_WEBHOOK_SECRET!
