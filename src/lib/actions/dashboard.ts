@@ -82,6 +82,21 @@ export async function updateNickname(name: string) {
   return { success: true };
 }
 
+export async function updateContactInfo(data: { contact_email?: string; contact_phone?: string }) {
+  const supabase = await getSupabase();
+  const update: Record<string, string> = {};
+  if (data.contact_email !== undefined) update.contact_email = data.contact_email;
+  if (data.contact_phone !== undefined) update.contact_phone = data.contact_phone;
+  const { error } = await supabase
+    .from('admin_settings')
+    .update(update)
+    .not('id', 'is', null);
+  if (error) return { success: false, error: error.message };
+  revalidatePath('/');
+  revalidatePath(DASH);
+  return { success: true };
+}
+
 // ─── Services ───────────────────────────────────────────────
 
 function toSlug(name: string): string {
@@ -168,42 +183,47 @@ export async function upsertInvoice(data: {
   id?: string;
   paciente: string;
   email?: string;
+  telefono?: string;
+  cedula?: string;
+  pais?: string;
+  direccion?: string;
   concepto: string;
   monto: number;
   estado: string;
   link?: string;
+  booking_id?: string | null;
 }) {
   const supabase = await getSupabase();
+
+  const row = {
+    paciente: data.paciente,
+    email: data.email || null,
+    telefono: data.telefono || null,
+    cedula: data.cedula || null,
+    pais: data.pais || null,
+    direccion: data.direccion || null,
+    concepto: data.concepto,
+    monto: data.monto,
+    estado: data.estado,
+    link: data.link || null,
+    booking_id: data.booking_id || null,
+  };
 
   if (data.id) {
     const { error } = await supabase
       .from('invoices')
-      .update({
-        paciente: data.paciente,
-        email: data.email || null,
-        concepto: data.concepto,
-        monto: data.monto,
-        estado: data.estado,
-        link: data.link || null,
-      })
+      .update(row)
       .eq('id', data.id);
     if (error) return { success: false, error: error.message };
   } else {
-    const { data: row, error } = await supabase
+    const { data: created, error } = await supabase
       .from('invoices')
-      .insert({
-        paciente: data.paciente,
-        email: data.email || null,
-        concepto: data.concepto,
-        monto: data.monto,
-        estado: data.estado,
-        link: data.link || null,
-      })
+      .insert(row)
       .select()
       .single();
     if (error) return { success: false, error: error.message };
     revalidatePath(DASH);
-    return { success: true, data: row };
+    return { success: true, data: created };
   }
   revalidatePath(DASH);
   return { success: true };
@@ -231,6 +251,7 @@ export async function upsertBooking(data: {
   notas: string;
   estado: string;
   pais?: string;
+  serviceId?: string;
 }) {
   const supabase = await getSupabase();
 
@@ -274,13 +295,18 @@ export async function upsertBooking(data: {
     ? getClientTime(data.fecha, data.hora, data.pais)
     : null;
 
-  // Find a service matching the tipo, or use the first service
-  const { data: svc } = await supabase
-    .from('services')
-    .select('id')
-    .limit(1)
-    .single();
-  const serviceId = svc?.id;
+  // Use provided serviceId, fall back to name match, then first service
+  let serviceId = data.serviceId;
+  if (!serviceId) {
+    const { data: svcByName } = await supabase
+      .from('services').select('id').eq('name', data.tipo).limit(1).single();
+    serviceId = svcByName?.id;
+    if (!serviceId) {
+      const { data: svc } = await supabase
+        .from('services').select('id').limit(1).single();
+      serviceId = svc?.id;
+    }
+  }
 
   if (!serviceId) return { success: false, error: 'No services found' };
 
@@ -296,6 +322,7 @@ export async function upsertBooking(data: {
     const { error } = await supabase
       .from('bookings')
       .update({
+        service_id: serviceId,
         preferred_date: preferredDate,
         status: bookingStatus,
         admin_notes: data.notas || null,
@@ -320,9 +347,36 @@ export async function upsertBooking(data: {
   return { success: true };
 }
 
-export async function deleteBooking(id: string) {
+export async function deleteBooking(id: string, deletePaymentLinks = false) {
   const supabase = await getSupabase();
+  if (deletePaymentLinks) {
+    // Delete payment links associated with this booking before deleting the booking
+    await supabase.from('payment_links').delete().eq('booking_id', id);
+  }
+  // With ON DELETE SET NULL, remaining payment links will have booking_id set to null
   const { error } = await supabase.from('bookings').delete().eq('id', id);
+  if (error) return { success: false, error: error.message };
+  revalidatePath(DASH);
+  return { success: true };
+}
+
+export async function linkPaymentLinkToBooking(paymentLinkId: string, bookingId: string) {
+  const supabase = await getSupabase();
+  const { error } = await supabase
+    .from('payment_links')
+    .update({ booking_id: bookingId })
+    .eq('id', paymentLinkId);
+  if (error) return { success: false, error: error.message };
+  revalidatePath(DASH);
+  return { success: true };
+}
+
+export async function unlinkPaymentLinkFromBooking(paymentLinkId: string) {
+  const supabase = await getSupabase();
+  const { error } = await supabase
+    .from('payment_links')
+    .update({ booking_id: null })
+    .eq('id', paymentLinkId);
   if (error) return { success: false, error: error.message };
   revalidatePath(DASH);
   return { success: true };

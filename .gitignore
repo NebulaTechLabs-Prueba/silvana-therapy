@@ -2,6 +2,7 @@
 node_modules/
 .pnp
 .pnp.js
+# package-lock.json is tracked for Docker/CI builds
 
 # Build
 .next/
@@ -12,10 +13,8 @@ dist/
 
 # Environment
 .env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*
+!.env.local.example
 
 # Debug
 npm-debug.log*
@@ -23,7 +22,7 @@ yarn-debug.log*
 yarn-error.log*
 
 # IDE
-.vscode/settings.json
+.vscode/
 .idea/
 *.swp
 *.swo
@@ -36,3 +35,14 @@ next-env.d.ts
 
 # Testing
 coverage/
+
+# Secrets / Keys
+*.pem
+*.key
+*.p12
+*.pfx
+service-account*.json
+
+# OS
+desktop.ini
+ehthumbs.db

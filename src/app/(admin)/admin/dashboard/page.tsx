@@ -24,16 +24,17 @@ export default async function DashboardPage() {
   const userName = (user.user_metadata?.full_name as string) || undefined;
 
   // Fetch all dashboard data in parallel
-  const [settingsRes, servicesRes, invoicesRes, bookingsRes, paymentMethodsRes, linksRes] = await Promise.all([
+  const [settingsRes, servicesRes, invoicesRes, bookingsRes, paymentMethodsRes, linksRes, availablePayLinksRes] = await Promise.all([
     supabase.from('admin_settings').select('*').limit(1).single(),
     supabase.from('services').select('*').order('sort_order'),
     supabase.from('invoices').select('*').order('fecha', { ascending: false }),
     supabase
       .from('bookings')
-      .select('*, client:clients(*), service:services(name, duration_min), payment_links(*)')
+      .select('*, client:clients(*), service:services(id, name, duration_min, price, is_free), payment_links(*)')
       .order('preferred_date', { ascending: true }),
     supabase.from('payment_methods').select('*').order('prioridad'),
     supabase.from('admin_links').select('*').order('sort_order'),
+    supabase.from('payment_links').select('*').is('booking_id', null).eq('status', 'active').order('created_at', { ascending: false }),
   ]);
 
   return (
@@ -46,6 +47,7 @@ export default async function DashboardPage() {
       initialBookings={bookingsRes.data ?? []}
       initialPaymentMethods={paymentMethodsRes.data ?? []}
       initialLinks={linksRes.data ?? []}
+      availablePaymentLinks={availablePayLinksRes.data ?? []}
     />
   );
 }

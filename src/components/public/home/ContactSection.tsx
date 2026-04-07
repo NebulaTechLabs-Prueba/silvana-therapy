@@ -5,7 +5,10 @@ interface PaymentMethodInfo {
   tipo: string;
 }
 
-export default function ContactSection({ paymentMethods = [] }: { paymentMethods?: PaymentMethodInfo[] }) {
+export default function ContactSection({ paymentMethods = [], contactEmail = '', contactPhone = '' }: { paymentMethods?: PaymentMethodInfo[]; contactEmail?: string; contactPhone?: string }) {
+  // Build WhatsApp link from phone number (strip spaces, dashes, plus sign)
+  const waDigits = contactPhone.replace(/[\s\-\+\(\)]/g, '');
+  const waLink = waDigits ? `https://api.whatsapp.com/send/?phone=${waDigits}` : '#';
   return (
     <section
       id="contacto"
@@ -36,12 +39,12 @@ export default function ContactSection({ paymentMethods = [] }: { paymentMethods
                 WhatsApp
               </h4>
               <a
-                href="https://api.whatsapp.com/send/?phone=17543080643"
+                href={waLink}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-[0.9rem] text-text-dark no-underline hover:text-green-deep transition-colors"
               >
-                +1 754 308 0643
+                {contactPhone || '+1 754 308 0643'}
               </a>
               <p className="text-[0.75rem] text-text-light">Solo mensajes</p>
             </div>
@@ -60,10 +63,10 @@ export default function ContactSection({ paymentMethods = [] }: { paymentMethods
                 Email
               </h4>
               <a
-                href="mailto:consultas@silvanalopez.com"
+                href={`mailto:${contactEmail || 'consultas@silvanalopez.com'}`}
                 className="text-[0.9rem] text-text-dark no-underline hover:text-green-deep transition-colors"
               >
-                consultas@silvanalopez.com
+                {contactEmail || 'consultas@silvanalopez.com'}
               </a>
             </div>
           </div>
