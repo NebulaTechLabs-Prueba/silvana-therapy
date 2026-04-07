@@ -1,0 +1,1294 @@
+'use client';
+// @ts-nocheck -- Inherited from original JS dashboard. Will be typed progressively as we wire to DB.
+
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { logoutAction } from "@/lib/actions/auth";
+import { updateProfile, updateNotepad, upsertService, deleteService, toggleServiceActive, upsertInvoice, deleteInvoice, upsertBooking, deleteBooking, updateBookingStatus, upsertPaymentMethod, deletePaymentMethod, togglePaymentMethodActive } from '@/lib/actions/dashboard';
+
+interface DashboardClientProps {
+  userEmail: string;
+  userName?: string;
+  initialSettings?: any;
+  initialServices?: any[];
+  initialInvoices?: any[];
+  initialBookings?: any[];
+  initialPaymentMethods?: any[];
+}
+
+/* ═══ LOGO SVG (from Silvana's website) ═══ */
+const LOGO_SRC = "data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4NCjwhRE9DVFlQRSBzdmcgUFVCTElDICItLy9XM0MvL0RURCBTVkcgMS4wLy9FTiIgImh0dHA6Ly93d3cudzMub3JnL1RSLzIwMDEvUkVDLVNWRy0yMDAxMDkwNC9EVEQvc3ZnMTAuZHRkIj4NCjwhLS0gQ3JlYXRvcjogQ29yZWxEUkFXIDIwMjEgKDY0LUJpdCkgLS0+DQo8c3ZnIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgeG1sOnNwYWNlPSJwcmVzZXJ2ZSIgd2lkdGg9IjcxLjAyODZtbSIgaGVpZ2h0PSI2OS4yODY1bW0iIHZlcnNpb249IjEuMCIgc2hhcGUtcmVuZGVyaW5nPSJnZW9tZXRyaWNQcmVjaXNpb24iIHRleHQtcmVuZGVyaW5nPSJnZW9tZXRyaWNQcmVjaXNpb24iIGltYWdlLXJlbmRlcmluZz0ib3B0aW1pemVRdWFsaXR5IiBmaWxsLXJ1bGU9ImV2ZW5vZGQiIGNsaXAtcnVsZT0iZXZlbm9kZCINCnZpZXdCb3g9IjAgMCAzNjYzLjc3IDM1NzMuOTEiDQogeG1sbnM6eGxpbms9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkveGxpbmsiDQogeG1sbnM6eG9kbT0iaHR0cDovL3d3dy5jb3JlbC5jb20vY29yZWxkcmF3L29kbS8yMDAzIj4NCiA8ZyBpZD0iQ2FwYV94MDAyMF8xIj4NCiAgPG1ldGFkYXRhIGlkPSJDb3JlbENvcnBJRF8wQ29yZWwtTGF5ZXIiLz4NCiAgPGcgaWQ9Il8xNTE2NTAyNTYzNzI4Ij4NCiAgIDxwYXRoIGZpbGw9IiM0QTdBNEEiIGQ9Ik0xNjQ5LjcxIDMzNy41NmwzMy4wNSAzNS43NmMxLjk5LDIuMzggMi4yNCwzLjEyIDQuNTgsNS40MyAzLjQzLDMuMzggNS44NCw2LjQ5IDkuMTEsOS45OWw5LjExIDEwLjkxYzMwLjc4LDM0LjU1IDYxLjEzLDc0LjA5IDg2LjY0LDExMi42MSAxNS43OSwyMy44NSAzMS40NCw0Ny41NiA0Ni4xMSw3Mi4xNmwxMS4xNyAxOC44NmMxNC4xOSwyNC43NCA0OS43Nyw5MS42OCA1Ny44OCwxMTEuMzVsMTIuNTIgMjYuNmM2LjgzLDEzLjQ1IDEyLjA3LDI2LjkyIDE4LjQ5LDQwLjY1IDE5LjQyLDQxLjUyIDM1LjE2LDg0LjU2IDUxLjksMTI3LjM0bDIxLjA4IDU4LjA4YzI0LjE5LDcyLjg2IDQ1Ljk0LDEzOC4xIDY2LjM1LDIxMi45OCAyMC4yMyw3NC4yMyAzNy43NCwxNDguOTQgNTIuODgsMjI0LjYyIDExLjI4LDU2LjQyIDIwLjMzLDExMy4wNiAyOC4zMywxNzAuMDIgNC44LDM0LjIgMTQuNTYsMTEwLjUxIDE2LjM1LDE0Mi44NyAwLjI5LDUuMiAxLjQ4LDEyLjE0IDEuNzYsMTcuMzQgMC4zMyw1Ljk1IDAuOTIsMTMuMjggMS42LDE4LjQybDcuNTMgMTExLjY1YzAuNjIsMTEuNTIgLTAuMiwyNi44OCAxLjQzLDM3LjY5IDAuOTQsNi4yNCAwLjM0LDEzLjIgMC4zNSwxOS42NiAwLjAxLDYuNDEgMC45NCwxMS40OSAwLjk0LDE5LjA4IC0wLjAxLDE0LjIxIDAuOTEsMjUuMTEgMC45MSwzOS4xMiAwLDI0LjI0IC0yLjEzLDUyLjYyIDMuMTEsNzYuMDUgNy4zLDMyLjcxIDI1LjY5LDUwLjYyIDQ0LjQ2LDc1LjY0IDQwLjU4LDU0LjA2IDc0LjM5LDExMi41MSAxMDMuNzgsMTczLjcyIDEzLjI2LDI3LjYzIDI0LjAxLDU2LjQ1IDMzLjY5LDg1LjUgMTMuODQsNDEuNTIgMjMuOTEsODMuNzEgMzIuNDksMTI2LjczIDQuMzcsMjEuOTIgNi43OCw0Ni40MiA5LjY4LDY5LjQ4IDEuOTUsMTUuNTIgMi4xNiwzMC44NyAyLjk4LDQ2LjE2IDAuMjIsNC4wNSAwLjg5LDQuMzYgMC45NSw5LjA2IDAuMDgsNi42MyAtMC4wMSwxMy40MiAtMC4wNSwyMC4wNyAtMC4wNCw3LjE2IDAuOTEsMTEuMzcgMC45MywxOS4xIDAuMDIsNy41NCAtMC45NSwxMS4zOCAtMC45MiwxOS4xIDAuMDIsNi4zNiAwLjM1LDEzLjc5IDAuMDEsMjAuMDIgLTAuMjIsNC4wNSAtMC44OSw0LjM2IC0wLjk1LDkuMDYgLTAuMDQsMy4xOSAwLjI1LDYuODcgLTAuMDEsMTAgLTcuNjcsOTIuNjggLTE5LjE2LDE2NC4xOSAtNDUuMTIsMjUyLjQgLTE3LjE1LDU4LjI3IC00Mi4wMywxMTQuMzEgLTcwLjY5LDE2Ny43IC0yOS4zNSw1NC43IC02Ni4zMiwxMDQuNzUgLTEwNy4yOCwxNTEuMTIgLTEuODQsMi4wOCAtMi4wMywyLjg4IC00LjA0LDUuMDFsLTkuNTYgMTAuNDZjLTExLjIsMTIuMTIgLTIzLjQzLDIzLjI4IC0zNS4wMywzNS4wMmwtMjAuOTIgMTkuMTJjLTExLjgzLDExLjUgLTQyLjE3LDM1LjA3IC01NC43LDQ0LjQ3IC0xNS40OSwxMS42MiAtMzAuNDgsMjIuMjIgLTQ2LjksMzMuMTcgLTEyLjAxLDguMDEgLTIzLjY5LDE1LjggLTM2LjMxLDIyLjgzIC00LjQ2LDIuNDkgLTguNTksNC44MyAtMTIuNDYsNy41NiAtNy45LDUuNTkgLTE0LjksMTIuNjggLTExLjQ1LDI1Ljk5IDYuMjMsMjQuMDUgMzEuMjgsMTYuNzcgNjAuNTgsMTYuNzdsNTk3LjE3IDBjNDMuODgsMCA4Ny43NSwwIDEzMS42MywwIDQ1LjA0LDAgODcuMzUsLTAuOTIgMTMxLjkzLC0wLjkxIDExLjQyLDAgMTkuOTksLTAuOTEgMzEuODQsLTAuOTEgMTEuMjIsMCAyMi40NCwwIDMzLjY3LDAgMTEuODUsMCAyMC40MywtMC45MSAzMS44NSwtMC45MWwxMzEuOTMgLTAuOTFjMTIuMTIsMCAyMS4zMSwtMC45MSAzMi43NSwtMC45MSAxMzEuODQsMC4wOCAyNjMuNTgsLTEuNjcgMzk1LjgzLC0wLjA0IDUuNTMsMC4wNyA4LjgyLDAuOTcgMTUuNDMsMC45NSAxNC4xMiwtMC4wNSAzNC4zNywwLjI3IDQ3Ljg1LDIuMTkgOC45LDEuMjYgMTkuOTEsMy41MiAzMC4xOCwyLjE1IDguMjEsLTEuMSAxOS4wNSwtNC45MiAyMi4xLC0xMS41NyA1LjA2LC0xMS4wNCAyLjY5LC00Ni4xMiAyLjY5LC02Mi44M2wwIC00NjQuOTRjMCwtMjIuMyAwLjg4LC00MS43NCAwLjkxLC02My41NmwwIC0xLjA0IDAgLTE5OS4yNSAwIC00LjE0IDAgLTI2Mi45M2MtMC42NCwtMTYuODMgLTkuNTQsLTM0LjU1IC0yOS4wOCwtMzUuMDQgLTIzLjkxLC0wLjYxIC0yNy40NywxMi41NiAtMzAuMDYsMzYuNDMgLTEuMDUsOS42MyAtMi41NywxOC44IC00LjAzLDI4LjcyIC0xLjUyLDEwLjMxIC0yLjg2LDE5IC00LjU0LDI5LjEyIC0xLjYyLDkuNjggLTMuMTIsMTkuMDcgLTQuODMsMjcuOTJsLTExLjM0IDU1LjA4Yy0xNC45OSw2NC4wMyAtMjkuMjEsMTE3LjQyIC01My4xMSwxNzkuODEgLTMuMjEsOC4zOCAtNS44LDE1LjQxIC05LjEsMjMuNjZsLTMwLjEgNjkuMDdjLTExLjk1LDIzLjcgLTIwLjkzLDQyLjUgLTMzLjY4LDY1LjQ5IC00LjEzLDcuNDQgLTguMywxMy45IC0xMi40LDIxLjI3bC0yNS4zOCA0MS4wNGMtMjIuNzksMzQuMTggLTY4LjQyLDk3LjM1IC05Ni40OCwxMjcuMzRsLTUxLjg3IDU1LjVjLTExLjM3LDExLjM2IC0xNy4zLDE3LjgxIC0yOS4xMSwyOC4yMWwtMjEuNjEgMjAuMjRjLTMuMzUsMi41NiAtNS4wNCw0LjgyIC04LjcyLDcuNjZsLTI2Ljk3IDIzLjA3Yy0yOS4wNCwyNS4zMiAtNjMuNjgsNDkuNDIgLTk2Ljk4LDY5LjUyIC03Ni4yOCw0Ni4wNiAtMTk5Ljc2LDk2LjEgLTI4Ny44MSwxMTAuNzEgLTE5LjA2LDMuMTYgLTM3LjU1LDYuNTYgLTU3LjE1LDkuMjcgLTE5LjEyLDIuNjUgLTM4LjQ5LDUuNTMgLTU4LjEyLDguMjlsLTU4LjA5IDguMDRjLTUuMTYsMCAtMTIuMDIsMC41NCAtMTcuMiwxLjI5IC0xMy4xMiwxLjkyIC0zNy42MiwxLjM3IC01MC41MywtMS4yIC0zNi4wNSwtNy4xNSAtNDEuODksLTMzLjYyIC00NS41NiwtNjMuNjMgLTMuNDMsLTI4LjEgLTcuNjMsLTc2LjI0IC00LjUxLC0xMDQuMDIgMC45MiwtOC4yIDAuMTMsLTI4NC40NyAwLjEzLC0yOTEuOTMgMCwtOTcuMzYgMCwtMTk0LjcxIDAsLTI5Mi4wNyAwLC05OC4wOSAtMC45MSwtMTkzLjQ0IC0wLjkxLC0yOTEuMTVsMCAtMTQ2MS4yM2MwLC05OC4wNCAwLjkxLC0xOTMuMiAwLjkxLC0yOTEuMTVsMC45MSAtMTA0LjI4YzAsLTIyLjE3IDEuOTMsLTQ5LjY2IDEuODEsLTcwLjk4bDQuNTUgLTY4LjIzYzAuNDcsLTEwLjkzIDIuMzMsLTIzLjQ5IDMuNDgsLTMzLjgyIDExLjcxLC0xMDUuNDQgMzMuNjgsLTE4Ny44NSA3MC42MSwtMjc2LjA0IDEuOTIsLTQuNTggMy43NCwtOC4xMyA1LjYsLTEyLjYgMi4wNiwtNC45NiAzLjkxLC04LjA0IDUuODMsLTEyLjM2IDUuOCwtMTMuMDUgMTQuNjcsLTI4LjQ1IDE4LjIxLC0zNi4zOSAxMy44MiwtMzEuMDYgMC41OSwtMzMuMzQgLTI1LjYxLC0zNi4yNmwtNzMuNiAtMC4xN2MtNS43OSwwLjA3IC0xMC4yMSwwLjk1IC0xNy4yNSwwLjk0bC00MTkuNDUgMGMtNy4xNCwwLjAyIC0xMS4xMSwtMC45MyAtMTcuMjUsLTAuOTRsLTU0LjY0IDAuMDRjLTYuOTQsMC4wNCAtMTAuMTEsLTAuOTYgLTE3LjI3LC0wLjkzbC0zNi40IDAuMDFjLTcuMzcsMC4wMSAtMTEuODksLTAuOTMgLTE4LjE3LC0wLjk0IC0yNS4wMywtMC4wNCAtNDcuNSwtMC44OCAtNzEuOTEsLTAuODhsLTUzLjY4IC0wLjkxYy03LjM3LDAuMDEgLTExLjg5LC0wLjkzIC0xOC4xNiwtMC45NCAtNDguNjUsLTAuMDcgLTk1LjE3LC0yLjcgLTE0My40NCwtMi43bC0yNS44MiAtMC45MWMtNC4xOCwwIC04LjYzLDAuMTUgLTEyLjc3LDAuMDMgLTQuODQsLTAuMTQgLTYuODQsLTAuOTkgLTEyLjY5LC0wLjk1bC0xMDIuODIgLTIuNzJjLTQuMjUsMC4wMiAtOC41LC0wLjAxIC0xMi43NSwwLjAxIC01Ljc4LDAuMDMgLTguMjEsLTAuNjggLTEyLjczLC0wLjkyIC04Ljg4LC0wLjQ3IC0xOC4yNywwLjkzIC0yNi45MiwtMC4zOCAtOC4wOCwtMS4yMiAtMTcuMzYsLTAuMjQgLTI1Ljg5LC0wLjVsLTI1LjQ1IC0wLjkzYy04LjcxLDAuMDQgLTE1LjgxLC0wLjkyIC0yNS40NywtMC45MiAtMTQuNTIsMC4wMSAtMzYuOSwtMS44NyAtNTAuOTUsLTEuODJsLTkwLjExIC0yLjY5Yy01LjI2LC0wLjA2IC02Ljg2LC0wLjk5IC0xMi42OCwtMC45NiAtNC4yNiwwLjAyIC04LjUxLDAuMDEgLTEyLjc3LDAuMDMgLTUuNzgsMC4wMyAtOC4yMSwtMC42OCAtMTIuNzMsLTAuOTIgLTguMzIsLTAuNDUgLTE3Ljk2LDAuMDUgLTI2LjQzLDAuMDMgLTQuOTYsLTAuMDEgLTYuMzUsLTAuNzUgLTEwLjQxLC0wLjk0bC05NC4xOSAwIC0wLjQ3IDAgLTAuNDYgMGMtOS40OSwwLjA1IC0xNS44NiwwLjkyIC0yNS40NiwwLjkxIC0zNC44MSwtMC4wMiAtMTEzLjc0LDcuMzEgLTE0Ni4yMiwxMi4xbC0zNC41OCA1LjQ1Yy0xLjMzLDAuMjIgLTMuMjQsMC41IC01LjQ5LDAuODhsLTQuMzcgMS4wNWMtMC4xNywwLjA2IC0wLjQ4LDAuMjEgLTAuNjIsMC4yNiAtMC4xMywwLjA1IC0wLjQyLDAuMTUgLTAuNiwwLjI4IC0xMy45MSwwIC03OC40NywxNC45IC05MiwxOC4xOSAtNDQuNzEsMTAuODcgLTg2Ljk1LDIyLjA3IC0xMjkuNTQsMzYuOTYgLTMzLjk0LDExLjg2IC02Ni4xNywyNS4zNyAtOTkuMjEsMzkuMDkgLTIyLjQ2LDkuMzMgLTQzLjc5LDIxLjIxIC02NS40MywzMS45MiAtMjguNTIsMTQuMTIgLTYwLjIsMzQuMDQgLTg2LjY0LDUxLjY2IC0yNSwxNi42NyAtNDkuMDQsMzQuNTUgLTcyLjQsNTMuMTUgLTIuNjksMi4xNCAtNC43NSwzLjkzIC03LjQ0LDYuMjFsLTEwLjkxIDkuMWMtMS43NCwxLjQ4IC0yLjIzLDEuNjMgLTQuMDQsMy4yNCAtMTIuNDQsMTEuMDcgLTI1LjA1LDIxLjQgLTM2Ljg2LDMzLjJsLTQwLjg1IDQxLjAzYy0yLjU1LDMuMiAtMy41NCw0LjI3IC02LjQ3LDcuMThsLTE2LjAxIDE4LjU3Yy0xLjI4LDEuNiAtMi4xNCwyLjE4IC0zLjUsMy43OCAtMi4yMSwyLjU5IC0zLjgsNS4wMSAtNi4wMSw3LjYzbC0xOC40NCAyMy40MmMtMjYuMDUsMzQuNzYgLTQ5Ljg5LDcxLjkgLTY5LjI1LDExMC45IC0yMC42OCw0MS42NyAtMzguMDIsODYuNDggLTQ5LjI1LDEzMS44MiAtMjQuNDIsOTguNjYgLTMwLjE1LDE5OS4zIC0xNi4wNCwzMDEuMzggNS43LDQxLjIxIDEyLjMyLDc3LjUgMjIuMDQsMTE1LjM1IDEyLjE4LDQ3LjQxIDMxLjM5LDk3LjE0IDUzLjU3LDE0MS4xNGwyNC4yNSA0NC45YzEuODYsMy4zMyAzLjExLDUuNSA1LDguNjQgMjYuMDYsNDMuMTYgNTQuMjQsODMuNiA4NS45MSwxMjIuNDVsMTkuMTEgMjIuNzRjMS41MiwxLjcxIDEuMzYsMS45IDIuNzksMy41OGwxMi43MyAxNC41NmM5LjQsMTEuMjIgMjAuNTcsMjEuNDQgMzAuMDMsMzIuNzUgMi4xOCwyLjYyIDQuNzgsNC44NiA3LjI0LDcuMzIgOS41OCw5LjU4IDM4LjY3LDQwLjE2IDQ4LjI2LDQ4LjE4bDIxLjggMjAuMDVjMTMuNzEsMTMuOTEgMjkuMzQsMjUuODEgNDMuNjcsMzkuMTIgMS43MiwxLjYgMS45MywxLjUzIDMuNTQsMi44M2w0MS40OCAzNC45NGMyNi4zNSwyMy41MiA3OC40Nyw2MC44NSAxMTAuMDcsODQuNjUgMTguNDIsMTMuODggMzcuOTgsMjYuMTggNTYuNDIsNDAuMDIgMy4wNiwyLjMgNS40NiwzLjggOC42Myw1LjkybDE2Ni42OCAxMTAuODJjMTEuNDIsNy42MSAyMi4xNSwxNC40NyAzMy40OCwyMi4wMiAxMS4zMSw3LjU0IDIyLjQyLDE0LjQ5IDMzLjQ2LDIyLjAybDI4Mi4wOCAxODQuN2MxOC43NCwxMi41IDM3LjY5LDI0LjgzIDU2LjQxLDM3LjMgMzUuNjEsMjMuNzQgNzYuMzQsNTAuNDUgMTExLjUyLDc1LjkxbDEwNS40MSA4MS4xMWMxMy4xOCwxMC4zNiAzNy45NCwzMi44MSA0OS44Nyw0My44NCAyLjMzLDIuMTYgMy41NywyLjYzIDUuOTQsNC45NyAyLjE4LDIuMTcgMy43MSwzLjc0IDUuOSw1Ljk0IDQuMyw0LjMxIDcuOTgsNy4wNiAxMi4yOCwxMS4zN2w0MC41IDQxLjM5YzIuNTUsMi41NCAzLjE1LDMuOTMgNS40NCw2LjM5bDUzLjQ3IDYyLjk5IDU2LjkyIDgzLjIgMTcuMyAzMC4wMmMzLjE3LDUuMjkgNS4wMSwxMC40OCA4LjQsMTUuMDggMS43Myw1LjQxIDYuMjYsMTMuMTEgOC45NiwxOC41IDQxLjQ1LDgyLjc2IDYyLjE2LDE2Ny44NCA3Mi4wNCwyNjAuOTYgMS4zOSwxMy4xMiA0LjA0LDcwIDIuMzQsODEuMjMgLTAuNjUsNC4yNyAtMS4xMiw0Mi44OSAtMi41OSw1Mi45MSAtMS4yMSw4LjIxIC0xLjY3LDE2Ljc3IC0yLjQzLDI0Ljg3IC01LjYyLDU5LjQ1IC0yNi41NiwxNTAuNTcgLTQ2LjIsMjA0LjkyIC0xNy41Nyw0OC42IC00Ny40MSwxMDIuNTIgLTgyLjcsMTQwLjIybC0yNy4yOSAyOC4yMmMtMjAuOCwyMC44MyAtNjIuOTYsNTAuODYgLTg4LjQ5LDYzLjQ2IC04LjksNC4zOCAtMTcuMzcsOS40IC0yNy45NCwxMy45MiAtNDcuODksMjAuNDUgLTk3LjYzLDM3Ljc0IC0xNTAuNTQsNDUuMDggLTMyLjg4LDQuNTYgLTY2LjIyLDguMzQgLTEwMy41Nyw4LjM0IC03NC4yNywwIC0xNDEuMTQsLTcuNDQgLTIwMS4wMiwtMjEuODMgLTE1My41NSwtMzQuNjkgLTMwNy40MSwtMTA4LjcyIC00MjguNzIsLTIwNS41MWwtNDcuNTggLTM5Ljc3Yy0yLjI0LC0xLjc0IC0yLjQzLC0xLjggLTQuNCwtMy43OWwtNDkuMTMgLTQ2LjQxYy01LjYxLC01LjYgLTkuODIsLTEwLjczIC0xNS40NiwtMTYuMzhsLTU5LjQzIC02Ny45NWMtNC45MSwtNi4yNSAtOS40NCwtMTEuNjYgLTE0LjA0LC0xNy44MWwtMjYuNzYgLTM2LjAyYy0xOC45NiwtMjcuNDcgLTMyLjczLC00OC42NyAtNTAuMDcsLTc3LjMyIC00LjIxLC02Ljk2IC03LjQ3LC0xMy4zNiAtMTEuNjEsLTIwLjI0IC0xMC40NSwtMTcuMzkgLTIzLjc3LC00NC40NCAtMzIuODgsLTYyLjY1bC0yMC40OSAtNDMuMTljLTMuMDksLTcuNjMgLTYuNDcsLTE0LjI4IC05Ljc1LC0yMi4xbC0yNy4zIC02OC4yM2MtMjkuNjcsLTc2Ljg3IC01Mi4zNiwtMTcyLjA5IC02NS43NywtMjUxLjc3IC0zLjE0LC0xOC42NyAtNS4xLC0zNi4zOCAtNy44LC01NS44OSAtMi4yNiwtMTYuMzcgLTUuMzYsLTM0Ljg0IC0yNy43OSwtMzUuOSAtMTAuNjQsLTAuNSAtMjAuNjEsMSAtMjUuNzMsNi4xNSAtNS43NSw1Ljc4IC02LjE0LDE0LjMyIC02LjEzLDI1LjcxIDAuMiwzMzkuMDcgMCw2NzguMTUgMCwxMDE3LjIyIDAsNTQuMzUgLTQuNTcsNTUuNjIgNTQuNjIsNTUuNTMgNS45NSwtMC4wMSA4Ljc3LC0wLjk4IDE1LjQzLC0wLjk1IDExNi40NywwLjYgMjMyLjg0LC0wLjkgMzQ5LjM5LC0wLjkgMTEuNTEsMCAyMC4xNSwwLjkyIDMwLjkzLDAuOTEgMjAuOTMsLTAuMDMgNDEuODYsMCA2Mi43OCwwIDIzLjkzLDAgNTMuNTcsMS45MyA3Ny4zNSwxLjgxIDYuNjYsLTAuMDMgOS40OCwwLjk0IDE1LjQzLDAuOTUgMTEuNTcsMC4wMiAxOS43OCwwLjg0IDMxLDAuODVsMTQ5LjExIDEwLjExYzkuMzYsMC43MyAxOS4yNiwyLjE0IDI5LjE2LDIuNjkgMy44MywwLjIxIDEwLjU0LDEuMSAxMy45NCwxLjUzbDU3Ljg5IDUuOGMxMi40OCwxLjA0IDMyLjQ3LDQuNDcgNDMuODEsNC40NyAxNy40OCwxLjUgMzUuOCw0LjY4IDUzLjYyLDUuNDUgOC4wOSwwLjM1IDE5LjIxLDEuNSAyNi42MywyLjQ5bDI3Ljk0IDIuMDhjNi4wNCwwLjA1IDcuOTcsMC45MiAxMy42NSwwLjkgNi4wOCwtMC4wMiA3LjksMC45NSAxMy42MywwLjkzIDYuMTMsLTAuMDMgOC42NywwLjc2IDEzLjY0LDAuOTEgNS44NSwwLjE4IDEwLjA5LC0wLjAyIDE0LjgzLDAuNjMgNi44MywwLjk0IDQ2LjQsMS4xMyA1Ny4xNSwxLjE2bDAuNTEgMCAwLjQ2IDAgMC40MSAwIDAuMzYgMCAwLjk1IDAgMC45NCAwIDAuOTQgMGMxOS4xNiwtMC4wMyAzNi44OSwtMC4zMyA1NS40MiwtMC44OCA1LC0wLjE1IDcuNDgsLTAuOTggMTMuNjMsLTAuOTIgNi4wNiwwLjA2IDcuODQsLTAuOTcgMTMuNjEsLTAuOTUgOS4zMiwwLjA0IDE5LjQ5LC0xLjM2IDI4LjIzLC0xLjggODguMDIsLTQuMzkgMTcyLjQxLC0xOC41NCAyNTYuOTQsLTM5LjY3IDE2LjU0LC00LjE0IDMxLjMyLC04LjgyIDQ2Ljk1LC0xMy4xMSAxNSwtNC4xMSAzMC4zMSwtOS42NSA0NC43LC0xNC40NCAyOC45OCwtOS42NiA1Ny4yOCwtMjEuMjIgODUuMTYsLTMzLjEzIDQ0LjM4LC0xOC45NiA4Ni4wNiwtNDIuMDYgMTI3Ljk0LC02NC45NWwxOC41MSAtMTAuNmM0MC42MSwtMjIuNTkgNzkuNjksLTQ4Ljk2IDExNS45NSwtNzcuODUgNjYuOTEsLTUzLjMxIDEyMi40NiwtMTE3LjA1IDE2Ni41NiwtMTkwLjExIDExLjI4LC0xOC42OSAyMS42MiwtMzcuNDcgMzEuMDgsLTU3LjE4IDE2LjU4LC0zNC41NCAzMS4zNiwtNzAuMjcgNDEuOTMsLTEwNy4yOSAxNS41LC01NC4yOCAyMy4wMywtODcuNzkgMzEuMywtMTQ2LjEyIDEuMzIsLTkuMyAyLC0xNy4yMSAzLjA0LC0yNi45OGwyLjYgLTI3LjQzYzAuNDMsLTE3LjY3IDMuODUsLTY5LjQyIDEuNTUsLTg2LjIxIC0xLjQ2LC0xMC43IC0xLjM0LC0zOC4xOCAtMy43OCwtNTUuMzcgLTMuNzEsLTI2LjIxIC02LjM5LC01My4wNiAtMTEuNTEsLTc4LjU2IC02LjM4LC0zMS43IC0xMy45MywtNjMuNDMgLTI0LjE1LC05NC4xNCAtOS42MSwtMjguOSAtMTkuOTIsLTU4LjkgLTMzLjExLC04Ni4wOCAtMy4xNywtNi41MyAtNS45LC0xMy41NSAtOS4wOSwtMjAuMDMgLTE2LjA0LC0zMi41NyAtMzIuOTEsLTY1LjA2IC01My4xNCwtOTUuMTYgLTQuMjUsLTYuMzIgLTcuNiwtMTEuODUgLTExLjgzLC0xOC4xOSAtNC4yNiwtNi4zOSAtOC4wMywtMTEuNjEgLTEyLjE4LC0xNy44NCAtMi4xNCwtMy4yMSAtMy43OCwtNS4xNyAtNi4wMSwtOC41NSAtMTAuODUsLTE2LjQ1IC0yNS4zNCwtMzUuMDQgLTM3LjczLC01MC41M2wtNzQuMDkgLTg5LjY5Yy04LjQ2LC0xMC4xMiAtMzAuNjgsLTMxLjY0IC0zNS44NiwtMzcuODQgLTIuOTIsLTMuNSAtNC4xLC00LjkzIC03LjMyLC04LjE0IC0yLjYzLC0yLjYzIC00LjU4LC00LjcyIC03LjI2LC03LjNsLTMwLjQ4IC0yOC42NmMtMTkuNTgsLTE5LjM4IC02Ny41MywtNTcuMTcgLTg5Ljg3LC03My45MWwtMTA0Ljk5IC03My4zNGMtMy4yNywtMi4xOCAtNS43NSwtMy41IC04LjkyLC01LjYzbC0xNy42NiAtMTEuNDZjLTEzLjk2LC05LjM1IC03My41OCwtNDguMTkgLTgyLjQxLC01Mi40MWwtNTEuMDggLTMyLjQ3Yy0zMi43MywtMTkuMzUgLTY5Ljc2LC00NC40MSAtMTAzLjE0LC02NC4yN2wtNTEuNzkgLTMxLjkyYy00LjQ2LC0yLjkzIC04LjQ5LC01LjE5IC0xMi45MywtOCAtMi4yMiwtMS40IC0zLjkxLC0yLjM1IC02LjI2LC0zLjc0bC00NC42MiAtNTEuODdjLTguOTksLTUuMzIgLTE3LC0xMC41NCAtMjUuOTMsLTE1LjkyIC04LjkyLC01LjM4IC0xNi45LC0xMC41NCAtMjUuOTIsLTE1LjkzbC0xMzAuMSAtODAuMDhjLTI1LjY1LC0xNS4yNiAtNTEuNzcsLTMyLjc4IC03Ny4yNSwtNDguMzFsLTUwLjYxIC0zMy4xYy00NS40MiwtMzAuMjggLTc5LjU1LC01NS4wMiAtMTIyLjE0LC04Ny4xM2wtNjkuNjggLTU2LjgxYy0yLjAxLC0zLjA4IC0yMy43LC0yMi4yMiAtMjcuOTIsLTI1Ljc0bC0yNy4zMyAtMjYuMzRjLTIwLjExLC0yMC4xMSAtNDIuMTUsLTQ0IC02MC41NiwtNjUuOTFsLTUwLjAxIC02NC42M2MtOS40NywtMTIuNjEgLTIzLjk1LC0zNS42NCAtMzEuOTksLTQ4Ljk5IC0yNy4wOSwtNDUuMDUgLTQ5Ljk5LC05Mi44NSAtNjcuOTYsLTE0Ni43NyAtMTUuMzQsLTQ2LjAxIC0yOC43MSwtMTA1LjcyIC0zMi41NywtMTU1Ljc3IC0wLjM4LC00Ljg0IC0wLjk3LC04LjI5IC0xLC0xMi42NCAtMC4wNCwtNS44MiAtMC43NywtNy45NCAtMC45MSwtMTIuNzQgLTAuNTIsLTE3LjQ2IC0wLjg4LC0zNC4zNCAtMC44OCwtNTIuOCAwLC0yNy4zMSA0LjI1LC03NC4xMyA3LjkyLC05OS40NSAxNC4zNiwtOTkuMjYgNTAuMjQsLTE4Ni41OSAxMTIuODEsLTI2My44N2wzNy44MSAtNDIuMjVjMi41LC0yLjUgNC4zNCwtNC4zMiA2LjgyLC02LjgzIDguODIsLTguOTEgMzkuNzMsLTM1LjA0IDUxLC00Mi43MSAzNS42MiwtMjQuMjMgNDIuNjcsLTI5LjY3IDg0Ljg5LC01MC43N2wyNC41OSAtMTAuOGM4Ljg3LC0zLjY0IDE3LjQyLC02Ljc5IDI2LjM4LC0xMC4wMiAzMi40OSwtMTEuNjggNzkuMDEsLTIzLjY4IDExNC4yNiwtMjkuNDkgMjAuNTIsLTMuMzggNjAuMjksLTkgODEuMjUsLTguODMgNi45MywwLjA1IDEwLjEsLTAuOTYgMTcuMjcsLTAuOTNsNTMuMTYgMS40NGM0LjczLDAuNzEgMTIuNDIsMS4xMSAxNi45LDEuMzEgMjUuMTIsMS4wNyA2OC42NCwxMC42MyA5MS4xLDE3LjE3IDE5LjIxLDUuNiAzNi40MSwxMi4xMSA1My43MSwxOS4wNyAyMy41MSw5LjQ3IDM5LjYsMTkuMjYgNTkuOTEsMjkuMjUgMy45LDEuOTIgNy44MSw0LjIzIDExLjY1LDYuNTUgNC4wMywyLjQyIDcuMzcsNC4yMyAxMS40OSw2LjcxbDMyLjkxIDIwLjc4YzQ1LjY3LDMwLjQ0IDkxLjgyLDY2LjA5IDEzMi45OCwxMDIuNjcgMTMuNDcsMTEuOTcgMzUuMTIsMzAuNDcgNDcuMzEsNDIuNzcgNi4wMiw2LjA3IDMyLjIxLDMzLjYxIDM2Ljk3LDM2LjE3eiIvPg0KICA8L2c+DQogPC9nPg0KPC9zdmc+DQo=";
+
+/* ═══ ICONS ═══ */
+const I = {
+  home: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>,
+  user: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>,
+  invoice: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>,
+  calendar: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>,
+  credit: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>,
+  gear: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>,
+  plus: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>,
+  edit: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>,
+  trash: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>,
+  check: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>,
+  close: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
+  search: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>,
+  dots: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="5" r="1.2" fill="currentColor"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/><circle cx="12" cy="19" r="1.2" fill="currentColor"/></svg>,
+  download: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>,
+  link: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>,
+  send: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>,
+  dollar: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>,
+  patients: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
+  menu: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>,
+  chevL: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>,
+  chevR: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>,
+  clock: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>,
+  eye: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>,
+  mail: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>,
+  msg: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>,
+  lock: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>,
+  globe: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>,
+};
+
+/* ═══ HELPERS ═══ */
+const DIAS_ES = ["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"];
+const MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+const HORAS = ["08:00","09:00","10:00","11:00","12:00","13:00","14:00","15:00","16:00","17:00","18:00","19:00"];
+const TC = {
+  Individual:{bg:"#f0f5f0",text:"#2a3528",dot:"#4a7a4a"},
+  Pareja:{bg:"#e8eff4",text:"#2b4a6e",dot:"#5a82b0"},
+  Familiar:{bg:"#f3ecf4",text:"#5a3a5a",dot:"#8b5a8b"},
+};
+TC["Evaluación"] = {bg:"#f5f0e6",text:"#6b5a14",dot:"#c4956a"};
+
+const TODAY = new Date(2026,3,6);
+
+function dkey(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth()+1).padStart(2,'0');
+  const dd = String(d.getDate()).padStart(2,'0');
+  return y + '-' + m + '-' + dd;
+}
+function getMon(d) {
+  const dt = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const day = dt.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  dt.setDate(dt.getDate() + diff);
+  return dt;
+}
+function addD(d, n) {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+}
+function sameD(a, b) { return dkey(a) === dkey(b); }
+
+
+/* ═══ REUSABLE ═══ */
+function Modal({open,onClose,title,children,width=520,dark=false}){
+  if(!open) return null;
+  return(
+    <div style={{position:'fixed',inset:0,zIndex:1000,background:'rgba(42,53,40,.45)',backdropFilter:'blur(4px)',display:'flex',alignItems:'center',justifyContent:'center',animation:'fadeIn .18s'}} onClick={onClose}>
+      <div onClick={e=>e.stopPropagation()} style={{background:dark?'#1e1e1e':'#fdfcfa',borderRadius:16,width:'92%',maxWidth:width,maxHeight:'88vh',overflow:'auto',boxShadow:'0 20px 60px rgba(42,53,40,.25)',animation:'slideUp .22s',border:dark?'1px solid #333':'1px solid #e2ede2'}}>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'18px 22px 12px',borderBottom:dark?'1px solid #333':'1px solid #e2ede2'}}>
+          <h3 style={{margin:0,fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:19,color:dark?'#e0e0e0':'#2a3528'}}>{title}</h3>
+          <button onClick={onClose} style={{border:'none',background:dark?'#2a2a2a':'#f0f5f0',borderRadius:9,width:32,height:32,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#849884'}}>{I.close}</button>
+        </div>
+        <div style={{padding:'16px 22px 22px'}}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function Field({label,children}){
+  return <div style={{marginBottom:14}}><label style={{display:'block',fontSize:11,fontWeight:500,color:'#849884',marginBottom:5,letterSpacing:'.5px',textTransform:'uppercase',fontFamily:"'DM Sans',sans-serif"}}>{label}</label>{children}</div>;
+}
+
+function DropMenu({items,onClose}){
+  const ref=useRef();
+  useEffect(()=>{
+    const h = e => { if(ref.current && !ref.current.contains(e.target)) onClose(); };
+    document.addEventListener('mousedown',h);
+    return () => document.removeEventListener('mousedown',h);
+  },[onClose]);
+  return(
+    <div ref={ref} style={{position:'absolute',right:0,top:'100%',marginTop:4,background:'#fdfcfa',borderRadius:12,boxShadow:'0 8px 30px rgba(42,53,40,.12)',border:'1px solid #e2ede2',minWidth:190,zIndex:50,overflow:'hidden',animation:'fadeIn .12s'}}>
+      {items.map((it,i) => it.divider
+        ? <div key={i} style={{height:1,background:'#e2ede2',margin:'4px 0'}}/>
+        : <button key={i} onClick={()=>{it.action();onClose()}} style={{display:'flex',alignItems:'center',gap:10,width:'100%',padding:'10px 16px',border:'none',background:'none',cursor:'pointer',fontSize:13,color:it.danger?'#C62828':'#4e6050',fontFamily:"'DM Sans',sans-serif",textAlign:'left'}}
+            onMouseEnter={e=>e.currentTarget.style.background='#f0f5f0'} onMouseLeave={e=>e.currentTarget.style.background='none'}>
+            <span style={{color:it.danger?'#C62828':'#849884',display:'flex'}}>{it.icon}</span>{it.label}
+          </button>
+      )}
+    </div>
+  );
+}
+
+/* ═══ INVOICE HTML ═══ */
+function makeInvHTML(inv, acc) {
+  const parts = [];
+  parts.push('<!DOCTYPE html><html><head><meta charset="utf-8"><title>Factura</title>');
+  parts.push('<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:Helvetica,Arial,sans-serif;color:#2a3528;padding:40px}');
+  parts.push('.c{max-width:680px;margin:0 auto;border:1px solid #e2ede2;border-radius:8px;overflow:hidden}');
+  parts.push('.h{background:#2a3528;color:#fff;padding:30px 36px;display:flex;justify-content:space-between;align-items:center}');
+  parts.push('.logo{font-size:22px;font-weight:400;letter-spacing:2px;color:#c8ddc8;font-family:Georgia,serif}');
+  parts.push('.b{padding:32px 36px}.ir{display:flex;justify-content:space-between;margin-bottom:28px}');
+  parts.push('.ib h4{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#849884;margin-bottom:5px}.ib p{font-size:13px;line-height:1.6}');
+  parts.push('table{width:100%;border-collapse:collapse;margin:18px 0}th{background:#f0f5f0;padding:10px 14px;text-align:left;font-size:11px;text-transform:uppercase;color:#849884}');
+  parts.push('td{padding:11px 14px;border-bottom:1px solid #e2ede2;font-size:13px}.tr td{font-weight:700;font-size:15px;border-top:2px solid #2a3528;border-bottom:none}');
+  parts.push('.f{background:#f0f5f0;padding:18px 36px;text-align:center;font-size:11px;color:#849884}');
+  parts.push('.bd{display:inline-block;padding:4px 14px;border-radius:20px;font-size:11px;font-weight:700;text-transform:uppercase}');
+  parts.push('.bp{background:#f0f5f0;color:#4a7a4a}.bpn{background:#FFF8E1;color:#F57F17}.bv{background:#FFEBEE;color:#C62828}');
+  parts.push('.lb{margin:18px 0;padding:12px 18px;background:#f0f5f0;border:1px solid #c8ddc8;border-radius:8px;text-align:center}');
+  parts.push('.lb a{color:#4a7a4a;font-weight:600;font-size:13px;text-decoration:none}');
+  parts.push('</style></head><body><div class="c">');
+  const num = String(inv.id).padStart(4,'0');
+  parts.push('<div class="h"><div class="logo">Lda. Silvana López</div><div style="text-align:right"><div style="font-size:11px;text-transform:uppercase;letter-spacing:2px;opacity:.6">Factura</div><div style="font-size:18px;font-weight:700;margin-top:4px">#' + num + '</div></div></div>');
+  parts.push('<div class="b"><div class="ir">');
+  parts.push('<div class="ib"><h4>De</h4><p><strong>' + acc.nombre + '</strong><br>' + acc.especialidad + '<br>Ced. Prof. ' + acc.cedula + '<br>' + acc.email + '<br>' + acc.telefono + '</p></div>');
+  const bc = inv.estado === 'pagada' ? 'bp' : inv.estado === 'pendiente' ? 'bpn' : 'bv';
+  parts.push('<div class="ib" style="text-align:right"><h4>Para</h4><p><strong>' + inv.paciente + '</strong></p><h4 style="margin-top:14px">Fecha</h4><p>' + inv.fecha + '</p><h4 style="margin-top:14px">Estado</h4><p><span class="bd ' + bc + '">' + inv.estado + '</span></p></div></div>');
+  parts.push('<table><thead><tr><th>Concepto</th><th>Cant.</th><th style="text-align:right">Monto</th></tr></thead>');
+  parts.push('<tbody><tr><td>' + inv.concepto + '</td><td>1</td><td style="text-align:right">$' + inv.monto.toLocaleString() + ' MXN</td></tr>');
+  parts.push('<tr class="tr"><td colspan="2">Total</td><td style="text-align:right">$' + inv.monto.toLocaleString() + ' MXN</td></tr></tbody></table>');
+  if (inv.estado !== 'pagada') {
+    parts.push('<div class="lb"><div style="font-size:10px;color:#849884;margin-bottom:5px">LINK DE PAGO</div><a href="' + inv.link + '">' + inv.link + '</a></div>');
+  }
+  parts.push('</div><div class="f">Lda. Silvana López · Psicoterapia Online · silvana@psicoterapia.com</div></div></body></html>');
+  return parts.join('');
+}
+
+/* ═══════════════════════════════════════════
+   MAIN COMPONENT
+   ═══════════════════════════════════════════ */
+export default function SilvanaDashboard({ userEmail, userName, initialSettings, initialServices, initialInvoices, initialBookings, initialPaymentMethods }: DashboardClientProps) {
+  const [section, setSection] = useState('inicio');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [toast, setToast] = useState(null);
+  const show = msg => { setToast(msg); setTimeout(() => setToast(null), 2800); };
+  const [searchTerm, setSearchTerm] = useState('');
+
+  const [account, setAccount] = useState({
+    nombre: initialSettings?.nombre || userName || 'Lda. Silvana López',
+    especialidad: initialSettings?.especialidad || 'Psicoterapia Online',
+    cedula: initialSettings?.cedula || 'PSI-2024-1876',
+    email: initialSettings?.email || userEmail,
+    telefono: initialSettings?.telefono || '+54 9 11 5678-1234',
+    direccion: initialSettings?.direccion || 'Consulta Online — Argentina',
+    horario: initialSettings?.horario || 'Lun-Vie 9:00-18:00',
+    bio: initialSettings?.bio || 'Licenciada en Psicología, especialista en psicoterapia online. Acompaño procesos de bienestar emocional desde un enfoque cálido y personalizado.'
+  });
+  const [editAcc, setEditAcc] = useState(false);
+  const [accF, setAccF] = useState({...account});
+
+  /* Services */
+  const [services, setServices] = useState(() => {
+    if (initialServices && initialServices.length > 0) {
+      return initialServices.map(s => ({ id: s.id, nombre: s.name, descripcion: s.description || '', color: s.color || '#8fb08f', active: s.active !== false }));
+    }
+    return [];
+  });
+  const [svcModal, setSvcModal] = useState(false);
+  const [svcF, setSvcF] = useState({nombre:'',descripcion:'',color:'#8fb08f'});
+  const [eSvcId, setESvcId] = useState(null);
+
+  /* Security */
+  const [secEmail, setSecEmail] = useState('silvana@psicoterapia.com');
+  const [secNewEmail, setSecNewEmail] = useState('');
+  const [secPwd, setSecPwd] = useState({current:'',new1:'',new2:''});
+  const [secQuestion, setSecQuestion] = useState('¿Nombre de tu primera mascota?');
+  const [secAnswer, setSecAnswer] = useState('••••••••');
+  const [recoveryEmail, setRecoveryEmail] = useState('silvana.backup@gmail.com');
+  const [twoFA, setTwoFA] = useState(false);
+  const [secEditModal, setSecEditModal] = useState(null); /* 'email'|'password'|'question'|'recovery'|null */
+
+  const [darkMode, setDarkMode] = useState(false);
+  const [nickname, setNickname] = useState('Silvana');
+
+  /* Dynamic theme tokens — Silvana palette */
+  const dm = darkMode;
+  const CARD = {background:dm?'#1e1e1e':'#fdfcfa',borderRadius:14,boxShadow:dm?'0 1px 4px rgba(0,0,0,.3)':'0 1px 3px rgba(74,122,74,.06), 0 3px 12px rgba(74,122,74,.04)',border:dm?'1px solid #2a2a2a':'1px solid #e2ede2'};
+  const inp = {width:'100%',padding:'10px 13px',borderRadius:10,border:dm?'1.5px solid #333':'1.5px solid #c8ddc8',fontSize:14,fontFamily:"'DM Sans',sans-serif",color:dm?'#e0e0e0':'#2a3528',background:dm?'#252525':'#fdfcfa',outline:'none',transition:'border .2s',boxSizing:'border-box'};
+  const sel = {...inp,appearance:'none',backgroundImage:"url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23849884' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E\")",backgroundRepeat:'no-repeat',backgroundPosition:'right 12px center'};
+  const btnP = {padding:'10px 22px',borderRadius:11,border:'none',background:'linear-gradient(135deg,#4a7a4a 0%,#3a6a3a 100%)',color:'#fff',fontWeight:500,fontSize:13,cursor:'pointer',fontFamily:"'DM Sans',sans-serif",boxShadow:'0 2px 10px rgba(74,122,74,.25)',transition:'all .15s',display:'inline-flex',alignItems:'center',gap:7};
+  const btnS = {...btnP,background:dm?'#2a2a2a':'#f0f5f0',color:dm?'#ccc':'#4e6050',boxShadow:'none'};
+  const bdg = c => ({display:'inline-block',padding:'3px 10px',borderRadius:20,fontSize:10,fontWeight:700,letterSpacing:'.3px',textTransform:'uppercase',background:c==='green'?'#f0f5f0':c==='yellow'?'#FFF8E1':c==='red'?'#FFEBEE':dm?'#2a2a2a':'#f0f5f0',color:c==='green'?'#4a7a4a':c==='yellow'?'#F57F17':c==='red'?'#C62828':'#4e6050'});
+  const txSub = dm ? '#999' : '#849884';
+  const txMain = dm ? '#e0e0e0' : '#2a3528';
+  const bgMain = dm ? '#141414' : '#fdfcfa';
+  const bgSub = dm ? '#1a1a1a' : '#f0f5f0';
+  const borderC = dm ? '#2a2a2a' : '#e2ede2';
+  const [notepad, setNotepad] = useState(initialSettings?.notepad || '');
+  const [tutorialLinks, setTutorialLinks] = useState([
+    {id:1, title:'Guía de inicio rápido', url:'https://docs.silvanalopez.com/inicio'},
+    {id:2, title:'Cómo crear facturas', url:'https://docs.silvanalopez.com/facturas'},
+    {id:3, title:'Configurar métodos de pago', url:'https://docs.silvanalopez.com/pagos'},
+  ]);
+  const [newLink, setNewLink] = useState({title:'',url:''});
+  const [logoutConfirm, setLogoutConfirm] = useState(false);
+
+  const [invoices, setInvoices] = useState(initialInvoices || []);
+  const [invModal, setInvModal] = useState(false);
+  const [invF, setInvF] = useState({paciente:'',concepto:'Sesión individual',monto:'',estado:'pendiente'});
+  const [eInvId, setEInvId] = useState(null);
+  const [openMenu, setOpenMenu] = useState(null);
+  const [invFilter, setInvFilter] = useState('todos');
+  const [confirmModal, setConfirmModal] = useState(null);
+
+  const [reservas, setReservas] = useState(() => {
+    if (initialBookings && initialBookings.length > 0) {
+      return initialBookings.map(b => {
+        const dt = b.preferred_date ? new Date(b.preferred_date) : null;
+        return {
+          id: b.id,
+          paciente: b.client?.full_name || '',
+          email: b.client?.email || '',
+          telefono: b.client?.phone || '',
+          fecha: dt ? dt.toISOString().slice(0, 10) : '',
+          hora: dt ? dt.toISOString().slice(11, 16) : '',
+          duracion: b.duration || 60,
+          tipo: b.service?.name || 'Individual',
+          notas: b.admin_notes || '',
+          estado: b.status || 'pendiente',
+        };
+      });
+    }
+    return [];
+  });
+  const [calView, setCalView] = useState('week');
+  const [calDate, setCalDate] = useState(new Date(TODAY));
+  const [selRes, setSelRes] = useState(null);
+  const [resModal, setResModal] = useState(false);
+  const [resF, setResF] = useState({paciente:'',email:'',telefono:'',fecha:'',hora:'',duracion:60,tipo:'Individual',notas:'',estado:'pendiente'});
+  const [eResId, setEResId] = useState(null);
+
+  const [metodos, setMetodos] = useState(() => {
+    if (initialPaymentMethods && initialPaymentMethods.length > 0) {
+      return initialPaymentMethods.map(m => ({
+        id: m.id,
+        tipo: m.tipo || 'Transferencia',
+        nombre: m.nombre || '',
+        banco: m.banco || '',
+        titular: m.titular || '',
+        cuentaVisible: m.cuenta_visible || '',
+        cuentaCompleta: m.cuenta_completa || '',
+        moneda: m.moneda || 'USD',
+        tiempoConfirm: m.tiempo_confirm || '24–48h',
+        instrucciones: m.instrucciones || '',
+        notasInternas: m.notas_internas || '',
+        correoProveedor: m.correo_proveedor || '',
+        comision: m.comision || '',
+        estadoConexion: m.estado_conexion || 'conectado',
+        monedasAceptadas: m.monedas_aceptadas || 'USD',
+        pagosRecurrentes: m.pagos_recurrentes || false,
+        tipoCuenta: m.tipo_cuenta || 'Personal',
+        tiempoAcredit: m.tiempo_acredit || 'Instantáneo',
+        politicaReembolso: m.politica_reembolso || '',
+        clavePublica: m.clave_publica || '',
+        claveSecreta: m.clave_secreta || '',
+        idComercio: m.id_comercio || '',
+        activo: m.activo !== false,
+        prioridad: m.prioridad || 1,
+      }));
+    }
+    return [];
+  });
+  const [metModal, setMetModal] = useState(false);
+  const [metF, setMetF] = useState({tipo:'Transferencia',nombre:'',banco:'',titular:'',cuentaVisible:'',cuentaCompleta:'',moneda:'USD',tiempoConfirm:'24–48h',instrucciones:'',notasInternas:'',correoProveedor:'',comision:'',estadoConexion:'conectado',monedasAceptadas:'USD',pagosRecurrentes:false,tipoCuenta:'Personal',tiempoAcredit:'Instantáneo',politicaReembolso:'',clavePublica:'',claveSecreta:'',idComercio:'',prioridad:1});
+  const [eMetId, setEMetId] = useState(null);
+  const [metViewId, setMetViewId] = useState(null);
+
+  /* Invoice ops */
+  const saveInv = async () => {
+    if (!invF.paciente || !invF.monto) return;
+    if (eInvId) {
+      setInvoices(p => p.map(i => i.id === eInvId ? {...i,...invF,monto:Number(invF.monto)} : i));
+      show('Factura actualizada');
+      setInvModal(false); setEInvId(null); setInvF({paciente:'',concepto:'Sesión individual',monto:'',estado:'pendiente'});
+      try { await upsertInvoice({id: eInvId, paciente: invF.paciente, concepto: invF.concepto, monto: Number(invF.monto), estado: invF.estado, link: invF.link}); } catch(e) { show('Error al guardar factura'); }
+    } else {
+      const nid = Math.max(0,...invoices.map(i=>i.id))+1;
+      const newInv = {...invF,id:nid,monto:Number(invF.monto),fecha:new Date().toISOString().slice(0,10),link:'https://pay.silvanalopez.com/inv-'+String(nid).padStart(3,'0')};
+      setInvModal(false);
+      setConfirmModal(newInv);
+    }
+  };
+  const confirmAndSend = async (em, wa) => {
+    if (!confirmModal) return;
+    setInvoices(p => [...p, confirmModal]);
+    try { await upsertInvoice({paciente: confirmModal.paciente, concepto: confirmModal.concepto, monto: confirmModal.monto, estado: confirmModal.estado, link: confirmModal.link}); } catch(e) { show('Error al guardar factura'); }
+    const msgs = [];
+    if (em) msgs.push('correo');
+    if (wa) msgs.push('WhatsApp');
+    show('Factura creada' + (msgs.length ? ' · ' + msgs.join(' y ') + ' enviado' : ''));
+    setConfirmModal(null); setInvF({paciente:'',concepto:'Sesión individual',monto:'',estado:'pendiente'});
+  };
+  const exportCSV = () => {
+    const rows = [['ID','Paciente','Concepto','Monto','Estado','Fecha','Link']];
+    const list = invFilter === 'todos' ? invoices : invoices.filter(i => i.estado === invFilter);
+    list.forEach(i => rows.push([i.id,i.paciente,i.concepto,i.monto,i.estado,i.fecha,i.link]));
+    const csv = rows.map(r => r.map(c => '"'+c+'"').join(',')).join('\n');
+    const blob = new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href=url; a.download='facturas_'+new Date().toISOString().slice(0,10)+'.csv'; a.click();
+    URL.revokeObjectURL(url); show('CSV exportado');
+  };
+  const dlInv = inv => {
+    const html = makeInvHTML(inv,account);
+    const blob = new Blob([html],{type:'text/html'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href=url; a.download='factura_'+String(inv.id).padStart(4,'0')+'.html'; a.click();
+    URL.revokeObjectURL(url); show('Factura descargada');
+  };
+  const prevInv = inv => {
+    const html = makeInvHTML(inv,account);
+    const w = window.open('','_blank');
+    if(w){w.document.write(html);w.document.close()}
+  };
+  const copyLnk = link => { navigator.clipboard?.writeText(link); show('Link copiado'); };
+
+  const fInvs = useMemo(() => {
+    let l = invFilter === 'todos' ? invoices : invoices.filter(i => i.estado === invFilter);
+    if (searchTerm) l = l.filter(i => i.paciente.toLowerCase().includes(searchTerm.toLowerCase()));
+    return l;
+  }, [invoices, invFilter, searchTerm]);
+
+  /* Reserva ops */
+  const saveRes = async () => {
+    if (!resF.paciente || !resF.fecha || !resF.hora) return;
+    if (eResId) {
+      setReservas(p => p.map(r => r.id === eResId ? {...r,...resF,duracion:Number(resF.duracion)} : r));
+      show('Cita actualizada');
+      try { await upsertBooking({id: eResId, paciente: resF.paciente, email: resF.email, telefono: resF.telefono, fecha: resF.fecha, hora: resF.hora, duracion: Number(resF.duracion), tipo: resF.tipo, notas: resF.notas, estado: resF.estado}); } catch(e) { show('Error al guardar cita'); }
+    } else {
+      const nid = Math.max(0,...reservas.map(r=>r.id))+1;
+      setReservas(p => [...p,{...resF,id:nid,duracion:Number(resF.duracion)}]);
+      show('Cita creada');
+      try { await upsertBooking({paciente: resF.paciente, email: resF.email, telefono: resF.telefono, fecha: resF.fecha, hora: resF.hora, duracion: Number(resF.duracion), tipo: resF.tipo, notas: resF.notas, estado: resF.estado}); } catch(e) { show('Error al guardar cita'); }
+    }
+    setResModal(false); setEResId(null);
+    setResF({paciente:'',email:'',telefono:'',fecha:'',hora:'',duracion:60,tipo:'Individual',notas:'',estado:'pendiente'});
+  };
+  const delRes = async id => { setReservas(p=>p.filter(r=>r.id!==id)); if(selRes?.id===id) setSelRes(null); show('Cita eliminada'); try { await deleteBooking(id); } catch(e) { show('Error al eliminar cita'); } };
+
+  /* Método ops */
+  const saveMet = async () => {
+    if (!metF.nombre || !metF.tipo) return;
+    if (eMetId) { setMetodos(p=>p.map(m=>m.id===eMetId?{...m,...metF}:m)); show('Método actualizado'); }
+    else { const nid=Math.max(0,...metodos.map(m=>m.id))+1; setMetodos(p=>[...p,{...metF,id:nid,activo:true,prioridad:p.length+1}]); show('Método agregado'); }
+    setMetModal(false); setEMetId(null); setMetF({tipo:'Transferencia',nombre:'',banco:'',titular:'',cuentaVisible:'',cuentaCompleta:'',moneda:'USD',tiempoConfirm:'24–48h',instrucciones:'',notasInternas:'',correoProveedor:'',comision:'',estadoConexion:'conectado',monedasAceptadas:'USD',pagosRecurrentes:false,tipoCuenta:'Personal',tiempoAcredit:'Instantáneo',politicaReembolso:'',clavePublica:'',claveSecreta:'',idComercio:'',prioridad:1});
+    try { await upsertPaymentMethod({...metF, id: eMetId || undefined}); } catch(e) { show('Error al guardar método'); }
+  };
+
+  /* Calendar */
+  const ws = getMon(calDate);
+  const wd = Array.from({length:7},(_,i)=>addD(ws,i));
+  const md = useMemo(() => {
+    const y = calDate.getFullYear();
+    const m = calDate.getMonth();
+    const lastDay = new Date(y, m+1, 0).getDate();
+    let startDow = new Date(y, m, 1).getDay();
+    startDow = startDow === 0 ? 6 : startDow - 1;
+    const cells = [];
+    for (let i = 0; i < startDow; i++) cells.push(null);
+    for (let d = 1; d <= lastDay; d++) cells.push(new Date(y, m, d));
+    while (cells.length % 7 !== 0) cells.push(null);
+    return cells;
+  }, [calDate]);
+  const resDay = useCallback(ds => reservas.filter(r => r.fecha === ds), [reservas]);
+  const navC = dir => {
+    const d = new Date(calDate);
+    if (calView === 'week') d.setDate(d.getDate() + dir * 7);
+    else d.setMonth(d.getMonth() + dir);
+    setCalDate(d);
+  };
+
+  const totalF = invoices.filter(i=>i.estado==='pagada').reduce((s,i)=>s+i.monto,0);
+  const pend = invoices.filter(i=>i.estado==='pendiente').length;
+  const citH = resDay(dkey(TODAY)).length;
+
+  const navItems = [
+    {key:'inicio',label:'Inicio',icon:I.home},
+    {key:'cuenta',label:'Mi Cuenta',icon:I.user},
+    {key:'facturas',label:'Facturas',icon:I.invoice},
+    {key:'reservas',label:'Calendario',icon:I.calendar},
+    {key:'pagos',label:'Métodos de Pago',icon:I.credit},
+    {key:'config',label:'Configuración',icon:I.gear},
+  ];
+
+  return (
+    <div style={{display:'flex',minHeight:'100vh',fontFamily:"'DM Sans',sans-serif",background:darkMode?'#141414':'#fdfcfa',color:darkMode?'#e0e0e0':'#2a3528',transition:'background .3s, color .3s'}}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300;1,400&family=DM+Sans:wght@300;400;500;600;700&display=swap');
+        @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+        @keyframes slideUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
+        @keyframes slideIn{from{opacity:0;transform:translateX(-14px)}to{opacity:1;transform:translateX(0)}}
+        @keyframes toastIn{from{opacity:0;transform:translateY(14px) scale(.96)}to{opacity:1;transform:translateY(0) scale(1)}}
+        @keyframes panelIn{from{opacity:0;transform:translateX(16px)}to{opacity:1;transform:translateX(0)}}
+        input:focus,select:focus,textarea:focus{border-color:#4a7a4a!important;box-shadow:0 0 0 3px rgba(74,122,74,.1)!important}
+        ::-webkit-scrollbar{width:5px}::-webkit-scrollbar-thumb{background:#c8ddc8;border-radius:6px}
+        @media(max-width:860px){.psb{transform:translateX(-100%)!important;position:fixed!important;z-index:900}.psb.open{transform:translateX(0)!important}.pmc{margin-left:0!important}.pmb{display:flex!important}}
+      `}</style>
+
+      {/* SIDEBAR — Silvana brand */}
+      <aside className={'psb' + (sidebarOpen ? ' open' : '')} style={{width:248,background:'#2a3528',color:'#c8ddc8',display:'flex',flexDirection:'column',position:'fixed',top:0,left:0,bottom:0,zIndex:900,transition:'transform .3s'}}>
+        <div style={{padding:'22px 20px 16px',borderBottom:'1px solid rgba(200,221,200,.12)'}}>
+          <div style={{display:'flex',alignItems:'center',gap:11}}>
+            <img src={LOGO_SRC} alt="Logo" style={{width:36,height:36,objectFit:'contain',filter:'brightness(1.4)'}}/>
+            <div>
+              <div style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:15,color:'#f0f5f0',fontWeight:400}}>Lda. <span style={{fontStyle:'italic',color:'#c8ddc8'}}>Silvana López</span></div>
+              <div style={{fontSize:9.5,color:'rgba(200,221,200,.45)',letterSpacing:'.12em',textTransform:'uppercase'}}>Psicoterapia Online</div>
+            </div>
+          </div>
+        </div>
+        <nav style={{flex:1,padding:'12px 8px',display:'flex',flexDirection:'column',gap:1}}>
+          {navItems.map(n => (
+            <button key={n.key} onClick={() => {setSection(n.key);setSidebarOpen(false);setSelRes(null)}} style={{
+              display:'flex',alignItems:'center',gap:11,width:'100%',padding:'10px 14px',borderRadius:10,border:'none',cursor:'pointer',
+              background:section===n.key?'rgba(74,122,74,.2)':'transparent',color:section===n.key?'#c8ddc8':'rgba(200,221,200,.5)',
+              fontWeight:section===n.key?500:300,fontSize:13.5,fontFamily:"'DM Sans',sans-serif",textAlign:'left'
+            }}>{n.icon}{n.label}</button>
+          ))}
+        </nav>
+        <div style={{padding:'12px 16px',borderTop:'1px solid rgba(200,221,200,.12)',display:'flex',alignItems:'center',gap:10}}>
+          <div style={{width:32,height:32,borderRadius:9,background:'linear-gradient(135deg,#4a7a4a,#8fb08f)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,fontWeight:500,color:'#fff'}}>SL</div>
+          <div><div style={{fontSize:12,fontWeight:500,color:'#f0f5f0'}}>{nickname}</div><div style={{fontSize:10,color:'rgba(200,221,200,.4)'}}>Psicóloga</div></div>
+        </div>
+      </aside>
+
+      {/* MAIN */}
+      <main className="pmc" style={{flex:1,marginLeft:248,minHeight:'100vh',background:bgMain,transition:'background .3s'}}>
+        <header style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 28px',borderBottom:'1px solid '+borderC,background:dm?'rgba(20,20,20,.95)':'rgba(253,252,250,.95)',backdropFilter:'blur(8px)',position:'sticky',top:0,zIndex:100}}>
+          <div style={{display:'flex',alignItems:'center',gap:14}}>
+            <button className="pmb" onClick={()=>setSidebarOpen(!sidebarOpen)} style={{display:'none',border:'none',background:'none',cursor:'pointer',color:txSub,alignItems:'center',justifyContent:'center'}}>{I.menu}</button>
+            <h1 style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:20,margin:0,color:txMain,fontWeight:400}}>{navItems.find(n=>n.key===section)?.label}</h1>
+          </div>
+          <div style={{display:'flex',alignItems:'center',gap:7,background:dm?'#1e1e1e':'#f0f5f0',borderRadius:10,padding:'7px 13px',border:'1px solid '+(dm?'#333':'#e2ede2')}}>
+            <span style={{color:'#849884'}}>{I.search}</span>
+            <input placeholder="Buscar..." value={searchTerm} onChange={e=>setSearchTerm(e.target.value)} style={{border:'none',background:'none',outline:'none',fontSize:13,color:txMain,width:130,fontFamily:"'DM Sans',sans-serif"}}/>
+          </div>
+        </header>
+
+        <div style={{padding:'22px 28px 40px',maxWidth:1180}}>
+
+          {/* INICIO */}
+          {section === 'inicio' && (
+            <div style={{animation:'slideIn .3s'}}>
+              <p style={{color:'#849884',margin:'0 0 22px',fontSize:14,fontWeight:300}}>Bienvenida, <strong style={{color:txMain,fontWeight:500}}>{nickname}</strong>. Resumen del consultorio.</p>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(185px,1fr))',gap:14,marginBottom:26}}>
+                {[
+                  {l:'Facturado',v:'$'+totalF.toLocaleString(),icon:I.dollar,g:'linear-gradient(135deg,#4a7a4a,#3a6a3a)'},
+                  {l:'Pendientes',v:pend,icon:I.invoice,g:'linear-gradient(135deg,#c4956a,#b08050)'},
+                  {l:'Citas hoy',v:citH,icon:I.calendar,g:'linear-gradient(135deg,#5a82b0,#3a6b9f)'},
+                  {l:'Pacientes',v:reservas.length,icon:I.patients,g:'linear-gradient(135deg,#8fb08f,#6a9a6a)'},
+                ].map((c,i) => (
+                  <div key={i} style={{...CARD,padding:'18px 16px',display:'flex',alignItems:'center',gap:13,animation:'slideUp .3s ease '+(i*.05)+'s both'}}>
+                    <div style={{width:42,height:42,borderRadius:12,background:c.g,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',flexShrink:0}}>{c.icon}</div>
+                    <div><div style={{fontSize:11,color:'#849884',fontWeight:400,marginBottom:1}}>{c.l}</div><div style={{fontSize:22,fontWeight:300,fontFamily:"'Cormorant Garamond',Georgia,serif"}}>{c.v}</div></div>
+                  </div>
+                ))}
+              </div>
+              <h3 style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:16,marginBottom:10,fontWeight:400}}>Acciones rápidas</h3>
+              <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
+                <button onClick={()=>{setSection('facturas');setTimeout(()=>setInvModal(true),80)}} style={btnP}>{I.plus} Nueva Factura</button>
+                <button onClick={()=>{setSection('reservas');setTimeout(()=>setResModal(true),80)}} style={{...btnP,background:'linear-gradient(135deg,#5a82b0,#3a6b9f)'}}>{I.plus} Nueva Cita</button>
+                <button onClick={()=>setSection('config')} style={btnS}>{I.gear} Configuración</button>
+              </div>
+            </div>
+          )}
+
+          {/* CUENTA */}
+          {section === 'cuenta' && (
+            <div style={{animation:'slideIn .3s',display:'grid',gap:16}}>
+              {/* Profile card */}
+              <div style={{...CARD,padding:26}}>
+                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:22,flexWrap:'wrap',gap:12}}>
+                  <div style={{display:'flex',alignItems:'center',gap:14}}>
+                    <div style={{width:54,height:54,borderRadius:14,background:'linear-gradient(135deg,#4a7a4a,#8fb08f)',display:'flex',alignItems:'center',justifyContent:'center',overflow:'hidden',flexShrink:0}}>
+                      <img src={LOGO_SRC} alt="Logo" style={{width:34,height:34,objectFit:'contain',filter:'brightness(2.5)'}}/>
+                    </div>
+                    <div><h2 style={{margin:0,fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:20,fontWeight:400}}>{account.nombre}</h2><p style={{margin:0,color:'#849884',fontSize:13,fontWeight:300}}>{account.especialidad}</p></div>
+                  </div>
+                  <button onClick={()=>{setEditAcc(true);setAccF({...account})}} style={btnP}>{I.edit} Editar</button>
+                </div>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'14px 26px'}}>
+                  {[['Email',account.email],['Teléfono',account.telefono],['Dirección',account.direccion],['Horario',account.horario],['Cédula',account.cedula]].map(([l,v],i) => (
+                    <div key={i}><div style={{fontSize:10,color:'#849884',fontWeight:500,textTransform:'uppercase',letterSpacing:'.5px',marginBottom:2}}>{l}</div><div style={{fontSize:14,fontWeight:400}}>{v}</div></div>
+                  ))}
+                </div>
+                <div style={{marginTop:16}}><div style={{fontSize:10,color:'#849884',fontWeight:500,textTransform:'uppercase',letterSpacing:'.5px',marginBottom:2}}>Biografía</div><div style={{fontSize:13,color:'#4e6050',lineHeight:1.6,fontWeight:300}}>{account.bio}</div></div>
+              </div>
+
+              {/* Services */}
+              <div style={{...CARD,padding:26}}>
+                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:16}}>
+                  <h3 style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:17,margin:0,fontWeight:400,display:'flex',alignItems:'center',gap:8}}>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+                    Servicios ofrecidos
+                  </h3>
+                  <button onClick={()=>{setESvcId(null);setSvcF({nombre:'',descripcion:'',color:'#8fb08f',active:true});setSvcModal(true)}} style={{...btnP,fontSize:12,padding:'7px 15px'}}>{I.plus} Nuevo</button>
+                </div>
+                <div style={{display:'grid',gap:10}}>
+                  {services.map(svc => (
+                    <div key={svc.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'14px 16px',background:dm?'#1a1a1a':'#f0f5f0',borderRadius:12,border:'1px solid '+(dm?'#333':'#e2ede2')}}>
+                      <div style={{display:'flex',alignItems:'center',gap:12}}>
+                        <div style={{width:10,height:10,borderRadius:'50%',background:svc.color,flexShrink:0}}/>
+                        <div>
+                          <div style={{fontSize:14,fontWeight:500}}>{svc.nombre}</div>
+                          <div style={{fontSize:12,color:'#849884',fontWeight:300}}>{svc.descripcion}</div>
+                        </div>
+                      </div>
+                      <div style={{display:'flex',gap:6,alignItems:'center'}}>
+                        <button onClick={async ()=>{const nv=!(svc.active!==false);setServices(p=>p.map(s=>s.id===svc.id?{...s,active:nv}:s));try{await toggleServiceActive(svc.id,nv)}catch(e){show('Error al cambiar estado')};show(nv?'Servicio activado':'Servicio desactivado')}} style={{width:36,height:20,borderRadius:10,border:'none',background:svc.active!==false?'#4a7a4a':'#c8ddc8',cursor:'pointer',position:'relative',transition:'background .3s'}}><div style={{width:14,height:14,borderRadius:'50%',background:'#fff',position:'absolute',top:3,left:svc.active!==false?19:3,transition:'left .3s',boxShadow:'0 1px 3px rgba(0,0,0,.15)'}}/></button>
+                        <button onClick={()=>{setESvcId(svc.id);setSvcF({nombre:svc.nombre,descripcion:svc.descripcion,color:svc.color});setSvcModal(true)}} style={{border:'none',background:'#e2ede2',borderRadius:7,width:30,height:30,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#4a7a4a'}}>{I.edit}</button>
+                        <button onClick={async ()=>{setServices(p=>p.filter(s=>s.id!==svc.id));show('Servicio eliminado');try{await deleteService(svc.id)}catch(e){show('Error al eliminar servicio')}}} style={{border:'none',background:'#FFEBEE',borderRadius:7,width:30,height:30,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#C62828'}}>{I.trash}</button>
+                      </div>
+                    </div>
+                  ))}
+                  {services.length === 0 && <p style={{color:'#849884',fontSize:13,textAlign:'center',padding:20}}>No hay servicios configurados</p>}
+                </div>
+              </div>
+
+              {/* Edit Account Modal */}
+              <Modal dark={dm} open={editAcc} onClose={()=>setEditAcc(false)} title="Editar Cuenta" width={540}>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                  <Field label="Nombre"><input style={inp} value={accF.nombre} onChange={e=>setAccF({...accF,nombre:e.target.value})}/></Field>
+                  <Field label="Especialidad"><input style={inp} value={accF.especialidad} onChange={e=>setAccF({...accF,especialidad:e.target.value})}/></Field>
+                  <Field label="Email"><input style={inp} value={accF.email} onChange={e=>setAccF({...accF,email:e.target.value})}/></Field>
+                  <Field label="Teléfono"><input style={inp} value={accF.telefono} onChange={e=>setAccF({...accF,telefono:e.target.value})}/></Field>
+                  <Field label="Cédula"><input style={inp} value={accF.cedula} onChange={e=>setAccF({...accF,cedula:e.target.value})}/></Field>
+                  <Field label="Horario"><input style={inp} value={accF.horario} onChange={e=>setAccF({...accF,horario:e.target.value})}/></Field>
+                </div>
+                <Field label="Dirección"><input style={inp} value={accF.direccion} onChange={e=>setAccF({...accF,direccion:e.target.value})}/></Field>
+                <Field label="Biografía"><textarea style={{...inp,minHeight:70,resize:'vertical'}} value={accF.bio} onChange={e=>setAccF({...accF,bio:e.target.value})}/></Field>
+                <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:4}}>
+                  <button onClick={()=>setEditAcc(false)} style={btnS}>Cancelar</button>
+                  <button onClick={async ()=>{setAccount({...accF});setEditAcc(false);show('Cuenta actualizada');try{await updateProfile(accF)}catch(e){show('Error al guardar cuenta')}}} style={btnP}>{I.check} Guardar</button>
+                </div>
+              </Modal>
+
+              {/* Service Modal */}
+              <Modal dark={dm} open={svcModal} onClose={()=>{setSvcModal(false);setESvcId(null)}} title={eSvcId?'Editar Servicio':'Nuevo Servicio'} width={440}>
+                <Field label="Nombre del servicio"><input style={inp} value={svcF.nombre} onChange={e=>setSvcF({...svcF,nombre:e.target.value})} placeholder="Ej: Cita Gratuita, Sesión de pareja..."/></Field>
+                <Field label="Descripción"><input style={inp} value={svcF.descripcion} onChange={e=>setSvcF({...svcF,descripcion:e.target.value})} placeholder="Breve descripción del servicio"/></Field>
+                <Field label="Color identificador">
+                  <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+                    {['#4a7a4a','#5a82b0','#8fb08f','#c4956a','#8b5a8b','#b04a4a','#4a6a8b','#6a8b4a'].map(c => (
+                      <button key={c} onClick={()=>setSvcF({...svcF,color:c})} style={{width:32,height:32,borderRadius:8,background:c,border:svcF.color===c?'3px solid #2a3528':'2px solid #e2ede2',cursor:'pointer'}}/>
+                    ))}
+                  </div>
+                </Field>
+                <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:4}}>
+                  <button onClick={()=>{setSvcModal(false);setESvcId(null)}} style={btnS}>Cancelar</button>
+                  <button onClick={async ()=>{
+                    if(!svcF.nombre) return;
+                    if(eSvcId){setServices(p=>p.map(s=>s.id===eSvcId?{...s,...svcF}:s));show('Servicio actualizado');try{await upsertService({id:eSvcId,nombre:svcF.nombre,descripcion:svcF.descripcion,color:svcF.color})}catch(e){show('Error al guardar servicio')}}
+                    else{const nid=Math.max(0,...services.map(s=>s.id))+1;setServices(p=>[...p,{...svcF,id:nid,active:true}]);show('Servicio creado');try{await upsertService({nombre:svcF.nombre,descripcion:svcF.descripcion,color:svcF.color})}catch(e){show('Error al guardar servicio')}}
+                    setSvcModal(false);setESvcId(null);
+                  }} style={btnP}>{I.check} {eSvcId?'Actualizar':'Crear'}</button>
+                </div>
+              </Modal>
+            </div>
+          )}
+
+          {/* FACTURAS */}
+          {section === 'facturas' && (
+            <div style={{animation:'slideIn .3s'}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16,flexWrap:'wrap',gap:10}}>
+                <div style={{display:'flex',gap:5}}>
+                  {['todos','pendiente','pagada','vencida'].map(f => (
+                    <button key={f} onClick={()=>setInvFilter(f)} style={{padding:'6px 15px',borderRadius:20,border:'1.5px solid',fontSize:12,fontWeight:500,cursor:'pointer',fontFamily:"'DM Sans',sans-serif",borderColor:invFilter===f?'#4a7a4a':'#c8ddc8',background:invFilter===f?'#f0f5f0':'#fdfcfa',color:invFilter===f?'#4a7a4a':'#4e6050',textTransform:'capitalize'}}>{f}</button>
+                  ))}
+                </div>
+                <div style={{display:'flex',gap:8}}>
+                  <button onClick={exportCSV} style={{...btnS,fontSize:12,padding:'7px 15px'}}>{I.download} CSV</button>
+                  <button onClick={()=>{setEInvId(null);setInvF({paciente:'',concepto:'Sesión individual',monto:'',estado:'pendiente'});setInvModal(true)}} style={{...btnP,fontSize:12,padding:'7px 15px'}}>{I.plus} Nueva</button>
+                </div>
+              </div>
+              <div style={{...CARD,overflow:'hidden'}}>
+                <div style={{overflowX:'auto'}}>
+                  <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
+                    <thead><tr style={{borderBottom:'2px solid '+(dm?'#333':'#e2ede2')}}>
+                      {['#','Paciente','Concepto','Monto','Estado','Fecha',''].map(h => (
+                        <th key={h} style={{padding:'11px 13px',textAlign:'left',fontSize:10,fontWeight:500,color:'#849884',textTransform:'uppercase',letterSpacing:'.5px',whiteSpace:'nowrap'}}>{h}</th>
+                      ))}
+                    </tr></thead>
+                    <tbody>
+                      {fInvs.map((inv, idx) => (
+                        <tr key={inv.id} style={{borderBottom:'1px solid '+(dm?'#2a2a2a':'#f0f5f0')}} onMouseEnter={e=>e.currentTarget.style.background=(dm?'#252525':'#f0f5f0')} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                          <td style={{padding:'11px 13px',color:'#849884',fontSize:12,fontFamily:'monospace'}}>{String(inv.id).padStart(4,'0')}</td>
+                          <td style={{padding:'11px 13px',fontWeight:500}}>{inv.paciente}</td>
+                          <td style={{padding:'11px 13px',color:'#4e6050'}}>{inv.concepto}</td>
+                          <td style={{padding:'11px 13px',fontWeight:500}}>{'$'+inv.monto.toLocaleString()}</td>
+                          <td style={{padding:'11px 13px'}}><span style={bdg(inv.estado==='pagada'?'green':inv.estado==='pendiente'?'yellow':'red')}>{inv.estado}</span></td>
+                          <td style={{padding:'11px 13px',color:'#849884',whiteSpace:'nowrap',fontSize:12}}>{inv.fecha}</td>
+                          <td style={{padding:'11px 13px',position:'relative'}}>
+                            <button onClick={()=>setOpenMenu(openMenu===inv.id?null:inv.id)} style={{border:'none',background:openMenu===inv.id?'#f0f5f0':'none',borderRadius:8,width:32,height:32,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#849884'}}>{I.dots}</button>
+                            {openMenu === inv.id && (
+                              <DropMenu onClose={()=>setOpenMenu(null)} items={[
+                                {label:'Ver factura',icon:I.eye,action:()=>prevInv(inv)},
+                                {label:'Descargar',icon:I.download,action:()=>dlInv(inv)},
+                                {label:'Copiar link',icon:I.link,action:()=>copyLnk(inv.link)},
+                                {label:'Enviar correo',icon:I.mail,action:()=>show('Correo enviado a '+inv.paciente)},
+                                {label:'Enviar WhatsApp',icon:I.msg,action:()=>show('WhatsApp enviado a '+inv.paciente)},
+                                {divider:true},
+                                {label:'Editar',icon:I.edit,action:()=>{setEInvId(inv.id);setInvF({paciente:inv.paciente,concepto:inv.concepto,monto:inv.monto,estado:inv.estado});setInvModal(true)}},
+                                {label:'Eliminar',icon:I.trash,danger:true,action:async ()=>{setInvoices(p=>p.filter(i=>i.id!==inv.id));show('Eliminada');try{await deleteInvoice(inv.id)}catch(e){show('Error al eliminar')}}},
+                              ]}/>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {fInvs.length === 0 && <div style={{padding:36,textAlign:'center',color:'#849884',fontSize:14}}>No se encontraron facturas</div>}
+              </div>
+
+              <Modal dark={dm} open={invModal} onClose={()=>{setInvModal(false);setEInvId(null)}} title={eInvId?'Editar Factura':'Nueva Factura'}>
+                <Field label="Paciente"><input style={inp} value={invF.paciente} onChange={e=>setInvF({...invF,paciente:e.target.value})} placeholder="Nombre del paciente"/></Field>
+                <Field label="Concepto"><select style={sel} value={invF.concepto} onChange={e=>setInvF({...invF,concepto:e.target.value})}><option>Sesión individual</option><option>Terapia de pareja</option><option>Terapia familiar</option><option>Evaluación psicométrica</option><option>Informe psicológico</option><option>Otro</option></select></Field>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                  <Field label="Monto (MXN)"><input style={inp} type="number" value={invF.monto} onChange={e=>setInvF({...invF,monto:e.target.value})} placeholder="0.00"/></Field>
+                  <Field label="Estado"><select style={sel} value={invF.estado} onChange={e=>setInvF({...invF,estado:e.target.value})}><option value="pendiente">Pendiente</option><option value="pagada">Pagada</option><option value="vencida">Vencida</option></select></Field>
+                </div>
+                {!eInvId && <div style={{background:'#f0f5f0',borderRadius:10,padding:'11px 14px',display:'flex',alignItems:'center',gap:9,marginBottom:14,border:'1px solid #c8ddc8'}}><span style={{color:'#4a7a4a'}}>{I.link}</span><span style={{fontSize:12,color:'#4a7a4a'}}>Se generará link de cobro + notificación</span></div>}
+                <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+                  <button onClick={()=>{setInvModal(false);setEInvId(null)}} style={btnS}>Cancelar</button>
+                  <button onClick={saveInv} style={btnP}>{I.check} {eInvId ? 'Actualizar' : 'Continuar'}</button>
+                </div>
+              </Modal>
+
+              <Modal dark={dm} open={!!confirmModal} onClose={()=>setConfirmModal(null)} title="Enviar notificación" width={460}>
+                {confirmModal && (
+                  <>
+                    <div style={{...CARD,padding:16,marginBottom:16}}>
+                      <div style={{display:'flex',justifyContent:'space-between',marginBottom:6}}>
+                        <span style={{fontWeight:500}}>{confirmModal.paciente}</span>
+                        <span style={{fontWeight:500,color:'#4a7a4a'}}>{'$'+confirmModal.monto?.toLocaleString()+' MXN'}</span>
+                      </div>
+                      <div style={{fontSize:12,color:'#849884'}}>{confirmModal.concepto}</div>
+                      <div style={{fontSize:11,color:'#4a7a4a',marginTop:6,display:'flex',alignItems:'center',gap:6}}>{I.link} {confirmModal.link}</div>
+                    </div>
+                    <p style={{fontSize:13,color:'#4e6050',margin:'0 0 14px'}}>Selecciona cómo notificar al paciente sobre esta factura.</p>
+                    <div style={{display:'flex',flexDirection:'column',gap:10}}>
+                      <button onClick={()=>confirmAndSend(true,true)} style={{...btnP,justifyContent:'center',width:'100%'}}>{I.mail} {I.msg} Enviar correo y WhatsApp</button>
+                      <div style={{display:'flex',gap:10}}>
+                        <button onClick={()=>confirmAndSend(true,false)} style={{...btnS,flex:1,justifyContent:'center'}}>{I.mail} Solo correo</button>
+                        <button onClick={()=>confirmAndSend(false,true)} style={{...btnS,flex:1,justifyContent:'center'}}>{I.msg} Solo WhatsApp</button>
+                      </div>
+                      <button onClick={()=>confirmAndSend(false,false)} style={{border:'none',background:'none',color:'#849884',fontSize:12,cursor:'pointer',padding:'6px',fontFamily:"'DM Sans',sans-serif"}}>Omitir y solo guardar</button>
+                    </div>
+                  </>
+                )}
+              </Modal>
+            </div>
+          )}
+
+          {/* CALENDARIO */}
+          {section === 'reservas' && (
+            <div style={{animation:'slideIn .3s',display:'flex',gap:0,minHeight:'calc(100vh - 130px)'}}>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14,flexWrap:'wrap',gap:10}}>
+                  <div style={{display:'flex',alignItems:'center',gap:8}}>
+                    <button onClick={()=>navC(-1)} style={{border:'none',background:'#f0f5f0',borderRadius:8,width:32,height:32,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#4e6050',border:'1px solid #e2ede2'}}>{I.chevL}</button>
+                    <h2 style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:18,margin:0,minWidth:200,textAlign:'center',fontWeight:400}}>
+                      {calView === 'week'
+                        ? wd[0].getDate() + ' – ' + wd[6].getDate() + ' ' + MESES[wd[6].getMonth()] + ' ' + wd[6].getFullYear()
+                        : MESES[calDate.getMonth()] + ' ' + calDate.getFullYear()
+                      }
+                    </h2>
+                    <button onClick={()=>navC(1)} style={{border:'none',background:'#f0f5f0',borderRadius:8,width:32,height:32,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#4e6050',border:'1px solid #e2ede2'}}>{I.chevR}</button>
+                    <button onClick={()=>setCalDate(new Date(TODAY))} style={{...btnS,fontSize:11,padding:'5px 12px'}}>Hoy</button>
+                  </div>
+                  <div style={{display:'flex',gap:4}}>
+                    {['week','month'].map(v => (
+                      <button key={v} onClick={()=>setCalView(v)} style={{padding:'6px 14px',borderRadius:8,border:'1.5px solid',fontSize:12,fontWeight:500,cursor:'pointer',fontFamily:"'DM Sans',sans-serif",borderColor:calView===v?'#4a7a4a':'#c8ddc8',background:calView===v?'#f0f5f0':'#fdfcfa',color:calView===v?'#4a7a4a':'#4e6050'}}>{v === 'week' ? 'Semana' : 'Mes'}</button>
+                    ))}
+                    <button onClick={()=>{setEResId(null);setResF({paciente:'',email:'',telefono:'',fecha:'',hora:'',duracion:60,tipo:'Individual',notas:'',estado:'pendiente'});setResModal(true)}} style={{...btnP,fontSize:12,padding:'6px 13px',marginLeft:4}}>{I.plus} Cita</button>
+                  </div>
+                </div>
+
+                {calView === 'week' && (
+                  <div style={{...CARD,overflow:'hidden'}}>
+                    <div style={{display:'grid',gridTemplateColumns:'54px repeat(7,1fr)',borderBottom:'2px solid '+(dm?'#333':'#e2ede2')}}>
+                      <div style={{padding:8,borderRight:'1px solid '+(dm?'#2a2a2a':'#e2ede2')}}/>
+                      {wd.map((d,i) => {
+                        const t = sameD(d, TODAY);
+                        return (
+                          <div key={i} style={{padding:'8px 4px',textAlign:'center',borderRight:i<6?'1px solid '+(dm?'#2a2a2a':'#e2ede2'):'none',background:t?(dm?'#1a2e1f':'#f0f5f0'):'transparent'}}>
+                            <div style={{fontSize:10,fontWeight:500,color:'#849884',textTransform:'uppercase'}}>{DIAS_ES[i]}</div>
+                            <div style={{fontSize:17,fontWeight:t?500:400,fontFamily:"'Cormorant Garamond',Georgia,serif",color:t?'#4a7a4a':'#2a3528',marginTop:1}}>{d.getDate()}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div style={{maxHeight:500,overflowY:'auto'}}>
+                      {HORAS.map(hora => (
+                        <div key={hora} style={{display:'grid',gridTemplateColumns:'54px repeat(7,1fr)',minHeight:50,borderBottom:'1px solid '+(dm?'#2a2a2a':'#f0f5f0')}}>
+                          <div style={{padding:'4px 5px 0',textAlign:'right',fontSize:10,color:'#c8ddc8',fontWeight:400,borderRight:'1px solid '+(dm?'#2a2a2a':'#e2ede2')}}>{hora}</div>
+                          {wd.map((d, di) => {
+                            const dk2 = dkey(d);
+                            const evs = resDay(dk2).filter(r => r.hora === hora);
+                            const t = sameD(d, TODAY);
+                            return (
+                              <div key={di} onClick={() => {if(!evs.length){setEResId(null);setResF({paciente:'',email:'',telefono:'',fecha:dk2,hora:hora,duracion:60,tipo:'Individual',notas:'',estado:'pendiente'});setResModal(true)}}}
+                                style={{padding:'2px 3px',borderRight:di<6?'1px solid '+(dm?'#2a2a2a':'#f0f5f0'):'none',background:t?(dm?'rgba(74,122,74,.08)':'rgba(240,245,240,.4)'):'transparent',cursor:evs.length?'default':'pointer',minHeight:50}}>
+                                {evs.map(ev => {
+                                  const tc = TC[ev.tipo] || TC.Individual;
+                                  return (
+                                    <div key={ev.id} onClick={e => {e.stopPropagation();setSelRes(ev)}} style={{
+                                      background:tc.bg,borderLeft:'3px solid '+tc.dot,borderRadius:5,padding:'3px 6px',cursor:'pointer',
+                                      marginBottom:2,boxShadow:selRes?.id===ev.id?'0 0 0 2px '+tc.dot:'none',transition:'box-shadow .15s'
+                                    }}>
+                                      <div style={{fontSize:11,fontWeight:500,color:tc.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{ev.paciente}</div>
+                                      <div style={{fontSize:9,color:tc.text,opacity:.65}}>{ev.tipo} · {ev.duracion}m</div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {calView === 'month' && (
+                  <div style={{...CARD,overflow:'hidden'}}>
+                    <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',borderBottom:'2px solid '+(dm?'#333':'#e2ede2')}}>
+                      {DIAS_ES.map(d => <div key={d} style={{padding:8,textAlign:'center',fontSize:10,fontWeight:500,color:'#849884',textTransform:'uppercase'}}>{d}</div>)}
+                    </div>
+                    <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)'}}>
+                      {md.map((d, i) => {
+                        if (d === null) return <div key={'e'+i} style={{minHeight:74,borderBottom:'1px solid '+(dm?'#2a2a2a':'#f0f5f0'),borderRight:i%7<6?'1px solid '+(dm?'#2a2a2a':'#f0f5f0'):'none',background:dm?'#1a1a1a':'#f0f5f0'}}/>;
+                        const dk2 = dkey(d);
+                        const evs = resDay(dk2);
+                        const t = sameD(d, TODAY);
+                        return (
+                          <div key={'d'+i} onClick={() => {if(!evs.length){setEResId(null);setResF({paciente:'',email:'',telefono:'',fecha:dk2,hora:'09:00',duracion:60,tipo:'Individual',notas:'',estado:'pendiente'});setResModal(true)}}}
+                            style={{minHeight:74,padding:'3px 4px',borderBottom:'1px solid '+(dm?'#2a2a2a':'#f0f5f0'),borderRight:i%7<6?'1px solid '+(dm?'#2a2a2a':'#f0f5f0'):'none',background:t?(dm?'#1a2e1f':'#f0f5f0'):'transparent',cursor:'pointer'}}>
+                            <div style={{fontSize:11,fontWeight:t?500:400,color:t?'#4a7a4a':'#4e6050',marginBottom:2}}>{d.getDate()}</div>
+                            {evs.slice(0,2).map(ev => {
+                              const tc = TC[ev.tipo] || TC.Individual;
+                              return (
+                                <div key={ev.id} onClick={e => {e.stopPropagation();setSelRes(ev)}} style={{
+                                  background:tc.bg,borderRadius:3,padding:'1px 4px',marginBottom:1,cursor:'pointer',
+                                  borderLeft:'2px solid '+tc.dot,boxShadow:selRes?.id===ev.id?'0 0 0 1.5px '+tc.dot:'none'
+                                }}>
+                                  <div style={{fontSize:9.5,fontWeight:500,color:tc.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{ev.hora} {ev.paciente}</div>
+                                </div>
+                              );
+                            })}
+                            {evs.length > 2 && <div style={{fontSize:9,color:'#849884',fontWeight:500}}>+{evs.length-2} más</div>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {selRes && (
+                <div style={{width:290,flexShrink:0,marginLeft:14,animation:'panelIn .22s'}}>
+                  <div style={{...CARD,position:'sticky',top:72}}>
+                    <div style={{padding:'16px 16px 10px',borderBottom:'1px solid #e2ede2',display:'flex',justifyContent:'space-between',alignItems:'start'}}>
+                      <div>
+                        <h3 style={{margin:0,fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:16,fontWeight:400}}>{selRes.paciente}</h3>
+                        <span style={{...bdg(selRes.estado==='confirmada'?'green':'yellow'),marginTop:5,display:'inline-block'}}>{selRes.estado}</span>
+                      </div>
+                      <button onClick={()=>setSelRes(null)} style={{border:'none',background:'#f0f5f0',borderRadius:7,width:28,height:28,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#849884'}}>{I.close}</button>
+                    </div>
+                    <div style={{padding:'12px 16px'}}>
+                      {[
+                        [I.calendar,'Fecha',selRes.fecha],
+                        [I.clock,'Hora',selRes.hora+' ('+selRes.duracion+' min)'],
+                        [I.user,'Tipo',selRes.tipo],
+                        [I.mail,'Email',selRes.email||'—'],
+                        [I.msg,'Tel',selRes.telefono||'—'],
+                      ].map(([icon,label,val],i) => (
+                        <div key={i} style={{display:'flex',alignItems:'center',gap:9,marginBottom:10}}>
+                          <span style={{color:'#849884',display:'flex',flexShrink:0}}>{icon}</span>
+                          <div><div style={{fontSize:10,color:'#849884',fontWeight:500,textTransform:'uppercase',letterSpacing:'.4px'}}>{label}</div><div style={{fontSize:13,fontWeight:400}}>{val}</div></div>
+                        </div>
+                      ))}
+                      {selRes.notas && <div style={{marginTop:4,padding:'8px 11px',background:dm?'#1a1a1a':'#f0f5f0',borderRadius:7,fontSize:12,color:'#4e6050',fontStyle:'italic',lineHeight:1.5,borderLeft:'3px solid #c8ddc8'}}>{selRes.notas}</div>}
+                      <div style={{display:'flex',gap:7,marginTop:14}}>
+                        <button onClick={()=>{setEResId(selRes.id);setResF({...selRes});setResModal(true)}} style={{...btnP,flex:1,justifyContent:'center',fontSize:12,padding:'8px 0'}}>{I.edit} Editar</button>
+                        <button onClick={()=>delRes(selRes.id)} style={{border:'none',background:'#FFEBEE',borderRadius:10,width:36,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#C62828'}}>{I.trash}</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <Modal dark={dm} open={resModal} onClose={()=>{setResModal(false);setEResId(null)}} title={eResId?'Editar Cita':'Nueva Cita'} width={520}>
+                <Field label="Paciente"><input style={inp} value={resF.paciente} onChange={e=>setResF({...resF,paciente:e.target.value})} placeholder="Nombre completo"/></Field>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                  <Field label="Email"><input style={inp} type="email" value={resF.email} onChange={e=>setResF({...resF,email:e.target.value})} placeholder="correo@mail.com"/></Field>
+                  <Field label="Teléfono"><input style={inp} value={resF.telefono} onChange={e=>setResF({...resF,telefono:e.target.value})} placeholder="+54 9 11 0000-0000"/></Field>
+                </div>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'0 14px'}}>
+                  <Field label="Fecha"><input style={inp} type="date" value={resF.fecha} onChange={e=>setResF({...resF,fecha:e.target.value})}/></Field>
+                  <Field label="Hora"><select style={sel} value={resF.hora} onChange={e=>setResF({...resF,hora:e.target.value})}><option value="">—</option>{HORAS.map(h=><option key={h}>{h}</option>)}</select></Field>
+                  <Field label="Duración"><select style={sel} value={resF.duracion} onChange={e=>setResF({...resF,duracion:e.target.value})}><option value={30}>30 min</option><option value={60}>60 min</option><option value={90}>90 min</option><option value={120}>120 min</option></select></Field>
+                </div>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                  <Field label="Tipo"><select style={sel} value={resF.tipo} onChange={e=>setResF({...resF,tipo:e.target.value})}><option>Individual</option><option>Pareja</option><option>Familiar</option><option>Evaluación</option></select></Field>
+                  <Field label="Estado"><select style={sel} value={resF.estado} onChange={e=>setResF({...resF,estado:e.target.value})}><option value="pendiente">Pendiente</option><option value="confirmada">Confirmada</option><option value="cancelada">Cancelada</option></select></Field>
+                </div>
+                <Field label="Notas"><textarea style={{...inp,minHeight:55,resize:'vertical'}} value={resF.notas} onChange={e=>setResF({...resF,notas:e.target.value})} placeholder="Observaciones..."/></Field>
+                <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+                  <button onClick={()=>{setResModal(false);setEResId(null)}} style={btnS}>Cancelar</button>
+                  <button onClick={saveRes} style={btnP}>{I.check} {eResId?'Actualizar':'Crear'}</button>
+                </div>
+              </Modal>
+            </div>
+          )}
+
+          {/* MÉTODOS DE PAGO */}
+          {section === 'pagos' && (
+            <div style={{animation:'slideIn .3s'}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+                <p style={{color:'#849884',margin:0,fontSize:14,fontWeight:300}}>Configura cómo recibes los pagos. Ordénalos por prioridad.</p>
+                <button onClick={()=>{setEMetId(null);setMetViewId(null);setMetF({tipo:'Transferencia',nombre:'',banco:'',titular:'',cuentaVisible:'',cuentaCompleta:'',moneda:'USD',tiempoConfirm:'24–48h',instrucciones:'',notasInternas:'',correoProveedor:'',comision:'',estadoConexion:'conectado',monedasAceptadas:'USD',pagosRecurrentes:false,tipoCuenta:'Personal',tiempoAcredit:'Instantáneo',politicaReembolso:'',clavePublica:'',claveSecreta:'',idComercio:'',prioridad:metodos.length+1});setMetModal(true)}} style={btnP}>{I.plus} Agregar método</button>
+              </div>
+              <div style={{display:'grid',gap:12}}>
+                {[...metodos].sort((a,b)=>a.prioridad-b.prioridad).map((m) => {
+                  const isOpen = metViewId === m.id;
+                  const typeIcon = m.tipo==='Transferencia'?'🏦':m.tipo==='Tarjeta'?'💳':'🅿️';
+                  const gradBg = m.tipo==='Transferencia'?'linear-gradient(135deg,#4a7a4a,#3a6a3a)':m.tipo==='Tarjeta'?'linear-gradient(135deg,#5a82b0,#3a6b9f)':'linear-gradient(135deg,#c4956a,#b08050)';
+                  return (
+                  <div key={m.id} style={{...CARD,overflow:'hidden',opacity:m.activo?1:.5,transition:'opacity .3s'}}>
+                    <div style={{padding:'18px 20px',display:'flex',alignItems:'center',justifyContent:'space-between',cursor:'pointer'}} onClick={()=>setMetViewId(isOpen?null:m.id)}>
+                      <div style={{display:'flex',alignItems:'center',gap:14}}>
+                        <div style={{width:44,height:44,borderRadius:12,background:gradBg,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontSize:20}}>{typeIcon}</div>
+                        <div>
+                          <div style={{fontSize:14,fontWeight:500,display:'flex',alignItems:'center',gap:8}}>{m.nombre||m.tipo}
+                            <span style={{fontSize:10,padding:'2px 8px',borderRadius:10,background:m.activo?'#f0f5f0':'#FFEBEE',color:m.activo?'#4a7a4a':'#C62828',fontWeight:600}}>{m.activo?'Activo':'Inactivo'}</span>
+                            <span style={{fontSize:10,padding:'2px 8px',borderRadius:10,background:'#f0f5f0',color:'#849884'}}>Prioridad {m.prioridad}</span>
+                          </div>
+                          <div style={{fontSize:12,color:'#849884',marginTop:2}}>{m.titular} · {m.cuentaVisible||m.banco}</div>
+                        </div>
+                      </div>
+                      <div style={{display:'flex',alignItems:'center',gap:7}}>
+                        <button onClick={async e=>{e.stopPropagation();const nv=!m.activo;setMetodos(p=>p.map(x=>x.id===m.id?{...x,activo:nv}:x));try{await togglePaymentMethodActive(m.id,nv)}catch(er){show('Error al cambiar estado')}}} style={{width:42,height:22,borderRadius:11,border:'none',background:m.activo?'#4a7a4a':'#c8ddc8',cursor:'pointer',position:'relative',transition:'background .3s'}}>
+                          <div style={{width:16,height:16,borderRadius:'50%',background:'#fff',position:'absolute',top:3,left:m.activo?23:3,transition:'left .3s',boxShadow:'0 1px 3px rgba(0,0,0,.15)'}}/>
+                        </button>
+                        <button onClick={e=>{e.stopPropagation();setEMetId(m.id);setMetF({...m});setMetModal(true)}} style={{border:'none',background:'#f0f5f0',borderRadius:7,width:32,height:32,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#4e6050'}}>{I.edit}</button>
+                        <button onClick={async e=>{e.stopPropagation();setMetodos(p=>p.filter(x=>x.id!==m.id));show('Eliminado');try{await deletePaymentMethod(m.id)}catch(er){show('Error al eliminar')}}} style={{border:'none',background:'#FFEBEE',borderRadius:7,width:32,height:32,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#C62828'}}>{I.trash}</button>
+                        <span style={{color:'#849884',transform:isOpen?'rotate(90deg)':'rotate(0)',transition:'transform .2s'}}>{I.chevR}</span>
+                      </div>
+                    </div>
+
+                    {/* Expanded detail */}
+                    {isOpen && (
+                      <div style={{padding:'0 20px 20px',borderTop:'1px solid '+borderC}}>
+                        <div style={{padding:'16px 0 0',display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px 24px'}}>
+                          {/* Common fields */}
+                          <div><div style={{fontSize:10,color:'#849884',fontWeight:500,textTransform:'uppercase',letterSpacing:'.4px',marginBottom:2}}>Tipo</div><div style={{fontSize:13}}>{m.tipo}</div></div>
+                          <div><div style={{fontSize:10,color:'#849884',fontWeight:500,textTransform:'uppercase',letterSpacing:'.4px',marginBottom:2}}>Titular</div><div style={{fontSize:13}}>{m.titular}</div></div>
+
+                          {/* Transfer-specific */}
+                          {m.tipo==='Transferencia' && <>
+                            <div><div style={{fontSize:10,color:'#849884',fontWeight:500,textTransform:'uppercase',letterSpacing:'.4px',marginBottom:2}}>Banco</div><div style={{fontSize:13}}>{m.banco}</div></div>
+                            <div><div style={{fontSize:10,color:'#849884',fontWeight:500,textTransform:'uppercase',letterSpacing:'.4px',marginBottom:2}}>Cuenta (visible)</div><div style={{fontSize:13}}>{m.cuentaVisible}</div></div>
+                            <div><div style={{fontSize:10,color:'#849884',fontWeight:500,textTransform:'uppercase',letterSpacing:'.4px',marginBottom:2}}>Moneda</div><div style={{fontSize:13}}>{m.moneda}</div></div>
+                            <div><div style={{fontSize:10,color:'#849884',fontWeight:500,textTransform:'uppercase',letterSpacing:'.4px',marginBottom:2}}>Confirmación</div><div style={{fontSize:13}}>{m.tiempoConfirm}</div></div>
+                            {m.instrucciones && <div style={{gridColumn:'1/-1'}}><div style={{fontSize:10,color:'#849884',fontWeight:500,textTransform:'uppercase',letterSpacing:'.4px',marginBottom:2}}>Instrucciones</div><div style={{fontSize:13,color:'#4e6050',fontStyle:'italic'}}>{m.instrucciones}</div></div>}
+                          </>}
+
+                          {/* Card/Stripe-specific */}
+                          {m.tipo==='Tarjeta' && <>
+                            <div><div style={{fontSize:10,color:'#849884',fontWeight:500,textTransform:'uppercase',letterSpacing:'.4px',marginBottom:2}}>Proveedor</div><div style={{fontSize:13}}>{m.banco}</div></div>
+                            <div><div style={{fontSize:10,color:'#849884',fontWeight:500,textTransform:'uppercase',letterSpacing:'.4px',marginBottom:2}}>Depósito</div><div style={{fontSize:13}}>{m.cuentaVisible}</div></div>
+                            <div><div style={{fontSize:10,color:'#849884',fontWeight:500,textTransform:'uppercase',letterSpacing:'.4px',marginBottom:2}}>Comisión</div><div style={{fontSize:13}}>{m.comision||'—'}</div></div>
+                            <div><div style={{fontSize:10,color:'#849884',fontWeight:500,textTransform:'uppercase',letterSpacing:'.4px',marginBottom:2}}>Conexión</div><div style={{fontSize:13,display:'flex',alignItems:'center',gap:6}}><span style={{width:7,height:7,borderRadius:'50%',background:m.estadoConexion==='conectado'?'#4a7a4a':'#C62828'}}/>{m.estadoConexion}</div></div>
+                            <div><div style={{fontSize:10,color:'#849884',fontWeight:500,textTransform:'uppercase',letterSpacing:'.4px',marginBottom:2}}>Monedas</div><div style={{fontSize:13}}>{m.monedasAceptadas}</div></div>
+                            <div><div style={{fontSize:10,color:'#849884',fontWeight:500,textTransform:'uppercase',letterSpacing:'.4px',marginBottom:2}}>Pagos recurrentes</div><div style={{fontSize:13}}>{m.pagosRecurrentes?'Sí':'No'}</div></div>
+                          </>}
+
+                          {/* PayPal-specific */}
+                          {m.tipo==='PayPal' && <>
+                            <div><div style={{fontSize:10,color:'#849884',fontWeight:500,textTransform:'uppercase',letterSpacing:'.4px',marginBottom:2}}>Correo PayPal</div><div style={{fontSize:13}}>{m.cuentaVisible}</div></div>
+                            <div><div style={{fontSize:10,color:'#849884',fontWeight:500,textTransform:'uppercase',letterSpacing:'.4px',marginBottom:2}}>Tipo de cuenta</div><div style={{fontSize:13}}>{m.tipoCuenta||'Personal'}</div></div>
+                            <div><div style={{fontSize:10,color:'#849884',fontWeight:500,textTransform:'uppercase',letterSpacing:'.4px',marginBottom:2}}>Monedas</div><div style={{fontSize:13}}>{m.monedasAceptadas||'—'}</div></div>
+                            <div><div style={{fontSize:10,color:'#849884',fontWeight:500,textTransform:'uppercase',letterSpacing:'.4px',marginBottom:2}}>Acreditación</div><div style={{fontSize:13}}>{m.tiempoAcredit||'—'}</div></div>
+                            {m.politicaReembolso && <div style={{gridColumn:'1/-1'}}><div style={{fontSize:10,color:'#849884',fontWeight:500,textTransform:'uppercase',letterSpacing:'.4px',marginBottom:2}}>Política de reembolso</div><div style={{fontSize:13,fontStyle:'italic',color:'#4e6050'}}>{m.politicaReembolso}</div></div>}
+                          </>}
+
+                          {/* Internal notes (all types) */}
+                          {m.notasInternas && (
+                            <div style={{gridColumn:'1/-1',marginTop:6,padding:'10px 14px',background:dm?'#252525':'#f0f5f0',borderRadius:8,borderLeft:'3px solid #c4956a'}}>
+                              <div style={{fontSize:10,color:'#c4956a',fontWeight:600,textTransform:'uppercase',letterSpacing:'.4px',marginBottom:3}}>Notas internas (solo administrador)</div>
+                              <div style={{fontSize:12,color:'#4e6050'}}>{m.notasInternas}</div>
+                            </div>
+                          )}
+
+                          {/* Full account (internal) */}
+                          {m.cuentaCompleta && (
+                            <div style={{gridColumn:'1/-1'}}>
+                              <div style={{fontSize:10,color:'#849884',fontWeight:500,textTransform:'uppercase',letterSpacing:'.4px',marginBottom:2}}>Cuenta completa (interno)</div>
+                              <div style={{fontSize:12,fontFamily:'monospace',color:'#4e6050',background:dm?'#252525':'#f0f5f0',padding:'6px 10px',borderRadius:6}}>{m.cuentaCompleta}</div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  );
+                })}
+              </div>
+
+              {/* Add/Edit Method Modal */}
+              <Modal dark={dm} open={metModal} onClose={()=>{setMetModal(false);setEMetId(null)}} title={eMetId?'Editar Método':'Agregar Método'} width={560}>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                  <Field label="Tipo de método"><select style={sel} value={metF.tipo} onChange={e=>setMetF({...metF,tipo:e.target.value})}><option>Transferencia</option><option>Tarjeta</option><option>PayPal</option><option>Efectivo</option><option>Otro</option></select></Field>
+                  <Field label="Nombre visible"><input style={inp} value={metF.nombre} onChange={e=>setMetF({...metF,nombre:e.target.value})} placeholder="Ej: Transferencia bancaria BBVA"/></Field>
+                </div>
+                <Field label="Titular"><input style={inp} value={metF.titular} onChange={e=>setMetF({...metF,titular:e.target.value})} placeholder="Nombre del titular"/></Field>
+
+                {metF.tipo==='Transferencia' && <>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                    <Field label="Banco"><input style={inp} value={metF.banco} onChange={e=>setMetF({...metF,banco:e.target.value})} placeholder="BBVA, Santander..."/></Field>
+                    <Field label="Moneda"><input style={inp} value={metF.moneda} onChange={e=>setMetF({...metF,moneda:e.target.value})} placeholder="USD, EUR, MXN..."/></Field>
+                  </div>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                    <Field label="Cuenta visible (para cliente)"><input style={inp} value={metF.cuentaVisible} onChange={e=>setMetF({...metF,cuentaVisible:e.target.value})} placeholder="**** 4521"/></Field>
+                    <Field label="Cuenta completa (interno)"><input style={inp} value={metF.cuentaCompleta} onChange={e=>setMetF({...metF,cuentaCompleta:e.target.value})} placeholder="ES12 0182 1234..."/></Field>
+                  </div>
+                  <Field label="Tiempo de confirmación"><input style={inp} value={metF.tiempoConfirm} onChange={e=>setMetF({...metF,tiempoConfirm:e.target.value})} placeholder="24–48h"/></Field>
+                  <Field label="Instrucciones para el cliente"><input style={inp} value={metF.instrucciones} onChange={e=>setMetF({...metF,instrucciones:e.target.value})} placeholder="Enviar comprobante por WhatsApp..."/></Field>
+                </>}
+
+                {metF.tipo==='Tarjeta' && <>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                    <Field label="Proveedor"><input style={inp} value={metF.banco} onChange={e=>setMetF({...metF,banco:e.target.value})} placeholder="Stripe, Square, MercadoPago..."/></Field>
+                    <Field label="Correo de cuenta"><input style={inp} value={metF.correoProveedor} onChange={e=>setMetF({...metF,correoProveedor:e.target.value})} placeholder="correo@proveedor.com"/></Field>
+                  </div>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                    <Field label="Últimos 4 dígitos depósito"><input style={inp} value={metF.cuentaVisible} onChange={e=>setMetF({...metF,cuentaVisible:e.target.value})} placeholder="**** 7890"/></Field>
+                    <Field label="Comisión"><input style={inp} value={metF.comision} onChange={e=>setMetF({...metF,comision:e.target.value})} placeholder="2.9% + $0.30"/></Field>
+                  </div>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                    <Field label="Estado de conexión"><select style={sel} value={metF.estadoConexion} onChange={e=>setMetF({...metF,estadoConexion:e.target.value})}><option value="conectado">Conectado</option><option value="desconectado">Requiere reconectar</option></select></Field>
+                    <Field label="Monedas aceptadas"><input style={inp} value={metF.monedasAceptadas} onChange={e=>setMetF({...metF,monedasAceptadas:e.target.value})} placeholder="USD, EUR, ARS"/></Field>
+                  </div>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                    <Field label="Clave pública (Public Key)"><input style={inp} value={metF.clavePublica} onChange={e=>setMetF({...metF,clavePublica:e.target.value})} placeholder="pk_live_..."/></Field>
+                    <Field label="Clave secreta (Secret Key)"><input style={inp} type="password" value={metF.claveSecreta} onChange={e=>setMetF({...metF,claveSecreta:e.target.value})} placeholder="sk_live_..."/></Field>
+                  </div>
+                  <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:14}}>
+                    <button onClick={()=>setMetF({...metF,pagosRecurrentes:!metF.pagosRecurrentes})} style={{width:42,height:22,borderRadius:11,border:'none',background:metF.pagosRecurrentes?'#4a7a4a':'#c8ddc8',cursor:'pointer',position:'relative',transition:'background .3s'}}>
+                      <div style={{width:16,height:16,borderRadius:'50%',background:'#fff',position:'absolute',top:3,left:metF.pagosRecurrentes?23:3,transition:'left .3s',boxShadow:'0 1px 3px rgba(0,0,0,.15)'}}/>
+                    </button>
+                    <span style={{fontSize:13,color:'#4e6050'}}>Activar pagos recurrentes</span>
+                  </div>
+                </>}
+
+                {metF.tipo==='PayPal' && <>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                    <Field label="Correo PayPal"><input style={inp} value={metF.cuentaVisible} onChange={e=>setMetF({...metF,cuentaVisible:e.target.value,cuentaCompleta:e.target.value})} placeholder="correo@paypal.com"/></Field>
+                    <Field label="Tipo de cuenta"><select style={sel} value={metF.tipoCuenta} onChange={e=>setMetF({...metF,tipoCuenta:e.target.value})}><option>Personal</option><option>Business</option></select></Field>
+                  </div>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                    <Field label="Monedas aceptadas"><input style={inp} value={metF.monedasAceptadas} onChange={e=>setMetF({...metF,monedasAceptadas:e.target.value})} placeholder="USD, EUR"/></Field>
+                    <Field label="Tiempo de acreditación"><input style={inp} value={metF.tiempoAcredit} onChange={e=>setMetF({...metF,tiempoAcredit:e.target.value})} placeholder="Instantáneo"/></Field>
+                  </div>
+                  <Field label="Política de reembolsos"><input style={inp} value={metF.politicaReembolso} onChange={e=>setMetF({...metF,politicaReembolso:e.target.value})} placeholder="Reembolso hasta 30 días..."/></Field>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                    <Field label="Client ID (Clave pública)"><input style={inp} value={metF.clavePublica} onChange={e=>setMetF({...metF,clavePublica:e.target.value})} placeholder="Client ID..."/></Field>
+                    <Field label="Client Secret (Clave secreta)"><input style={inp} type="password" value={metF.claveSecreta} onChange={e=>setMetF({...metF,claveSecreta:e.target.value})} placeholder="Client Secret..."/></Field>
+                  </div>
+                  <Field label="Merchant ID (ID Comercio)"><input style={inp} value={metF.idComercio} onChange={e=>setMetF({...metF,idComercio:e.target.value})} placeholder="MERCH-123456..."/></Field>
+                </>}
+
+                {(metF.tipo==='Efectivo'||metF.tipo==='Otro') && <>
+                  <Field label="Descripción / Banco"><input style={inp} value={metF.banco} onChange={e=>setMetF({...metF,banco:e.target.value})} placeholder="Descripción del método"/></Field>
+                  <Field label="Cuenta / Referencia"><input style={inp} value={metF.cuentaVisible} onChange={e=>setMetF({...metF,cuentaVisible:e.target.value})} placeholder="Referencia visible"/></Field>
+                </>}
+
+                {/* General fields for all types */}
+                <div style={{borderTop:'1px solid '+borderC,paddingTop:14,marginTop:4}}>
+                  <Field label="Prioridad (orden para el cliente)"><input style={inp} type="number" min="1" value={metF.prioridad} onChange={e=>setMetF({...metF,prioridad:Number(e.target.value)})}/></Field>
+                  <Field label="Notas internas (solo administrador)"><textarea style={{...inp,minHeight:50,resize:'vertical',fontSize:13}} value={metF.notasInternas} onChange={e=>setMetF({...metF,notasInternas:e.target.value})} placeholder="Notas visibles solo para ti..."/></Field>
+                </div>
+                <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+                  <button onClick={()=>{setMetModal(false);setEMetId(null)}} style={btnS}>Cancelar</button>
+                  <button onClick={saveMet} style={btnP}>{I.check} {eMetId?'Actualizar':'Agregar'}</button>
+                </div>
+              </Modal>
+            </div>
+          )}
+
+          {/* CONFIGURACIÓN */}
+          {section === 'config' && (
+            <div style={{animation:'slideIn .3s',display:'grid',gap:16,maxWidth:640}}>
+
+              {/* Nickname */}
+              <div style={{...CARD,padding:24}}>
+                <h3 style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:17,margin:'0 0 16px',display:'flex',alignItems:'center',gap:8,fontWeight:400}}>{I.user} Nombre para mostrar</h3>
+                <Field label="Cómo quieres que te llamemos">
+                  <input style={inp} value={nickname} onChange={e=>setNickname(e.target.value)} placeholder="Tu nombre o apodo"/>
+                </Field>
+                <p style={{fontSize:12,color:'#849884',margin:0,fontWeight:300}}>Se usa en el saludo del panel de inicio y en la barra lateral.</p>
+              </div>
+
+              {/* Dark / Light mode */}
+              <div style={{...CARD,padding:24}}>
+                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                  <div>
+                    <h3 style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:17,margin:'0 0 4px',display:'flex',alignItems:'center',gap:8,fontWeight:400}}>
+                      {darkMode
+                        ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                        : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+                      }
+                      Apariencia
+                    </h3>
+                    <p style={{fontSize:13,color:'#849884',margin:0,fontWeight:300}}>{darkMode ? 'Modo oscuro activado' : 'Modo claro activado'}</p>
+                  </div>
+                  <button onClick={()=>{setDarkMode(!darkMode);show(darkMode?'Modo claro':'Modo oscuro')}} style={{
+                    width:56,height:30,borderRadius:15,border:'none',cursor:'pointer',position:'relative',transition:'background .3s',
+                    background:darkMode?'#4a7a4a':'#c8ddc8'
+                  }}>
+                    <div style={{width:24,height:24,borderRadius:'50%',background:'#fff',position:'absolute',top:3,left:darkMode?29:3,transition:'left .3s',boxShadow:'0 1px 4px rgba(0,0,0,.2)',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                      {darkMode
+                        ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4a7a4a" strokeWidth="2.5"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                        : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#c4956a" strokeWidth="2.5"><circle cx="12" cy="12" r="5"/></svg>
+                      }
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              {/* Seguridad de la cuenta */}
+              <div style={{...CARD,padding:24}}>
+                <h3 style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:17,margin:'0 0 4px',display:'flex',alignItems:'center',gap:8,fontWeight:400}}>
+                  {I.lock} Seguridad de la cuenta
+                </h3>
+                <p style={{fontSize:12,color:'#849884',margin:'0 0 16px',fontWeight:300}}>Gestiona tu correo, contraseña y métodos de recuperación.</p>
+
+                {/* Email */}
+                <div style={{padding:'14px 16px',background:dm?'#1a1a1a':'#f0f5f0',borderRadius:10,border:'1px solid '+(dm?'#333':'#e2ede2'),display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
+                  <div style={{display:'flex',alignItems:'center',gap:12,minWidth:0}}>
+                    <span style={{color:'#4a7a4a',flexShrink:0}}>{I.mail}</span>
+                    <div style={{minWidth:0}}>
+                      <div style={{fontSize:11,color:'#849884',fontWeight:500,textTransform:'uppercase',letterSpacing:'.4px'}}>Correo principal</div>
+                      <div style={{fontSize:13,fontWeight:400,overflow:'hidden',textOverflow:'ellipsis'}}>{secEmail}</div>
+                    </div>
+                  </div>
+                  <button onClick={()=>{setSecNewEmail('');setSecEditModal('email')}} style={{...btnS,fontSize:11,padding:'6px 12px',flexShrink:0}}>{I.edit} Cambiar</button>
+                </div>
+
+                {/* Password */}
+                <div style={{padding:'14px 16px',background:dm?'#1a1a1a':'#f0f5f0',borderRadius:10,border:'1px solid '+(dm?'#333':'#e2ede2'),display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
+                  <div style={{display:'flex',alignItems:'center',gap:12}}>
+                    <span style={{color:'#4a7a4a'}}>{I.lock}</span>
+                    <div>
+                      <div style={{fontSize:11,color:'#849884',fontWeight:500,textTransform:'uppercase',letterSpacing:'.4px'}}>Contraseña</div>
+                      <div style={{fontSize:13,fontWeight:400,fontFamily:'monospace'}}>••••••••••••</div>
+                    </div>
+                  </div>
+                  <button onClick={()=>{setSecPwd({current:'',new1:'',new2:''});setSecEditModal('password')}} style={{...btnS,fontSize:11,padding:'6px 12px'}}>{I.edit} Cambiar</button>
+                </div>
+
+                {/* Recovery header */}
+                <div style={{marginTop:18,marginBottom:10,display:'flex',alignItems:'center',gap:8}}>
+                  <div style={{flex:1,height:1,background:dm?'#333':'#e2ede2'}}/>
+                  <span style={{fontSize:10,color:'#849884',fontWeight:600,textTransform:'uppercase',letterSpacing:'.8px'}}>Recuperación de cuenta</span>
+                  <div style={{flex:1,height:1,background:dm?'#333':'#e2ede2'}}/>
+                </div>
+
+                {/* Recovery email */}
+                <div style={{padding:'14px 16px',background:dm?'#1a1a1a':'#f0f5f0',borderRadius:10,border:'1px solid '+(dm?'#333':'#e2ede2'),display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
+                  <div style={{display:'flex',alignItems:'center',gap:12,minWidth:0}}>
+                    <span style={{color:'#4a7a4a',flexShrink:0}}>{I.mail}</span>
+                    <div style={{minWidth:0}}>
+                      <div style={{fontSize:11,color:'#849884',fontWeight:500,textTransform:'uppercase',letterSpacing:'.4px'}}>Correo de recuperación</div>
+                      <div style={{fontSize:13,fontWeight:400,overflow:'hidden',textOverflow:'ellipsis'}}>{recoveryEmail||'No configurado'}</div>
+                    </div>
+                  </div>
+                  <button onClick={()=>setSecEditModal('recovery')} style={{...btnS,fontSize:11,padding:'6px 12px',flexShrink:0}}>{I.edit} Editar</button>
+                </div>
+
+                {/* Security question */}
+                <div style={{padding:'14px 16px',background:dm?'#1a1a1a':'#f0f5f0',borderRadius:10,border:'1px solid '+(dm?'#333':'#e2ede2'),display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
+                  <div style={{display:'flex',alignItems:'center',gap:12,minWidth:0}}>
+                    <span style={{color:'#4a7a4a',flexShrink:0}}>
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                    </span>
+                    <div style={{minWidth:0}}>
+                      <div style={{fontSize:11,color:'#849884',fontWeight:500,textTransform:'uppercase',letterSpacing:'.4px'}}>Pregunta de seguridad</div>
+                      <div style={{fontSize:13,fontWeight:400,overflow:'hidden',textOverflow:'ellipsis'}}>{secQuestion}</div>
+                    </div>
+                  </div>
+                  <button onClick={()=>setSecEditModal('question')} style={{...btnS,fontSize:11,padding:'6px 12px',flexShrink:0}}>{I.edit} Editar</button>
+                </div>
+
+                {/* 2FA toggle */}
+                <div style={{padding:'14px 16px',background:dm?'#1a1a1a':'#f0f5f0',borderRadius:10,border:'1px solid '+(dm?'#333':'#e2ede2'),display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                  <div style={{display:'flex',alignItems:'center',gap:12}}>
+                    <span style={{color:'#4a7a4a'}}>
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                    </span>
+                    <div>
+                      <div style={{fontSize:11,color:'#849884',fontWeight:500,textTransform:'uppercase',letterSpacing:'.4px'}}>Autenticación de dos factores (2FA)</div>
+                      <div style={{fontSize:13,fontWeight:400}}>{twoFA?'Activada — se requiere código al iniciar sesión':'Desactivada — recomendado activar'}</div>
+                    </div>
+                  </div>
+                  <button onClick={()=>{setTwoFA(!twoFA);show(twoFA?'2FA desactivada':'2FA activada')}} style={{width:42,height:22,borderRadius:11,border:'none',background:twoFA?'#4a7a4a':'#c8ddc8',cursor:'pointer',position:'relative',transition:'background .3s',flexShrink:0}}>
+                    <div style={{width:16,height:16,borderRadius:'50%',background:'#fff',position:'absolute',top:3,left:twoFA?23:3,transition:'left .3s',boxShadow:'0 1px 3px rgba(0,0,0,.15)'}}/>
+                  </button>
+                </div>
+              </div>
+
+              {/* Change email modal */}
+              <Modal dark={dm} open={secEditModal==='email'} onClose={()=>setSecEditModal(null)} title="Cambiar correo principal" width={440}>
+                <Field label="Correo actual"><input style={{...inp,opacity:.6}} value={secEmail} disabled/></Field>
+                <Field label="Nuevo correo"><input style={inp} type="email" value={secNewEmail} onChange={e=>setSecNewEmail(e.target.value)} placeholder="nuevo@correo.com"/></Field>
+                <p style={{fontSize:12,color:'#849884',margin:'0 0 14px',fontWeight:300}}>Te enviaremos un enlace de verificación al nuevo correo antes de realizar el cambio.</p>
+                <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+                  <button onClick={()=>setSecEditModal(null)} style={btnS}>Cancelar</button>
+                  <button onClick={()=>{if(!secNewEmail)return;setSecEmail(secNewEmail);setSecEditModal(null);show('Enlace de verificación enviado')}} style={btnP}>{I.check} Enviar verificación</button>
+                </div>
+              </Modal>
+
+              {/* Change password modal */}
+              <Modal dark={dm} open={secEditModal==='password'} onClose={()=>setSecEditModal(null)} title="Cambiar contraseña" width={440}>
+                <Field label="Contraseña actual"><input style={inp} type="password" value={secPwd.current} onChange={e=>setSecPwd({...secPwd,current:e.target.value})} placeholder="••••••••"/></Field>
+                <Field label="Nueva contraseña"><input style={inp} type="password" value={secPwd.new1} onChange={e=>setSecPwd({...secPwd,new1:e.target.value})} placeholder="Mínimo 8 caracteres"/></Field>
+                <Field label="Confirmar nueva contraseña"><input style={inp} type="password" value={secPwd.new2} onChange={e=>setSecPwd({...secPwd,new2:e.target.value})} placeholder="Repite la contraseña"/></Field>
+                {secPwd.new1 && secPwd.new2 && secPwd.new1!==secPwd.new2 && <p style={{fontSize:12,color:'#C62828',margin:'0 0 10px'}}>Las contraseñas no coinciden</p>}
+                <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+                  <button onClick={()=>setSecEditModal(null)} style={btnS}>Cancelar</button>
+                  <button onClick={()=>{if(!secPwd.current||!secPwd.new1||secPwd.new1!==secPwd.new2)return;setSecEditModal(null);show('Contraseña actualizada')}} style={btnP}>{I.check} Actualizar</button>
+                </div>
+              </Modal>
+
+              {/* Recovery email modal */}
+              <Modal dark={dm} open={secEditModal==='recovery'} onClose={()=>setSecEditModal(null)} title="Correo de recuperación" width={440}>
+                <p style={{fontSize:13,color:'#4e6050',margin:'0 0 14px',fontWeight:300,lineHeight:1.5}}>Este correo se usará solo si pierdes acceso a tu cuenta principal. Debe ser diferente al correo principal.</p>
+                <Field label="Correo de recuperación"><input style={inp} type="email" value={recoveryEmail} onChange={e=>setRecoveryEmail(e.target.value)} placeholder="backup@correo.com"/></Field>
+                <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+                  <button onClick={()=>setSecEditModal(null)} style={btnS}>Cancelar</button>
+                  <button onClick={()=>{setSecEditModal(null);show('Correo de recuperación guardado')}} style={btnP}>{I.check} Guardar</button>
+                </div>
+              </Modal>
+
+              {/* Security question modal */}
+              <Modal dark={dm} open={secEditModal==='question'} onClose={()=>setSecEditModal(null)} title="Pregunta de seguridad" width={460}>
+                <p style={{fontSize:13,color:'#4e6050',margin:'0 0 14px',fontWeight:300,lineHeight:1.5}}>Elige una pregunta y una respuesta que solo tú conozcas. Se usará para verificar tu identidad en la recuperación de cuenta.</p>
+                <Field label="Pregunta">
+                  <select style={sel} value={secQuestion} onChange={e=>setSecQuestion(e.target.value)}>
+                    <option>¿Nombre de tu primera mascota?</option>
+                    <option>¿Ciudad donde naciste?</option>
+                    <option>¿Nombre de tu mejor amigo de la infancia?</option>
+                    <option>¿Modelo de tu primer auto?</option>
+                    <option>¿Apellido de soltera de tu madre?</option>
+                    <option>¿Nombre de tu escuela primaria?</option>
+                    <option>¿Tu comida favorita de niñez?</option>
+                  </select>
+                </Field>
+                <Field label="Respuesta"><input style={inp} type="password" value={secAnswer} onChange={e=>setSecAnswer(e.target.value)} placeholder="Tu respuesta"/></Field>
+                <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+                  <button onClick={()=>setSecEditModal(null)} style={btnS}>Cancelar</button>
+                  <button onClick={()=>{setSecEditModal(null);show('Pregunta de seguridad guardada')}} style={btnP}>{I.check} Guardar</button>
+                </div>
+              </Modal>
+
+              {/* Notepad */}
+              <div style={{...CARD,padding:24}}>
+                <h3 style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:17,margin:'0 0 4px',display:'flex',alignItems:'center',gap:8,fontWeight:400}}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                  Nota rápida
+                </h3>
+                <p style={{fontSize:12,color:'#849884',margin:'0 0 12px',fontWeight:300}}>Un espacio para recordatorios personales. Solo tú puedes verlo.</p>
+                <textarea
+                  style={{...inp,minHeight:100,resize:'vertical',lineHeight:1.6,fontSize:13}}
+                  value={notepad}
+                  onChange={e=>setNotepad(e.target.value)}
+                  onBlur={async ()=>{try{await updateNotepad(notepad);show('Nota guardada')}catch(e){show('Error al guardar nota')}}}
+                  placeholder="Escribe algo que quieras recordar..."
+                />
+              </div>
+
+              {/* Tutorial links */}
+              <div style={{...CARD,padding:24}}>
+                <h3 style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:17,margin:'0 0 4px',display:'flex',alignItems:'center',gap:8,fontWeight:400}}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+                  Tutoriales y enlaces útiles
+                </h3>
+                <p style={{fontSize:12,color:'#849884',margin:'0 0 14px',fontWeight:300}}>Guarda enlaces que te sean útiles para consulta rápida.</p>
+
+                <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:14}}>
+                  {tutorialLinks.map(link => (
+                    <div key={link.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 14px',background:dm?'#1a1a1a':'#f0f5f0',borderRadius:10,border:'1px solid '+(dm?'#333':'#e2ede2')}}>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:13,fontWeight:500,marginBottom:2}}>{link.title}</div>
+                        <div style={{fontSize:11,color:'#4a7a4a',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{link.url}</div>
+                      </div>
+                      <div style={{display:'flex',gap:6,marginLeft:10,flexShrink:0}}>
+                        <button onClick={()=>{window.open(link.url,'_blank')}} style={{border:'none',background:'#e2ede2',borderRadius:7,width:30,height:30,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#4a7a4a'}}>{I.eye}</button>
+                        <button onClick={()=>{setTutorialLinks(p=>p.filter(l=>l.id!==link.id));show('Enlace eliminado')}} style={{border:'none',background:'#FFEBEE',borderRadius:7,width:30,height:30,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#C62828'}}>{I.trash}</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Add new link */}
+                <div style={{padding:'14px',background:dm?'#1a1a1a':'#f0f5f0',borderRadius:10,border:'1px dashed '+(dm?'#444':'#c8ddc8')}}>
+                  <div style={{fontSize:11,fontWeight:500,color:'#849884',textTransform:'uppercase',letterSpacing:'.5px',marginBottom:8}}>Agregar enlace</div>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:8}}>
+                    <input style={{...inp,fontSize:12}} value={newLink.title} onChange={e=>setNewLink({...newLink,title:e.target.value})} placeholder="Título"/>
+                    <input style={{...inp,fontSize:12}} value={newLink.url} onChange={e=>setNewLink({...newLink,url:e.target.value})} placeholder="https://..."/>
+                  </div>
+                  <button onClick={()=>{
+                    if(!newLink.title||!newLink.url) return;
+                    const nid = Math.max(0,...tutorialLinks.map(l=>l.id))+1;
+                    setTutorialLinks(p=>[...p,{id:nid,...newLink}]);
+                    setNewLink({title:'',url:''});
+                    show('Enlace agregado');
+                  }} style={{...btnP,fontSize:12,padding:'7px 16px'}}>{I.plus} Agregar</button>
+                </div>
+              </div>
+
+              {/* Logout */}
+              <div style={{...CARD,padding:24}}>
+                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                  <div>
+                    <h3 style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:17,margin:'0 0 4px',display:'flex',alignItems:'center',gap:8,fontWeight:400}}>
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                      Sesión
+                    </h3>
+                    <p style={{fontSize:12,color:'#849884',margin:0,fontWeight:300}}>Cerrar sesión en este dispositivo</p>
+                  </div>
+                  <button onClick={()=>setLogoutConfirm(true)} style={{padding:'9px 20px',borderRadius:10,border:'1.5px solid #c8ddc8',background:'#fdfcfa',color:'#C62828',fontWeight:500,fontSize:13,cursor:'pointer',fontFamily:"'DM Sans',sans-serif",display:'flex',alignItems:'center',gap:7}}>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                    Cerrar sesión
+                  </button>
+                </div>
+              </div>
+
+              {/* Logout confirm modal */}
+              <Modal dark={dm} open={logoutConfirm} onClose={()=>setLogoutConfirm(false)} title="Cerrar sesión" width={380}>
+                <p style={{fontSize:14,color:'#4e6050',margin:'0 0 18px',lineHeight:1.6,fontWeight:300}}>Estás a punto de cerrar tu sesión. Tendrás que volver a iniciar sesión para acceder al panel.</p>
+                <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+                  <button onClick={()=>setLogoutConfirm(false)} style={btnS}>Cancelar</button>
+                  <button onClick={async ()=>{setLogoutConfirm(false);show('Cerrando sesión...');await logoutAction();}} style={{...btnP,background:'linear-gradient(135deg,#C62828,#B71C1C)'}}>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                    Sí, cerrar sesión
+                  </button>
+                </div>
+              </Modal>
+            </div>
+          )}
+
+        </div>
+      </main>
+
+      {toast && (
+        <div style={{position:'fixed',bottom:22,left:'50%',transform:'translateX(-50%)',background:'#2a3528',color:'#f0f5f0',padding:'10px 20px',borderRadius:12,fontSize:13,fontWeight:500,boxShadow:'0 6px 24px rgba(42,53,40,.25)',zIndex:2000,display:'flex',alignItems:'center',gap:8,animation:'toastIn .22s',fontFamily:"'DM Sans',sans-serif"}}>
+          <span style={{color:'#8fb08f'}}>{I.check}</span>{toast}
+        </div>
+      )}
+    </div>
+  );
+}

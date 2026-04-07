@@ -2,12 +2,45 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --brand-green: #4A6741;
-  --brand-cream: #FAF8F4;
+html {
+  scroll-behavior: smooth;
 }
 
 body {
-  color: #333;
-  background-color: var(--brand-cream);
+  background: var(--color-cream, #fdfcfa);
+  color: #2a3528;
+  font-family: 'DM Sans', system-ui, sans-serif;
+  font-weight: 300;
+  line-height: 1.7;
+  overflow-x: hidden;
+}
+
+/* Clamp utilities not available in Tailwind */
+.text-clamp-hero   { font-size: clamp(2.8rem, 5vw, 4.2rem); }
+.text-clamp-section { font-size: clamp(2rem, 3.5vw, 2.8rem); }
+.text-clamp-parallax { font-size: clamp(1.6rem, 3.5vw, 2.6rem); }
+.text-clamp-cta    { font-size: clamp(1.8rem, 3vw, 2.4rem); }
+.text-clamp-page   { font-size: clamp(2.2rem, 4vw, 3.2rem); }
+.text-clamp-error  { font-size: clamp(2.2rem, 5vw, 3.4rem); }
+.text-clamp-conf   { font-size: clamp(1.8rem, 3.5vw, 2.8rem); }
+
+/* Login page */
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.login-input:focus {
+  border-color: #4a7a4a !important;
+  box-shadow: 0 0 0 3px rgba(74, 122, 74, 0.1) !important;
+}
+.login-submit:hover:not(:disabled) {
+  background: #3a6a3a !important;
+  transform: translateY(-1px);
+}
+.login-submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }

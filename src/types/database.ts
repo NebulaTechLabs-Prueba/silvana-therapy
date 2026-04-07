@@ -41,11 +41,19 @@ export interface Client {
 export interface Service {
   id: string;
   name: string;
+  slug: string | null;
+  subtitle: string | null;
+  tag: string | null;
+  type_label: string | null;
   description: string | null;
   duration_min: number;
+  price: string | null;
   is_free: boolean;
   active: boolean;
   sort_order: number;
+  modality: string | null;
+  features: string[];
+  color: string | null;
   created_at: string;
 }
 
@@ -104,6 +112,15 @@ export interface AdminSettings {
   notification_email: string;
   google_calendar_id: string | null;
   working_hours: WorkingHours;
+  // Profile fields (Mi Cuenta)
+  nombre: string;
+  especialidad: string;
+  cedula: string | null;
+  telefono: string | null;
+  direccion: string | null;
+  horario: string | null;
+  bio: string | null;
+  notepad: string | null;
   updated_at: string;
 }
 
@@ -121,6 +138,57 @@ export interface DaySchedule {
   start: string; // "09:00"
   end: string;   // "18:00"
   enabled: boolean;
+}
+
+// ─── Invoices ────────────────────────────────────────────
+
+export type InvoiceStatus = 'pendiente' | 'pagada' | 'vencida' | 'cancelada';
+
+export interface Invoice {
+  id: string;
+  paciente: string;
+  email: string | null;
+  concepto: string;
+  monto: number;
+  estado: InvoiceStatus;
+  fecha: string;
+  link: string | null;
+  notas: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// ─── Payment Methods Config ──────────────────────────────
+
+export type PaymentMethodType = 'Transferencia' | 'Tarjeta' | 'PayPal' | 'Efectivo' | 'Otro';
+
+export interface PaymentMethod {
+  id: string;
+  tipo: PaymentMethodType;
+  nombre: string;
+  banco: string | null;
+  titular: string | null;
+  cuenta_visible: string | null;
+  cuenta_completa: string | null;
+  moneda: string;
+  tiempo_confirm: string | null;
+  instrucciones: string | null;
+  notas_internas: string | null;
+  correo_proveedor: string | null;
+  comision: string | null;
+  estado_conexion: string | null;
+  monedas_aceptadas: string | null;
+  pagos_recurrentes: boolean;
+  clave_publica: string | null;
+  clave_secreta: string | null;
+  id_comercio: string | null;
+  tipo_cuenta: string | null;
+  tiempo_acredit: string | null;
+  politica_reembolso: string | null;
+  activo: boolean;
+  prioridad: number;
+  created_at: string;
+  updated_at: string;
 }
 
 // ─── Joins / Views ────────────────────────────────────────

@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Servicios · Lda. Silvana López</title>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300;1,400&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+
+    :root {
+      --white: #fdfcfa;
+      --green-lightest: #f0f5f0;
+      --green-pale: #e2ede2;
+      --green-soft: #c8ddc8;
+      --green-mid: #8fb08f;
+      --green-deep: #4a7a4a;
+      --text-dark: #2a3528;
+      --text-mid: #4e6050;
+      --text-light: #849884;
+      --serif: 'Cormorant Garamond', Georgia, serif;
+      --sans: 'DM Sans', sans-serif;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body { background: var(--white); color: var(--text-dark); font-family: var(--sans); font-weight: 300; line-height: 1.7; overflow-x: hidden; }
+
+    /* ── NAV ── */
+    nav {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 200;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 1rem 5vw;
+      background: rgba(253,252,250,0.95); backdrop-filter: blur(14px);
+      border-bottom: 1px solid var(--green-pale);
+    }
+    .nav-logo { display: flex; align-items: center; gap: .9rem; text-decoration: none; }
+    .nav-logo img { height: 40px; width: auto; }
+    .nav-logo-text { font-family: var(--serif); font-size: 1.05rem; font-weight: 400; color: var(--text-dark); }
+    .nav-logo-text span { color: var(--green-deep); font-style: italic; }
+    .nav-links { display: flex; gap: 2rem; list-style: none; }
+    .nav-links a { font-size: .73rem; font-weight: 400; letter-spacing: .12em; text-transform: uppercase; color: var(--text-mid); text-decoration: none; transition: color .2s; }
+    .nav-links a:hover { color: var(--green-deep); }
+    .nav-cta { background: var(--green-deep) !important; color: #fff !important; padding: .5rem 1.3rem; border-radius: 2rem; transition: background .2s !important; }
+    .nav-cta:hover { background: var(--text-dark) !important; }
+
+    /* ── HERO ── */
+    #inicio { min-height: 100vh; display: grid; grid-template-columns: 1fr 1fr; align-items: center; padding: 8rem 5vw 5rem; gap: 4rem; }
+    .hero-text { max-width: 560px; }
+    .hero-eyebrow { font-size: .7rem; letter-spacing: .22em; text-transform: uppercase; color: var(--green-deep); margin-bottom: 1.5rem; display: flex; align-items: center; gap: .8rem; }
+    .hero-eyebrow::before { content: ''; display: block; width: 2rem; height: 1px; background: var(--green-deep); }
+    .hero-title { font-family: var(--serif); font-size: clamp(2.8rem, 5vw, 4.2rem); font-weight: 300; line-height: 1.15; color: var(--text-dark); margin-bottom: 1.5rem; }
+    .hero-title em { font-style: italic; color: var(--green-deep); }
+    .hero-sub { font-size: 1rem; color: var(--text-mid); margin-bottom: 2.5rem; max-width: 420px; }
+    .btn-primary { display: inline-flex; align-items: center; gap: .6rem; background: var(--green-deep); color: #fff; padding: .85rem 2rem; border-radius: 3rem; text-decoration: none; font-size: .82rem; font-weight: 400; letter-spacing: .06em; transition: background .25s, transform .2s; }
+    .btn-primary:hover { background: var(--text-dark); transform: translateY(-2px); }
+    .btn-primary svg { width: 14px; height: 14px; }
+    .btn-outline { display: inline-flex; align-items: center; gap: .6rem; border: 1px solid var(--green-soft); color: var(--text-mid); padding: .85rem 2rem; border-radius: 3rem; text-decoration: none; font-size: .82rem; font-weight: 400; letter-spacing: .06em; margin-left: 1rem; transition: border-color .25s, color .25s; }
+    .btn-outline:hover { border-color: var(--green-deep); color: var(--green-deep); }
+    .hero-checklist { margin-top: 2.5rem; display: flex; flex-direction: column; gap: .65rem; }
+    .hero-checklist li { display: flex; align-items: center; gap: .75rem; font-size: .88rem; color: var(--text-mid); list-style: none; }
+    .hero-checklist li::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--green-soft); flex-shrink: 0; }
+
+    .hero-visual { position: relative; display: flex; align-items: center; justify-content: center; }
+    .hero-card { background: var(--green-lightest); border-radius: 2rem; width: 100%; max-width: 400px; aspect-ratio: 3/4; position: relative; overflow: hidden; border: 1px solid var(--green-pale); }
+    .hero-card img { width: 100%; height: 100%; object-fit: cover; object-position: center top; }
+    .hero-card-deco { position: absolute; bottom: 0; left: 0; right: 0; background: linear-gradient(to top, rgba(42,53,40,.72) 0%, transparent 100%); padding: 2rem 1.8rem; }
+    .hero-card-deco p { font-family: var(--serif); font-size: 1.05rem; font-style: italic; color: rgba(255,255,255,.92); line-height: 1.5; }
+    .hero-badge { position: absolute; top: 1.5rem; right: 1.5rem; background: rgba(255,255,255,.95); border: 1px solid var(--green-pale); border-radius: 1rem; padding: .8rem 1.1rem; text-align: center; box-shadow: 0 4px 20px rgba(74,122,74,.12); }
+    .hero-badge-num { font-family: var(--serif); font-size: 7.2rem; font-weight: 300; color: var(--green-deep); display: block; line-height: 1; }
+    .hero-badge-text { font-size: .65rem; letter-spacing: .1em; text-transform: uppercase; color: var(--text-light); }
+
+    /* ── PARALLAX VIDEO ── */
+    .parallax-band { position: relative; height: 440px; overflow: hidden; }
+    .parallax-band video { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); min-width: 100%; min-height: 100%; width: auto; height: auto; object-fit: cover; }
+    .parallax-overlay { position: absolute; inset: 0; background: linear-gradient(135deg, rgba(42,53,40,.65) 0%, rgba(74,122,74,.4) 100%); display: flex; align-items: center; justify-content: center; flex-direction: column; text-align: center; padding: 2rem; }
+    .parallax-quote { font-family: var(--serif); font-size: clamp(1.6rem, 3.5vw, 2.6rem); font-weight: 300; font-style: italic; color: white; line-height: 1.35; max-width: 700px; text-shadow: 0 2px 20px rgba(0,0,0,.25); margin-bottom: 1rem; }
+    .parallax-attr { font-size: .73rem; letter-spacing: .18em; text-transform: uppercase; color: rgba(255,255,255,.65); margin-bottom: 2rem; }
+
+    /* ── SECTIONS ── */
+    section { padding: 6rem 5vw; }
+    .section-eyebrow { font-size: .7rem; letter-spacing: .22em; text-transform: uppercase; color: var(--green-deep); margin-bottom: 1rem; display: flex; align-items: center; gap: .8rem; }
+    .section-eyebrow::before { content: ''; display: block; width: 1.5rem; height: 1px; background: var(--green-deep); }
+    .section-title { font-family: var(--serif); font-size: clamp(2rem, 3.5vw, 2.8rem); font-weight: 300; line-height: 1.2; color: var(--text-dark); margin-bottom: 1rem; }
+    .section-title em { font-style: italic; color: var(--green-deep); }
+    .section-sub { font-size: .95rem; color: var(--text-mid); max-width: 480px; margin-bottom: 3rem; }
+
+    /* ── ABOUT ── */
+    #liclopez- { background: var(--green-lightest); display: grid; grid-template-columns: 1fr 1fr; gap: 5rem; align-items: center; }
+    .about-img-wrap { position: relative; }
+    .about-photo { width: 100%; max-width: 460px; aspect-ratio: 4/5; background: var(--green-pale); border-radius: 1.5rem; overflow: hidden; border: 1px solid var(--green-soft); }
+    .about-photo img { width: 100%; height: 100%; object-fit: cover; object-position: center top; }
+    .about-tag { position: absolute; bottom: 2rem; left: -1.5rem; background: white; border-radius: 1rem; padding: 1rem 1.4rem; box-shadow: 0 8px 30px rgba(74,122,74,.12); border: 1px solid var(--green-pale); }
+    .about-tag strong { display: block; font-family: var(--serif); font-size: 1.05rem; color: var(--text-dark); }
+    .about-tag span { font-size: .72rem; color: var(--text-light); letter-spacing: .05em; }
+    /* Logo watermark */
+    .logo-watermark { position: absolute; top: -1rem; right: -2rem; opacity: .06; pointer-events: none; z-index: 0; }
+    .logo-watermark img { width: 200px; height: auto; }
+    .about-features { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 2.5rem; }
+    .about-feat { background: white; border: 1px solid var(--green-pale); border-radius: 1rem; padding: 1.2rem; }
+    .about-feat-icon { width: 32px; height: 32px; background: var(--green-pale); border-radius: .6rem; display: flex; align-items: center; justify-content: center; margin-bottom: .7rem; }
+    .about-feat-icon svg { width: 16px; height: 16px; color: var(--green-deep); }
+    .about-feat h4 { font-size: .82rem; font-weight: 500; color: var(--text-dark); margin-bottom: .2rem; }
+    .about-feat p { font-size: .78rem; color: var(--text-light); }
+
+    /* ── PERFIL ── */
+    #perfil { background: var(--text-dark); position: relative; overflow: hidden; }
+    .perfil-logo-bg { position: absolute; right: -3%; top: 50%; transform: translateY(-50%); opacity: .04; pointer-events: none; }
+    .perfil-logo-bg img { width: 420px; height: auto; filter: invert(1); }
+    .perfil-inner { max-width: 1100px; margin: 0 auto; display: grid; grid-template-columns: 1fr 1.5fr; gap: 5rem; align-items: start; position: relative; z-index: 1; }
+    .perfil-photo { border-radius: 1.5rem; overflow: hidden; aspect-ratio: 3/4; border: 1px solid rgba(255,255,255,.08); }
+    .perfil-photo img { width: 100%; height: 100%; object-fit: cover; object-position: center top; }
+    #perfil .section-eyebrow { color: var(--green-soft); }
+    #perfil .section-eyebrow::before { background: var(--green-soft); }
+    #perfil .section-title { color: white; }
+    #perfil .section-title em { color: var(--green-soft); }
+    .perfil-stats { display: flex; gap: 2.5rem; margin-top: 1.5rem; flex-wrap: wrap; }
+    .perfil-stat-num { font-family: var(--serif); font-size: 2.2rem; font-weight: 300; color: var(--green-soft); display: block; line-height: 1; }
+    .perfil-stat-label { font-size: .7rem; color: rgba(255,255,255,.4); letter-spacing: .08em; }
+    .perfil-blocks { display: flex; flex-direction: column; gap: 2rem; margin-top: 2.5rem; }
+    .perfil-block { border-left: 2px solid var(--green-deep); padding-left: 1.5rem; }
+    .perfil-block h4 { font-size: .68rem; letter-spacing: .18em; text-transform: uppercase; color: var(--green-soft); margin-bottom: .5rem; }
+    .perfil-block p { font-size: .88rem; color: rgba(255,255,255,.6); line-height: 1.75; }
+
+    /* ── PASOS ── */
+    #terapia-online- { background: var(--white); }
+    .steps-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; margin-top: 1rem; max-width: 1100px; }
+    .step-card { border: 1px solid var(--green-pale); border-radius: 1.5rem; padding: 2.5rem 2rem; transition: border-color .3s, box-shadow .3s; }
+    .step-card:hover { border-color: var(--green-soft); box-shadow: 0 8px 30px rgba(74,122,74,.07); }
+    .step-num { font-family: var(--serif); font-size: 3rem; font-weight: 300; color: var(--green-pale); line-height: 1; margin-bottom: 1rem; }
+    .step-card h3 { font-family: var(--serif); font-size: 1.2rem; font-weight: 400; color: var(--text-dark); margin-bottom: .6rem; }
+    .step-card p { font-size: .88rem; color: var(--text-mid); }
+
+    /* ── BENEFICIOS ── */
+    #beneficios- { background: var(--text-dark); color: white; position: relative; overflow: hidden; }
+    .beneficios-logo-bg { position: absolute; left: -3%; bottom: -8%; opacity: .04; pointer-events: none; }
+    .beneficios-logo-bg img { width: 380px; height: auto; filter: invert(1); }
+    #beneficios- .section-eyebrow { color: var(--green-soft); }
+    #beneficios- .section-eyebrow::before { background: var(--green-soft); }
+    #beneficios- .section-title { color: white; }
+    #beneficios- .section-title em { color: var(--green-soft); }
+    #beneficios- .section-sub { color: rgba(255,255,255,.5); }
+    .benefits-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: rgba(255,255,255,.07); border-radius: 1.5rem; overflow: hidden; max-width: 1100px; }
+    .benefit-item { background: var(--text-dark); padding: 2rem 1.8rem; transition: background .25s; }
+    .benefit-item:hover { background: #354333; }
+    .benefit-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green-soft); margin-bottom: 1rem; }
+    .benefit-item h4 { font-family: var(--serif); font-size: 1.05rem; font-weight: 400; color: white; margin-bottom: .4rem; }
+    .benefit-item p { font-size: .82rem; color: rgba(255,255,255,.45); }
+
+    /* ── CUANDO COMENZAR ── */
+    #cuando-comenzar- { display: grid; grid-template-columns: 1fr 1fr; gap: 5rem; align-items: start; }
+    .signal-list { display: flex; flex-direction: column; gap: .8rem; margin-top: 1.5rem; }
+    .signal-item { display: flex; align-items: flex-start; gap: 1rem; padding: 1rem 1.2rem; border-radius: .8rem; border: 1px solid var(--green-pale); transition: border-color .25s, background .25s; }
+    .signal-item:hover { background: var(--green-lightest); border-color: var(--green-soft); }
+    .signal-item::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--green-mid); margin-top: .55rem; flex-shrink: 0; }
+    .signal-item p { font-size: .88rem; color: var(--text-mid); }
+    .tags-cloud { display: flex; flex-wrap: wrap; gap: .6rem; }
+    .tag { background: var(--green-pale); color: var(--text-mid); border-radius: 2rem; padding: .4rem 1.1rem; font-size: .8rem; border: 1px solid var(--green-soft); transition: background .2s, color .2s; }
+    .tag:hover { background: var(--green-soft); color: var(--text-dark); }
+
+    /* ── CTA BANNER ── */
+    .cta-banner { margin: 0 5vw 4rem; background: var(--green-lightest); border: 1px solid var(--green-pale); border-radius: 2rem; padding: 4rem 5rem; display: flex; align-items: center; justify-content: space-between; gap: 3rem; position: relative; overflow: hidden; }
+    .cta-logo-bg { position: absolute; right: 4rem; top: 50%; transform: translateY(-50%); opacity: .07; pointer-events: none; }
+    .cta-logo-bg img { width: 200px; height: auto; }
+    .cta-banner-text h2 { font-family: var(--serif); font-size: clamp(1.8rem, 3vw, 2.4rem); font-weight: 300; color: var(--text-dark); margin-bottom: .6rem; }
+    .cta-banner-text h2 em { font-style: italic; color: var(--green-deep); }
+    .cta-banner-text p { font-size: .9rem; color: var(--text-mid); max-width: 420px; }
+
+    /* ── CONTACTO ── */
+    #contacto- { background: var(--green-lightest); border-top: 1px solid var(--green-pale); }
+    .contact-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4rem; max-width: 900px; }
+    .contact-info-item { display: flex; gap: 1rem; align-items: flex-start; margin-bottom: 1.5rem; }
+    .contact-icon { width: 40px; height: 40px; border-radius: .8rem; background: white; border: 1px solid var(--green-pale); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .contact-icon svg { width: 18px; height: 18px; color: var(--green-deep); }
+    .contact-info-item h4 { font-size: .72rem; letter-spacing: .1em; text-transform: uppercase; color: var(--text-light); margin-bottom: .2rem; }
+    .contact-info-item a, .contact-info-item p { font-size: .9rem; color: var(--text-dark); text-decoration: none; }
+    .contact-info-item a:hover { color: var(--green-deep); }
+    .pagos-card { background: white; border: 1px solid var(--green-pale); border-radius: 1.2rem; padding: 1.5rem; margin-top: 1rem; }
+    .pagos-card h4 { font-size: .72rem; letter-spacing: .1em; text-transform: uppercase; color: var(--text-light); margin-bottom: 1rem; }
+    .pago-method { display: flex; align-items: center; gap: .9rem; font-size: .85rem; color: var(--text-mid); margin-bottom: .8rem; }
+
+    /* ── FOOTER ── */
+    footer { background: var(--text-dark); color: rgba(255,255,255,.4); padding: 2.5rem 5vw; display: flex; align-items: center; justify-content: space-between; font-size: .78rem; }
+    .footer-brand { display: flex; align-items: center; gap: .9rem; }
+    .footer-brand img { height: 32px; width: auto; opacity: .7; filter: invert(1) brightness(2); }
+    .footer-logo-text { font-family: var(--serif); font-size: .95rem; color: rgba(255,255,255,.7); }
+    .footer-links { display: flex; gap: 2rem; list-style: none; }
+    .footer-links a { color: rgba(255,255,255,.4); text-decoration: none; }
+    .footer-links a:hover { color: rgba(255,255,255,.85); }
+
+    /* ── ANIMATIONS ── */
+    @keyframes fadeUp { from { opacity:0; transform:translateY(24px); } to { opacity:1; transform:translateY(0); } }
+    .fade-up   { animation: fadeUp .7s ease forwards; }
+    .fade-up-2 { animation: fadeUp .7s .15s ease both; }
+    .fade-up-3 { animation: fadeUp .7s .3s ease both; }
+    .fade-up-4 { animation: fadeUp .7s .45s ease both; }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 1100px) {
+      #inicio { gap: 2.5rem; padding: 7rem 4vw 4rem; }
+      .perfil-inner { gap: 3rem; }
+      #liclopez- { gap: 3rem; }
+      #cuando-comenzar- { gap: 3rem; }
+      .steps-grid { grid-template-columns: 1fr 1fr; }
+      .nav-links { gap: 1.2rem; }
+      .nav-links a { font-size: .65rem; }
+      .cta-banner { padding: 3rem 3rem; }
+    }
+    @media (max-width: 860px) {
+      #inicio { grid-template-columns: 1fr; padding: 7rem 5vw 3rem; }
+      .hero-visual { display: none; }
+      #liclopez- { grid-template-columns: 1fr; }
+      .about-img-wrap { max-width: 420px; }
+      .about-tag { left: 0; }
+      #cuando-comenzar- { grid-template-columns: 1fr; }
+      .perfil-inner { grid-template-columns: 1fr; }
+      .perfil-photo { max-width: 360px; aspect-ratio: 4/3; }
+      .steps-grid { grid-template-columns: 1fr; }
+      .benefits-grid { grid-template-columns: 1fr 1fr; }
+      .about-features { grid-template-columns: 1fr 1fr; }
+      .contact-grid { grid-template-columns: 1fr; }
+      .cta-banner { flex-direction: column; padding: 2.5rem 2rem; }
+      .nav-links li:not(:last-child) { display: none; }
+      section { padding: 4rem 5vw; }
+      .parallax-band { height: 320px; }
+    }
+    @media (max-width: 540px) {
+      .benefits-grid { grid-template-columns: 1fr; }
+      .about-features { grid-template-columns: 1fr; }
+      .perfil-stats { gap: 1.5rem; }
+      footer { flex-direction: column; gap: 1.5rem; text-align: center; }
+      .footer-links { flex-wrap: wrap; justify-content: center; gap: 1rem; }
+      .hero-title { font-size: clamp(2.2rem, 8vw, 3rem); }
+      .btn-outline { margin-left: 0; margin-top: .8rem; }
+      .parallax-band { height: 260px; }
+    }
+  
+
+    .page-header { padding: 9rem 5vw 3.5rem; background: var(--green-lightest); border-bottom: 1px solid var(--green-pale); }
+    .page-eyebrow { font-size: .7rem; letter-spacing: .22em; text-transform: uppercase; color: var(--green-deep); margin-bottom: 1rem; display: flex; align-items: center; gap: .8rem; }
+    .page-eyebrow::before { content: ''; display: block; width: 1.5rem; height: 1px; background: var(--green-deep); }
+    .page-title { font-family: var(--serif); font-size: clamp(2.2rem, 4vw, 3.2rem); font-weight: 300; color: var(--text-dark); line-height: 1.2; margin-bottom: .6rem; }
+    .page-title em { font-style: italic; color: var(--green-deep); }
+    .services-wrap { max-width: 900px; margin: 0 auto; padding: 4rem 5vw 6rem; }
+    .services-list { display: flex; flex-direction: column; gap: 1.2rem; }
+    .service-card { display: grid; grid-template-columns: 1fr auto; gap: 2rem; padding: 2.2rem 2.5rem; border: 1px solid var(--green-pale); border-radius: 1.5rem; background: var(--white); transition: border-color .25s, box-shadow .25s, transform .25s; align-items: center; }
+    .service-card:hover { border-color: var(--green-soft); box-shadow: 0 8px 30px rgba(74,122,74,.08); transform: translateY(-2px); }
+    .service-card-tag { font-size: .65rem; letter-spacing: .15em; text-transform: uppercase; color: var(--green-mid); margin-bottom: .5rem; }
+    .service-card-title { font-family: var(--serif); font-size: 1.45rem; font-weight: 400; color: var(--text-dark); margin-bottom: .5rem; }
+    .service-card-desc { font-size: .88rem; color: var(--text-mid); line-height: 1.65; }
+    .service-card-meta { display: flex; gap: .6rem; flex-wrap: wrap; margin-top: .9rem; }
+    .pill { background: var(--green-lightest); border: 1px solid var(--green-pale); border-radius: 2rem; padding: .3rem .9rem; font-size: .72rem; color: var(--text-mid); }
+    .service-card-right { display: flex; flex-direction: column; align-items: flex-end; gap: 1.2rem; min-width: 130px; }
+    .service-price { font-family: var(--serif); font-size: 2rem; font-weight: 300; color: var(--text-dark); line-height: 1; }
+    .service-price.free { color: var(--green-deep); }
+    .service-price small { font-size: .7rem; font-family: var(--sans); color: var(--text-light); font-weight: 300; }
+    .services-note { text-align: center; margin-top: 3rem; font-size: .85rem; color: var(--text-light); }
+    @media (max-width: 640px) { .service-card { grid-template-columns: 1fr; } .service-card-right { align-items: flex-start; flex-direction: row; justify-content: space-between; align-items: center; } }
+
+</style>
+</head>
+<body>
+<nav>
+  <a href="/" class="nav-logo">
+    <img src="data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4NCjwhRE9DVFlQRSBzdmcgUFVCTElDICItLy9XM0MvL0RURCBTVkcgMS4wLy9FTiIgImh0dHA6Ly93d3cudzMub3JnL1RSLzIwMDEvUkVDLVNWRy0yMDAxMDkwNC9EVEQvc3ZnMTAuZHRkIj4NCjwhLS0gQ3JlYXRvcjogQ29yZWxEUkFXIDIwMjEgKDY0LUJpdCkgLS0+DQo8c3ZnIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgeG1sOnNwYWNlPSJwcmVzZXJ2ZSIgd2lkdGg9IjcxLjAyODZtbSIgaGVpZ2h0PSI2OS4yODY1bW0iIHZlcnNpb249IjEuMCIgc2hhcGUtcmVuZGVyaW5nPSJnZW9tZXRyaWNQcmVjaXNpb24iIHRleHQtcmVuZGVyaW5nPSJnZW9tZXRyaWNQcmVjaXNpb24iIGltYWdlLXJlbmRlcmluZz0ib3B0aW1pemVRdWFsaXR5IiBmaWxsLXJ1bGU9ImV2ZW5vZGQiIGNsaXAtcnVsZT0iZXZlbm9kZCINCnZpZXdCb3g9IjAgMCAzNjYzLjc3IDM1NzMuOTEiDQogeG1sbnM6eGxpbms9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkveGxpbmsiDQogeG1sbnM6eG9kbT0iaHR0cDovL3d3dy5jb3JlbC5jb20vY29yZWxkcmF3L29kbS8yMDAzIj4NCiA8ZyBpZD0iQ2FwYV94MDAyMF8xIj4NCiAgPG1ldGFkYXRhIGlkPSJDb3JlbENvcnBJRF8wQ29yZWwtTGF5ZXIiLz4NCiAgPGcgaWQ9Il8xNTE2NTAyNTYzNzI4Ij4NCiAgIDxwYXRoIGZpbGw9IiM0QTdBNEEiIGQ9Ik0xNjQ5LjcxIDMzNy41NmwzMy4wNSAzNS43NmMxLjk5LDIuMzggMi4yNCwzLjEyIDQuNTgsNS40MyAzLjQzLDMuMzggNS44NCw2LjQ5IDkuMTEsOS45OWw5LjExIDEwLjkxYzMwLjc4LDM0LjU1IDYxLjEzLDc0LjA5IDg2LjY0LDExMi42MSAxNS43OSwyMy44NSAzMS40NCw0Ny41NiA0Ni4xMSw3Mi4xNmwxMS4xNyAxOC44NmMxNC4xOSwyNC43NCA0OS43Nyw5MS42OCA1Ny44OCwxMTEuMzVsMTIuNTIgMjYuNmM2LjgzLDEzLjQ1IDEyLjA3LDI2LjkyIDE4LjQ5LDQwLjY1IDE5LjQyLDQxLjUyIDM1LjE2LDg0LjU2IDUxLjksMTI3LjM0bDIxLjA4IDU4LjA4YzI0LjE5LDcyLjg2IDQ1Ljk0LDEzOC4xIDY2LjM1LDIxMi45OCAyMC4yMyw3NC4yMyAzNy43NCwxNDguOTQgNTIuODgsMjI0LjYyIDExLjI4LDU2LjQyIDIwLjMzLDExMy4wNiAyOC4zMywxNzAuMDIgNC44LDM0LjIgMTQuNTYsMTEwLjUxIDE2LjM1LDE0Mi44NyAwLjI5LDUuMiAxLjQ4LDEyLjE0IDEuNzYsMTcuMzQgMC4zMyw1Ljk1IDAuOTIsMTMuMjggMS42LDE4LjQybDcuNTMgMTExLjY1YzAuNjIsMTEuNTIgLTAuMiwyNi44OCAxLjQzLDM3LjY5IDAuOTQsNi4yNCAwLjM0LDEzLjIgMC4zNSwxOS42NiAwLjAxLDYuNDEgMC45NCwxMS40OSAwLjk0LDE5LjA4IC0wLjAxLDE0LjIxIDAuOTEsMjUuMTEgMC45MSwzOS4xMiAwLDI0LjI0IC0yLjEzLDUyLjYyIDMuMTEsNzYuMDUgNy4zLDMyLjcxIDI1LjY5LDUwLjYyIDQ0LjQ2LDc1LjY0IDQwLjU4LDU0LjA2IDc0LjM5LDExMi41MSAxMDMuNzgsMTczLjcyIDEzLjI2LDI3LjYzIDI0LjAxLDU2LjQ1IDMzLjY5LDg1LjUgMTMuODQsNDEuNTIgMjMuOTEsODMuNzEgMzIuNDksMTI2LjczIDQuMzcsMjEuOTIgNi43OCw0Ni40MiA5LjY4LDY5LjQ4IDEuOTUsMTUuNTIgMi4xNiwzMC44NyAyLjk4LDQ2LjE2IDAuMjIsNC4wNSAwLjg5LDQuMzYgMC45NSw5LjA2IDAuMDgsNi42MyAtMC4wMSwxMy40MiAtMC4wNSwyMC4wNyAtMC4wNCw3LjE2IDAuOTEsMTEuMzcgMC45MywxOS4xIDAuMDIsNy41NCAtMC45NSwxMS4zOCAtMC45MiwxOS4xIDAuMDIsNi4zNiAwLjM1LDEzLjc5IDAuMDEsMjAuMDIgLTAuMjIsNC4wNSAtMC44OSw0LjM2IC0wLjk1LDkuMDYgLTAuMDQsMy4xOSAwLjI1LDYuODcgLTAuMDEsMTAgLTcuNjcsOTIuNjggLTE5LjE2LDE2NC4xOSAtNDUuMTIsMjUyLjQgLTE3LjE1LDU4LjI3IC00Mi4wMywxMTQuMzEgLTcwLjY5LDE2Ny43IC0yOS4zNSw1NC43IC02Ni4zMiwxMDQuNzUgLTEwNy4yOCwxNTEuMTIgLTEuODQsMi4wOCAtMi4wMywyLjg4IC00LjA4LDUuMDFsLTkuNTYgMTAuNDZjLTExLjIsMTIuMTIgLTIzLjQzLDIzLjI4IC0zNS4wMywzNS4wMmwtMjAuOTIgMTkuMTJjLTExLjgzLDExLjUgLTQyLjE3LDM1LjA3IC01NC43LDQ0LjQ3IC0xNS40OSwxMS42MiAtMzAuNDgsMjIuMjIgLTQ2LjksMzMuMTcgLTEyLjAxLDguMDEgLTIzLjY5LDE1LjggLTM2LjMxLDIyLjgzIC00LjQ2LDIuNDkgLTguNTksNC44MyAtMTIuNDYsNy41NiAtNy45LDUuNTkgLTE0LjksMTIuNjggLTExLjQ1LDI1Ljk5IDYuMjMsMjQuMDUgMzEuMjgsMTYuNzcgNjAuNTgsMTYuNzdsNTk3LjE3IDBjNDMuODgsMCA4Ny43NSwwIDEzMS42MywwIDQ1LjA0LDAgODcuMzUsLTAuOTIgMTMxLjkzLC0wLjkxIDExLjQyLDAgMTkuOTksLTAuOTEgMzEuODQsLTAuOTEgMTEuMjIsMCAyMi40NCwwIDMzLjY3LDAgMTEuODUsMCAyMC40MywtMC45MSAzMS44NSwtMC45MWwxMzEuOTMgLTAuOTFjMTIuMTIsMCAyMS4zMSwtMC45MSAzMi43NSwtMC45MSAxMzEuODQsMC4wOCAyNjMuNTgsLTEuNjcgMzk1LjgzLC0wLjA0IDUuNTMsMC4wNyA4LjgyLDAuOTcgMTUuNDMsMC45NSAxNC4xMiwtMC4wNSAzNC4zNywwLjI3IDQ3Ljg1LDIuMTkgOC45LDEuMjYgMTkuOTEsMy41MiAzMC4xOCwyLjE1IDguMjEsLTEuMSAxOS4wNSwtNC45MiAyMi4xLC0xMS41NyA1LjA2LC0xMS4wNCAyLjY5LC00Ni4xMiAyLjY5LC02Mi44M2wwIC00NjQuOTRjMCwtMjIuMyAwLjg4LC00MS43NCAwLjkxLC02My41NmwwIC0xLjA0IDAgLTE5OS4yNSAwIC00LjE0IDAgLTI2Mi45M2MtMC42NCwtMTYuODMgLTkuNTQsLTM0LjU1IC0yOS4wOCwtMzUuMDQgLTIzLjkxLC0wLjYxIC0yNy40NywxMi41NiAtMzAuMDYsMzYuNDMgLTEuMDUsOS42MyAtMi41NywxOC44IC00LjAzLDI4LjcyIC0xLjUyLDEwLjMxIC0yLjg2LDE5IC00LjU0LDI5LjEyIC0xLjYyLDkuNjggLTMuMTIsMTkuMDcgLTQuODMsMjcuOTJsLTExLjM0IDU1LjA4Yy0xNC45OSw2NC4wMyAtMjkuMjEsMTE3LjQyIC01My4xMSwxNzkuODEgLTMuMjEsOC4zOCAtNS44LDE1LjQxIC05LjEsMjMuNjZsLTMwLjEgNjkuMDdjLTExLjk1LDIzLjcgLTIwLjkzLDQyLjUgLTMzLjY4LDY1LjQ5IC00LjEzLDcuNDQgLTguMywxMy45IC0xMi40LDIxLjI3bC0yNS4zOCA0MS4wNGMtMjIuNzksMzQuMTggLTY4LjQyLDk3LjM1IC05Ni40OCwxMjcuMzRsLTUxLjg3IDU1LjVjLTExLjM3LDExLjM2IC0xNy4zLDE3LjgxIC0yOS4xMSwyOC4yMWwtMjEuNjEgMjAuMjRjLTMuMzUsMi41NiAtNS4wNCw0LjgyIC04LjcyLDcuNjZsLTI2Ljk3IDIzLjA3Yy0yOS4wNCwyNS4zMiAtNjMuNjgsNDkuNDIgLTk2Ljk4LDY5LjUyIC03Ni4yOCw0Ni4wNiAtMTk5Ljc2LDk2LjEgLTI4Ny44MSwxMTAuNzEgLTE5LjA2LDMuMTYgLTM3LjU1LDYuNTYgLTU3LjE1LDkuMjcgLTE5LjEyLDIuNjUgLTM4LjQ5LDUuNTMgLTU4LjEyLDguMjlsLTU4LjA5IDguMDRjLTUuMTYsMCAtMTIuMDIsMC41NCAtMTcuMiwxLjI5IC0xMy4xMiwxLjkyIC0zNy42MiwxLjM3IC01MC41MywtMS4yIC0zNi4wNSwtNy4xNSAtNDEuODksLTMzLjYyIC00NS41NiwtNjMuNjMgLTMuNDMsLTI4LjEgLTcuNjMsLTc2LjI0IC00LjUxLC0xMDQuMDIgMC45MiwtOC4yIDAuMTMsLTI4NC40NyAwLjEzLC0yOTEuOTMgMCwtOTcuMzYgMCwtMTk0LjcxIDAsLTI5Mi4wNyAwLC05OC4wOSAtMC45MSwtMTkzLjQ0IC0wLjkxLC0yOTEuMTVsMCAtMTQ2MS4yM2MwLC05OC4wNCAwLjkxLC0xOTMuMiAwLjkxLC0yOTEuMTVsMC45MSAtMTA4LjI4YzAsLTIyLjE3IDEuOTMsLTQ5LjY2IDEuODEsLTcwLjk4bDQuNTUgLTY4LjIzYzAuNDcsLTEwLjkzIDIuMzMsLTIzLjQ5IDMuNDgsLTMzLjgyIDExLjcxLC0xMDUuNDQgMzMuNjgsLTE4Ny44NSA3MC42MSwtMjc2LjA0IDEuOTIsLTQuNTggMy43NCwtOC4xMyA1LjYsLTEyLjYgMi4wNiwtNC45NiAzLjkxLC04LjA0IDUuODMsLTEyLjM2IDUuOCwtMTMuMDUgMTQuNjcsLTI4LjQ1IDE4LjIxLC0zNi4zOSAxMy44MiwtMzEuMDYgMC41OSwtMzMuMzQgLTI1LjYxLC0zNi4yNmwtNzMuNiAtMC4xN2MtNS43OSwwLjA3IC0xMC4yMSwwLjk1IC0xNy4yNSwwLjk0bC00MTkuNDUgMGMtNy4xNCwwLjAyIC0xMS4xMSwtMC45MyAtMTcuMjUsLTAuOTRsLTU0LjY0IDAuMDRjLTYuOTQsMC4wNCAtMTAuMTEsLTAuOTYgLTE3LjI3LC0wLjkzbC0zNi40IDAuMDFjLTcuMzcsMC4wMSAtMTEuODksLTAuOTMgLTE4LjE3LC0wLjk0IC0yNS4wMywtMC4wNCAtNDcuNSwtMC44OCAtNzEuOTEsLTAuODhsLTUzLjY4IC0wLjkxYy03LjM3LDAuMDEgLTExLjg5LC0wLjkzIC0xOC4xNiwtMC45NCAtNDguNjUsLTAuMDcgLTk1LjE3LC0yLjcgLTE0My40NCwtMi43bC0yNS44MiAtMC45MWMtNC4xOCwwIC04LjYzLDAuMTUgLTEyLjc3LDAuMDMgLTQuODQsLTAuMTQgLTYuODQsLTAuOTkgLTEyLjY5LC0wLjk1bC0xMDIuODIgLTIuNzJjLTQuMjUsMC4wMiAtOC41LC0wLjAxIC0xMi43NSwwLjAxIC01Ljc4LDAuMDMgLTguMjEsLTAuNjggLTEyLjczLC0wLjkyIC04Ljg4LC0wLjQ3IC0xOC4yNywwLjkzIC0yNi45MiwtMC4zOCAtOC4wOCwtMS4yMiAtMTcuMzYsLTAuMjQgLTI1Ljg5LC0wLjVsLTI1LjQ1IC0wLjkzYy04LjcxLDAuMDQgLTE1LjgxLC0wLjkyIC0yNS40NywtMC45MiAtMTQuNTIsMC4wMSAtMzYuOSwtMS44NyAtNTAuOTUsLTEuODJsLTkwLjExIC0yLjY5Yy01LjI2LC0wLjA2IC02Ljg2LC0wLjk5IC0xMi42OCwtMC45NiAtNC4yNiwwLjAyIC04LjUxLDAuMDEgLTEyLjc3LDAuMDMgLTUuNzgsMC4wMyAtOC4yMSwtMC42OCAtMTIuNzMsLTAuOTIgLTguMzIsLTAuNDUgLTE3Ljk2LDAuMDUgLTI2LjQzLDAuMDMgLTQuOTYsLTAuMDEgLTYuMzUsLTAuNzUgLTEwLjQxLC0wLjk0bC05NC4xOSAwIC0wLjQ3IDAgLTAuNDYgMGMtOS40OSwwLjA1IC0xNS44NiwwLjkyIC0yNS40NiwwLjkxIC0zNC44MSwtMC4wMiAtMTEzLjc0LDcuMzEgLTE0Ni4yMiwxMi4xbC0zNC41OCA1LjQ1Yy0xLjMzLDAuMjIgLTMuMjQsMC41IC01LjQ5LDAuODhsLTQuMzcgMS4wNWMtMC4xNywwLjA2IC0wLjQ4LDAuMjEgLTAuNjIsMC4yNiAtMC4xMywwLjA1IC0wLjQyLDAuMTUgLTAuNiwwLjI4IC0xMy45MSwwIC03OC40NywxNC45IC05MiwxOC4xOSAtNDQuNzEsMTAuODcgLTg2Ljk1LDIyLjA3IC0xMjkuNTQsMzYuOTYgLTMzLjk0LDExLjg2IC02Ni4xNywyNS4zNyAtOTkuMjEsMzkuMDkgLTIyLjQ2LDkuMzMgLTQzLjc5LDIxLjIxIC02NS40MywzMS45MiAtMjguNTIsMTQuMTIgLTYwLjIsMzQuMDQgLTg2LjY0LDUxLjY2IC0yNSwxNi42NyAtNDkuMDQsMzQuNTUgLTcyLjQsNTMuMTUgLTIuNjksMi4xNCAtNC43NSwzLjkzIC03LjQ0LDYuMjFsLTEwLjkxIDkuMWMtMS43NCwxLjQ4IC0yLjIzLDEuNjMgLTQuMDQsMy4yNCAtMTIuNDQsMTEuMDcgLTI1LjA1LDIxLjQgLTM2Ljg2LDMzLjJsLTQwLjg1IDQxLjAzYy0yLjU1LDMuMiAtMy41NCw0LjI3IC02LjQ3LDcuMThsLTE2LjAxIDE4LjU3Yy0xLjI4LDEuNiAtMi4xNCwyLjE4IC0zLjUsMy43OCAtMi4yMSwyLjU5IC0zLjgsNS4wMSAtNi4wMSw3LjYzbC0xOC40NCAyMy40MmMtMjYuMDUsMzQuNzYgLTQ5Ljg5LDcxLjkgLTY5LjI1LDExMC45IC0yMC42OCw0MS42NyAtMzguMDIsODYuNDggLTQ5LjI1LDEzMS44MiAtMjQuNDIsOTguNjYgLTMwLjE1LDE5OS4zIC0xNi4wNCwzMDEuMzggNS43LDQxLjIxIDEyLjMyLDc3LjUgMjIuMDQsMTE1LjM1IDEyLjE4LDQ3LjQxIDMxLjM5LDk3LjE0IDUzLjU3LDE0MS4xNGwyNC4yNSA0NC45YzEuODYsMy4zMyAzLjExLDUuNSA1LDguNjQgMjYuMDYsNDMuMTYgNTQuMjQsODMuNiA4NS45MSwxMjIuNDVsMTkuMTEgMjIuNzRjMS41MiwxLjcxIDEuMzYsMS45IDIuNzksMy41OGwxMi43MyAxNC41NmM5LjQsMTEuMjIgMjAuNTcsMjEuNDQgMzAuMDMsMzIuNzUgMi4xOCwyLjYyIDQuNzgsNC44NiA3LjI0LDcuMzIgOS41OCw5LjU4IDM4LjY3LDQwLjE2IDQ4LjI2LDQ4LjE4bDIxLjggMjAuMDVjMTMuNzEsMTMuOTEgMjkuMzQsMjUuODEgNDMuNjcsMzkuMTIgMS43MiwxLjYgMS45MywxLjUzIDMuNTQsMi44M2w0MS40OCAzNC45NGMyNi4zNSwyMy41MiA3OC40Nyw2MC44NSAxMTAuMDcsODQuNjUgMTguNDIsMTMuODggMzcuOTgsMjYuMTggNTYuNDIsNDAuMDIgMy4wNiwyLjMgNS40NiwzLjggOC42Myw1LjkybDE2Ni42OCAxMTAuODJjMTEuNDIsNy42MSAyMi4xNSwxNC40NyAzMy40OCwyMi4wMiAxMS4zMSw3LjU0IDIyLjQyLDE0LjQ5IDMzLjQ2LDIyLjAybDI4Mi4wOCAxODQuN2MxOC43NCwxMi41IDM3LjY5LDI0LjgzIDU2LjQxLDM3LjMgMzUuNjEsMjMuNzQgNzYuMzQsNTAuNDUgMTExLjUyLDc1LjkxbDEwNS40MSA4MS4xMWMxMy4xOCwxMC4zNiAzNy45NCwzMi44MSA0OS44Nyw0My44NCAyLjMzLDIuMTYgMy41NywyLjYzIDUuOTQsNC45NyAyLjE4LDIuMTcgMy43MSwzLjc0IDUuOSw1Ljk0IDQuMyw0LjMxIDcuOTgsNy4wNiAxMi4yOCwxMS4zN2w0MC41IDQxLjM5YzIuNTUsMi41NCAzLjE1LDMuOTMgNS40NCw2LjM5bDUzLjQ3IDYyLjk5IDU2LjkyIDgzLjIgMTcuMyAzMC4wMmMzLjE3LDUuMjkgNS4wMSwxMC40OCA4LjQsMTUuMDggMS43Myw1LjQxIDYuMjYsMTMuMTEgOC45NiwxOC41IDQxLjQ1LDgyLjc2IDYyLjE2LDE2Ny44NCA3Mi4wNCwyNjAuOTYgMS4zOSwxMy4xMiA0LjA0LDcwIDIuMzQsODEuMjMgLTAuNjUsNC4yNyAtMS4xMiw0Mi44OSAtMi41OSw1Mi45MSAtMS4yMSw4LjIxIC0xLjY3LDE2Ljc3IC0yLjQzLDI0Ljg3IC01LjYyLDU5LjQ1IC0yNi41NiwxNTAuNTcgLTQ2LjIsMjA0LjkyIC0xNy41Nyw0OC42IC00Ny40MSwxMDIuNTIgLTgyLjcsMTQwLjIybC0yNy4yOSAyOC4yMmMtMjAuOCwyMC44MyAtNjIuOTYsNTAuODYgLTg4LjQ5LDYzLjQ2IC04LjksNC4zOCAtMTcuMzcsOS40IC0yNy45NCwxMy45MiAtNDcuODksMjAuNDUgLTk3LjYzLDM3Ljc0IC0xNTAuNTQsNDUuMDggLTMyLjg4LDQuNTYgLTY2LjIyLDguMzQgLTEwMy41Nyw4LjM0IC03NC4yNywwIC0xNDEuMTQsLTcuNDQgLTIwMS4wMiwtMjEuODMgLTE1My41NSwtMzQuNjkgLTMwNy40MSwtMTA4LjcyIC00MjguNzIsLTIwNS41MWwtNDcuNTggLTM5Ljc3Yy0yLjI0LC0xLjc0IC0yLjQzLC0xLjggLTQuNCwtMy43OWwtNDkuMTMgLTQ2LjQxYy01LjYxLC01LjYgLTkuODIsLTEwLjczIC0xNS40NiwtMTYuMzhsLTU5LjQzIC02Ny45NWMtNC45MSwtNi4yNSAtOS40NCwtMTEuNjYgLTE0LjA0LC0xNy44MWwtMjYuNzYgLTM2LjAyYy0xOC45NiwtMjcuNDcgLTMyLjczLC00OC42NyAtNTAuMDcsLTc3LjMyIC00LjIxLC02Ljk2IC03LjQ3LC0xMy4zNiAtMTEuNjEsLTIwLjI0IC0xMC40NSwtMTcuMzkgLTIzLjc3LC00NC40NCAtMzIuODgsLTYyLjY1bC0yMC40OSAtNDMuMTljLTMuMDksLTcuNjMgLTYuNDcsLTE0LjI4IC05Ljc1LC0yMi4xbC0yNy4zIC02OC4yM2MtMjkuNjcsLTc2Ljg3IC01Mi4zNiwtMTcyLjA5IC02NS43NywtMjUxLjc3IC0zLjE0LC0xOC42NyAtNS4xLC0zNi4zOCAtNy44LC01NS44OSAtMi4yNiwtMTYuMzcgLTUuMzYsLTM0Ljg0IC0yNy43OSwtMzUuOSAtMTAuNjQsLTAuNSAtMjAuNjEsMSAtMjUuNzMsNi4xNSAtNS43NSw1Ljc4IC02LjE0LDE0LjMyIC02LjEzLDI1LjcxIDAuMiwzMzkuMDcgMCw2NzguMTUgMCwxMDE3LjIyIDAsNTQuMzUgLTQuNTcsNTUuNjIgNTQuNjIsNTUuNTMgNS45NSwtMC4wMSA4Ljc3LC0wLjk4IDE1LjQzLC0wLjk1IDExNi40NywwLjYgMjMyLjg0LC0wLjkgMzQ5LjM5LC0wLjkgMTEuNTEsMCAyMC4xNSwwLjkyIDMwLjkzLDAuOTEgMjAuOTMsLTAuMDMgNDEuODYsMCA2Mi43OCwwIDIzLjkzLDAgNTMuNTcsMS45MyA3Ny4zNSwxLjgxIDYuNjYsLTAuMDMgOS40OCwwLjk0IDE1LjQzLDAuOTUgMTEuNTcsMC4wMiAxOS43OCwwLjg0IDMxLDAuODVsMTQ5LjExIDEwLjExYzkuMzYsMC43MyAxOS4yNiwyLjE0IDI5LjE2LDIuNjkgMy44MywwLjIxIDEwLjU0LDEuMSAxMy45NCwxLjUzbDU3Ljg5IDUuOGMxMi40OCwxLjA0IDMyLjQ3LDQuNDcgNDMuODEsNC40NyAxNy40OCwxLjUgMzUuOCw0LjY4IDUzLjYyLDUuNDUgOC4wOSwwLjM1IDE5LjIxLDEuNSAyNi42MywyLjQ5bDI3Ljk0IDIuMDhjNi4wNCwwLjA1IDcuOTcsMC45MiAxMy42NSwwLjkgNi4wOCwtMC4wMiA3LjksMC45NSAxMy42MywwLjkzIDYuMTMsLTAuMDMgOC42NywwLjc2IDEzLjY0LDAuOTEgNS44NSwwLjE4IDEwLjA5LC0wLjAyIDE0LjgzLDAuNjMgNi44MywwLjk0IDQ2LjQsMS4xMyA1Ny4xNSwxLjE2bDAuNTEgMCAwLjQ2IDAgMC40MSAwIDAuMzYgMCAwLjk1IDAgMC45NCAwIDAuOTQgMGMxOS4xNiwtMC4wMyAzNi44OSwtMC4zMyA1NS40MiwtMC44OCA1LC0wLjE1IDcuNDgsLTAuOTggMTMuNjMsLTAuOTIgNi4wNiwwLjA2IDcuODQsLTAuOTcgMTMuNjEsLTAuOTUgOS4zMiwwLjA0IDE5LjQ5LC0xLjM2IDI4LjIzLC0xLjggODguMDIsLTQuMzkgMTcyLjQxLC0xOC41NCAyNTYuOTQsLTM5LjY3IDE2LjU0LC00LjE0IDMxLjMyLC04LjgyIDQ2Ljk1LC0xMy4xMSAxNSwtNC4xMSAzMC4zMSwtOS42NSA0NC43LC0xNC40NCAyOC45OCwtOS42NiA1Ny4yOCwtMjEuMjIgODUuMTYsLTMzLjEzIDQ0LjM4LC0xOC45NiA4Ni4wNiwtNDIuMDYgMTI3Ljk0LC02NC45NWwxOC41MSAtMTAuNmM0MC42MSwtMjIuNTkgNzkuNjksLTQ4Ljk2IDExNS45NSwtNzcuODUgNjYuOTEsLTUzLjMxIDEyMi40NiwtMTE3LjA1IDE2Ni41NiwtMTkwLjExIDExLjI4LC0xOC42OSAyMS42MiwtMzcuNDcgMzEuMDgsLTU3LjE4IDE2LjU4LC0zNC41NCAzMS4zNiwtNzAuMjcgNDEuOTMsLTEwNy4yOSAxNS41LC01NC4yOCAyMy4wMywtODcuNzkgMzEuMywtMTQ2LjEyIDEuMzIsLTkuMyAyLC0xNy4yMSAzLjA0LC0yNi45OGwyLjYgLTI3LjQzYzAuNDMsLTE3LjY3IDMuODUsLTY5LjQyIDEuNTUsLTg2LjIxIC0xLjQ2LC0xMC43IC0xLjM0LC0zOC4xOCAtMy43OCwtNTUuMzcgLTMuNzEsLTI2LjIxIC02LjM5LC01My4wNiAtMTEuNTEsLTc4LjU2IC02LjM4LC0zMS43IC0xMy45MywtNjMuNDMgLTI0LjE1LC05NC4xNCAtOS42MSwtMjguOSAtMTkuOTIsLTU4LjkgLTMzLjExLC04Ni4wOCAtMy4xNywtNi41MyAtNS45LC0xMy41NSAtOS4wOSwtMjAuMDMgLTE2LjA0LC0zMi41NyAtMzIuOTEsLTY1LjA2IC01My4xNCwtOTUuMTYgLTQuMjUsLTYuMzIgLTcuNiwtMTEuODUgLTExLjgzLC0xOC4xOSAtNC4yNiwtNi4zOSAtOC4wMywtMTEuNjEgLTEyLjE4LC0xNy44NCAtMi4xNCwtMy4yMSAtMy43OCwtNS4xNyAtNi4wMSwtOC41NSAtMTAuODUsLTE2LjQ1IC0yNS4zNCwtMzUuMDQgLTM3LjczLC01MC41M2wtNzQuMDkgLTg5LjY5Yy04LjQ2LC0xMC4xMiAtMzAuNjgsLTMxLjY0IC0zNS44NiwtMzcuODQgLTIuOTIsLTMuNSAtNC4xLC00LjkzIC03LjMyLC04LjE0IC0yLjYzLC0yLjYzIC00LjU4LC00LjcyIC03LjI2LC03LjNsLTMwLjQ4IC0yOC42NmMtMTkuNTgsLTE5LjM4IC02Ny41MywtNTcuMTcgLTg5Ljg3LC03My45MWwtMTA0Ljk5IC03My4zNGMtMy4yNywtMi4xOCAtNS43NSwtMy41IC04LjkyLC01LjYzbC0xNy42NiAtMTEuNDZjLTEzLjk2LC05LjM1IC03My41OCwtNDguMTkgLTgyLjQxLC01Mi40MWwtNTEuMDggLTMyLjQ3Yy0zMi43MywtMTkuMzUgLTY5Ljc2LC00NC40MSAtMTAzLjE0LC02NC4yN2wtNTEuNzkgLTMxLjkyYy00LjQ2LC0yLjkzIC04LjQ5LC01LjE5IC0xMi45MywtOCAtMi4yMiwtMS40IC0zLjkxLC0yLjM1IC02LjI2LC0zLjc0bC04NC42MiAtNTEuODdjLTguOTksLTUuMzIgLTE3LC0xMC41NCAtMjUuOTMsLTE1LjkyIC04LjkyLC01LjM4IC0xNi45LC0xMC41NCAtMjUuOTIsLTE1LjkzbC0xMzAuMSAtODAuMDhjLTI1LjY1LC0xNS4yNiAtNTEuNzcsLTMyLjc4IC03Ny4yNSwtNDguMzFsLTUwLjYxIC0zMy4xYy00NS40MiwtMzAuMjggLTc5LjU1LC01NS4wMiAtMTIyLjE0LC04Ny4xM2wtNjkuNjggLTU2LjgxYy0yLjAxLC0zLjA4IC0yMy43LC0yMi4yMiAtMjcuOTIsLTI1Ljc0bC0yNy4zMyAtMjYuMzRjLTIwLjExLC0yMC4xMSAtNDIuMTUsLTQ0IC02MC41NiwtNjUuOTFsLTUwLjAxIC02NC42M2MtOS40NywtMTIuNjEgLTIzLjk1LC0zNS42NCAtMzEuOTksLTQ4Ljk5IC0yNy4wOSwtNDUuMDUgLTQ5Ljk5LC05Mi44NSAtNjcuOTYsLTE0Ni43NyAtMTUuMzQsLTQ2LjAxIC0yOC43MSwtMTA1LjcyIC0zMi41NywtMTU1Ljc3IC0wLjM4LC00Ljg4IC0wLjk3LC04LjI5IC0xLC0xMi42NCAtMC4wNCwtNS44MiAtMC43NywtNy45NCAtMC45MSwtMTIuNzQgLTAuNTIsLTE3LjQ2IC0wLjg4LC0zNC4zNCAtMC44OCwtNTIuOCAwLC0yNy4zMSA0LjI1LC03NC4xMyA3LjkyLC05OS40NSAxNC4zNiwtOTkuMjYgNTAuMjQsLTE4Ni41OSAxMTIuODEsLTI2My44N2wzNy44MSAtNDIuMjVjMi41LC0yLjUgNC4zNCwtNC4zMiA2LjgyLC02LjgzIDguODIsLTguOTEgMzkuNzMsLTM1LjA0IDUxLC00Mi43MSAzNS42MiwtMjQuMjMgNDIuNjcsLTI5LjY3IDg0Ljg5LC01MC43N2wyNC41OSAtMTAuOGM4Ljg3LC0zLjY0IDE3LjQyLC02Ljc5IDI2LjM4LC0xMC4wMiAzMi40OSwtMTEuNjggNzkuMDEsLTIzLjY4IDExNC4yNiwtMjkuNDkgMjAuNTIsLTMuMzggNjAuMjksLTkgODEuMjUsLTguODMgNi45MywwLjA1IDEwLjEsLTAuOTYgMTcuMjcsLTAuOTNsNTMuMTYgMS40NGM0LjczLDAuNzEgMTIuNDIsMS4xMSAxNi45LDEuMzEgMjUuMTIsMS4wNyA2OC42NCwxMC42MyA5MS4xLDE3LjE3IDE5LjIxLDUuNiAzNi40MSwxMi4xMSA1My43MSwxOS4wNyAyMy41MSw5LjQ3IDM5LjYsMTkuMjYgNTkuOTEsMjkuMjUgMy45LDEuOTIgNy44MSw0LjIzIDExLjY1LDYuNTUgNC4wMywyLjQyIDcuMzcsNC4yMyAxMS40OSw2LjcxbDMyLjkxIDIwLjc4YzQ1LjY3LDMwLjQ0IDkxLjgyLDY2LjA5IDEzMi45OCwxMDIuNjcgMTMuNDcsMTEuOTcgMzUuMTIsMzAuNDcgNDcuMzEsNDIuNzcgNi4wMiw2LjA3IDMyLjIxLDMzLjYxIDM2Ljk3LDM2LjE3eiIvPg0KICA8L2c+DQogPC9nPg0KPC9zdmc+DQo=" alt="SL">
+    <div class="nav-logo-text">Lda. <span>Silvana López</span></div>
+  </a>
+  <ul class="nav-links">
+    <li><a href="/#liclopez-">Sobre mí</a></li>
+    <li><a href="/#terapia-online-">Cómo funciona</a></li>
+    <li><a href="/#beneficios-">Beneficios</a></li>
+    <li><a href="/#cuando-comenzar-">Cuándo comenzar</a></li>
+    <li><a href="/#perfil">Trayectoria</a></li>
+    <li><a href="/services" class="nav-cta">Primera cita gratuita</a></li>
+  </ul>
+</nav>
+
+<div class="page-header">
+  <p class="page-eyebrow">Reserva tu cita</p>
+  <h1 class="page-title">Elige el espacio<br><em>que necesitas</em></h1>
+  <p style="font-size:.95rem;color:var(--text-mid);margin-top:.3rem;max-width:500px">Todas las sesiones son online, confidenciales y con horarios flexibles.</p>
+</div>
+
+<div class="services-wrap">
+  <div class="services-list">
+
+    <div class="service-card">
+      <div>
+        <p class="service-card-tag">Consulta inicial</p>
+        <h2 class="service-card-title">Primera Consulta</h2>
+        <p class="service-card-desc">Un encuentro de 30 minutos donde nos conocemos, conversamos sobre tu situación y evaluamos juntos si deseas continuar con el proceso terapéutico. Sin costo, sin compromiso.</p>
+        <div class="service-card-meta">
+          <span class="pill">⏱ 30 min</span>
+          <span class="pill">📹 Online</span>
+          <span class="pill">Sin cargo</span>
+        </div>
+      </div>
+      <div class="service-card-right">
+        <div class="service-price free">Gratis</div>
+        <a href="/service-page?id=consulta-gratis" class="btn-primary">
+          Ver y reservar
+          <svg viewBox="0 0 16 16" fill="none"><path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </a>
+      </div>
+    </div>
+
+    <div class="service-card">
+      <div>
+        <p class="service-card-tag">Proceso individual</p>
+        <h2 class="service-card-title">Terapia Individual</h2>
+        <p class="service-card-desc">Sesión de psicoterapia individual de 50 minutos. Espacio confidencial para explorar emociones, trabajar bloqueos y desarrollar herramientas de bienestar duraderas. Ansiedad, duelo, autoestima, vínculos.</p>
+        <div class="service-card-meta">
+          <span class="pill">⏱ 50 min</span>
+          <span class="pill">📹 Online</span>
+          <span class="pill">Proceso continuo</span>
+        </div>
+      </div>
+      <div class="service-card-right">
+        <div class="service-price">45 <small>USD</small></div>
+        <a href="/service-page?id=terapia-individual" class="btn-primary">
+          Ver y reservar
+          <svg viewBox="0 0 16 16" fill="none"><path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </a>
+      </div>
+    </div>
+
+    <div class="service-card">
+      <div>
+        <p class="service-card-tag">Pareja</p>
+        <h2 class="service-card-title">Terapia de Pareja</h2>
+        <p class="service-card-desc">Sesión conjunta de 60 minutos. Un espacio neutral para mejorar la comunicación, reconstruir la confianza y abordar conflictos de forma constructiva con acompañamiento profesional.</p>
+        <div class="service-card-meta">
+          <span class="pill">⏱ 60 min</span>
+          <span class="pill">📹 Online</span>
+          <span class="pill">Sesión conjunta</span>
+        </div>
+      </div>
+      <div class="service-card-right">
+        <div class="service-price">60 <small>USD</small></div>
+        <a href="/service-page?id=terapia-pareja" class="btn-primary">
+          Ver y reservar
+          <svg viewBox="0 0 16 16" fill="none"><path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </a>
+      </div>
+    </div>
+
+    <div class="service-card">
+      <div>
+        <p class="service-card-tag">Pacientes activos</p>
+        <h2 class="service-card-title">Sesión de Seguimiento</h2>
+        <p class="service-card-desc">Para quienes ya están en proceso terapéutico. Sesión de 50 minutos de continuación del trabajo iniciado, con la frecuencia acordada entre profesional y paciente.</p>
+        <div class="service-card-meta">
+          <span class="pill">⏱ 50 min</span>
+          <span class="pill">📹 Online</span>
+          <span class="pill">Solo pacientes activos</span>
+        </div>
+      </div>
+      <div class="service-card-right">
+        <div class="service-price">40 <small>USD</small></div>
+        <a href="/service-page?id=seguimiento" class="btn-primary">
+          Ver y reservar
+          <svg viewBox="0 0 16 16" fill="none"><path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </a>
+      </div>
+    </div>
+
+  </div>
+  <p class="services-note">¿No sabes cuál elegir? <a href="/#contacto-" style="color:var(--green-deep);text-decoration:none">Contáctame antes →</a></p>
+</div>
+
+<footer style="background:var(--text-dark);color:rgba(255,255,255,.4);padding:2.5rem 5vw;display:flex;align-items:center;justify-content:space-between;font-size:.78rem;flex-wrap:wrap;gap:1rem">
+  <div><span style="font-family:var(--serif);font-size:.95rem;color:rgba(255,255,255,.65)">Lda. Silvana López</span></div>
+  <ul style="display:flex;gap:2rem;list-style:none;flex-wrap:wrap">
+    <li><a href="/" style="color:rgba(255,255,255,.35);text-decoration:none">Inicio</a></li>
+    <li><a href="/services" style="color:rgba(255,255,255,.35);text-decoration:none">Servicios</a></li>
+    <li><a href="/cdn-cgi/l/email-protection#a8cbc7c6dcc9cbdcc7e8dbc1c4dec9c6c9c4c7d8cdd286cbc7c5" style="color:rgba(255,255,255,.35);text-decoration:none">Contacto</a></li>
+  </ul>
+  <span>© 2025 · s

@@ -1,0 +1,45 @@
+import Navbar from '@/components/public/Navbar';
+import Footer from '@/components/public/Footer';
+import BookingFormClient from '@/components/public/BookingFormClient';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
+
+export const metadata = {
+  title: 'Reservar cita — Lda. Silvana López',
+  description: 'Reserva tu primera consulta gratuita.',
+};
+
+export default async function BookingPage() {
+  // Fetch the free consultation service from Supabase
+  const supabase = await createServerSupabaseClient();
+  const { data: service } = await supabase
+    .from('services')
+    .select('id, name, duration_min')
+    .eq('is_free', true)
+    .eq('active', true)
+    .order('sort_order')
+    .limit(1)
+    .single();
+
+  return (
+    <>
+      <Navbar />
+      <div className="pt-36 pb-6 px-[5vw] bg-green-lightest border-b border-green-pale">
+        <p className="text-[0.7rem] tracking-[0.22em] uppercase text-green-deep mb-4 flex items-center gap-3">
+          <span className="block w-6 h-px bg-green-deep" />
+          Reserva tu cita
+        </p>
+        <h1 className="font-serif text-clamp-page font-light leading-[1.2] text-text-dark">
+          Elige fecha, hora y
+          <br />
+          <em className="italic text-green-deep">completa tus datos</em>
+        </h1>
+      </div>
+      <BookingFormClient
+        serviceId={service?.id ?? ''}
+        serviceName={service?.name ?? 'Primera consulta gratuita'}
+        serviceDuration={service?.duration_min ?? 50}
+      />
+      <Footer />
+    </>
+  );
+}
