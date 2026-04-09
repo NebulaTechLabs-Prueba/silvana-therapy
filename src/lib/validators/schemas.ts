@@ -25,7 +25,6 @@ export const createBookingSchema = z.object({
     .optional(),
   preferred_date: z
     .string()
-    .datetime({ offset: true })
     .optional(),
   service_id: z
     .string()

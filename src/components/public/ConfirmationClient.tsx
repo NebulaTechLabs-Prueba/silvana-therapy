@@ -72,7 +72,7 @@ export default function ConfirmationClient() {
         <Row label="Servicio" value={data.service.title} />
         <Row label="Profesional" value="Lda. Silvana López" />
         <Row label="Fecha" value={dateStr} />
-        <Row label="Hora" value={data.time ? `${data.time} hs (UTC-3 Argentina)` : '—'} />
+        <Row label="Hora" value={data.time ? `${data.time} hs` : '—'} />
         <Row label="Duración" value={data.service.duration} />
         <Row label="Modalidad" value="Online · Videollamada" />
         <Row
@@ -85,7 +85,7 @@ export default function ConfirmationClient() {
         )}
       </div>
 
-      {/* Calendar buttons */}
+      {/* Calendar & download buttons */}
       <div className="bg-[#fff] border border-green-pale rounded-2xl p-6 mb-5">
         <p className="text-[0.72rem] tracking-[0.1em] uppercase text-text-light mb-4 text-center">
           Agrega la cita a tu calendario
@@ -103,13 +103,108 @@ export default function ConfirmationClient() {
             Google Calendar
           </a>
           <button
-            onClick={() => {/* iCal download logic */}}
+            onClick={() => {
+              if (!data?.date || !data?.time) return;
+              const [h, m] = data.time.split(':').map(Number);
+              const durMin = parseInt(data.service.duration) || 50;
+              const startDt = data.date.replace(/-/g, '') + 'T' + data.time.replace(':', '') + '00';
+              const endMin = h * 60 + m + durMin;
+              const endDt = data.date.replace(/-/g, '') + 'T' + String(Math.floor(endMin / 60)).padStart(2, '0') + String(endMin % 60).padStart(2, '0') + '00';
+              const ics = [
+                'BEGIN:VCALENDAR',
+                'VERSION:2.0',
+                'PRODID:-//Silvana Lopez//Booking//ES',
+                'BEGIN:VEVENT',
+                `DTSTART:${startDt}`,
+                `DTEND:${endDt}`,
+                'SUMMARY:Sesión — Lda. Silvana López',
+                'DESCRIPTION:Sesión de terapia online',
+                'LOCATION:Online',
+                'END:VEVENT',
+                'END:VCALENDAR',
+              ].join('\r\n');
+              const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = 'cita-silvana-lopez.ics';
+              a.click();
+              URL.revokeObjectURL(url);
+            }}
             className="flex-1 flex items-center justify-center gap-2 py-3 border border-green-pale rounded-xl text-[0.82rem] text-text-mid cursor-pointer bg-transparent transition-all hover:border-green-deep hover:bg-green-lightest"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-[18px] h-[18px] text-green-deep">
               <rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
             </svg>
             Descargar iCal
+          </button>
+        </div>
+
+        <div className="mt-4 pt-4 border-t border-green-pale">
+          <p className="text-[0.72rem] tracking-[0.1em] uppercase text-text-light mb-3 text-center">
+            Descarga tu confirmación
+          </p>
+          <button
+            onClick={() => {
+              const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Confirmación — ${data.code}</title>
+              <style>
+              *{margin:0;padding:0;box-sizing:border-box}
+              body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f7faf7;color:#2a3528;padding:0;min-height:100vh;display:flex;align-items:center;justify-content:center}
+              .wrap{max-width:540px;width:100%;margin:40px auto}
+              .header{background:#2a3528;border-radius:16px 16px 0 0;padding:28px 36px;text-align:center}
+              .header .logo{font-family:Georgia,serif;font-size:22px;color:#c8ddc8;font-weight:400;font-style:italic;margin-bottom:2px}
+              .header .sub{font-size:9px;letter-spacing:3px;text-transform:uppercase;color:rgba(200,221,200,.5)}
+              .body{background:#fff;padding:32px 36px;border-left:1px solid #e2ede2;border-right:1px solid #e2ede2}
+              .code-wrap{text-align:center;margin-bottom:24px}
+              .code{display:inline-block;background:#f0f5f0;border:1.5px solid #c8ddc8;border-radius:24px;padding:6px 20px;font-size:11px;letter-spacing:2px;color:#4a7a4a;font-weight:700;text-transform:uppercase}
+              .check{width:48px;height:48px;background:#4a7a4a;border-radius:50%;margin:0 auto 16px;display:flex;align-items:center;justify-content:center}
+              .check svg{width:24px;height:24px}
+              h1{text-align:center;font-family:Georgia,serif;font-size:20px;font-weight:400;color:#2a3528;margin-bottom:24px}
+              .details{background:#f7faf7;border:1px solid #e2ede2;border-radius:12px;padding:20px 24px;margin-bottom:20px}
+              .row{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid #e8f0e8;font-size:13px}
+              .row:last-child{border-bottom:none}
+              .row .l{color:#849884;font-weight:400}
+              .row .v{color:#2a3528;font-weight:500;text-align:right}
+              .row.hl .v{color:#4a7a4a;font-size:15px;font-weight:600;font-family:Georgia,serif}
+              .patient{background:#f0f5f0;border-radius:10px;padding:14px 20px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:center;font-size:13px}
+              .patient .l{color:#849884}.patient .v{color:#2a3528;font-weight:600}
+              .footer{background:#f7faf7;border-radius:0 0 16px 16px;border:1px solid #e2ede2;border-top:none;padding:20px 36px;text-align:center}
+              .footer p{font-size:11px;color:#849884;line-height:1.6}
+              .footer strong{color:#4a7a4a}
+              @media print{body{background:#fff;padding:0}.wrap{margin:0}.header{border-radius:0}.footer{border-radius:0}}</style></head>
+              <body><div class="wrap">
+              <div class="header">
+                <div class="logo">Lda. Silvana López</div>
+                <div class="sub">Psicoterapia Online</div>
+              </div>
+              <div class="body">
+                <div style="text-align:center;margin-bottom:20px">
+                  <div class="check"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5"><polyline points="20 6 9 17 4 12" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+                  <div class="code-wrap"><span class="code">${data.code}</span></div>
+                  <h1>Confirmación de cita</h1>
+                </div>
+                <div class="details">
+                  <div class="row"><span class="l">Servicio</span><span class="v">${data.service.title}</span></div>
+                  <div class="row"><span class="l">Profesional</span><span class="v">Lda. Silvana López</span></div>
+                  <div class="row"><span class="l">Fecha</span><span class="v">${dateStr}</span></div>
+                  <div class="row"><span class="l">Hora</span><span class="v">${data.time} hs</span></div>
+                  <div class="row"><span class="l">Duración</span><span class="v">${data.service.duration}</span></div>
+                  <div class="row"><span class="l">Modalidad</span><span class="v">Online · Videollamada</span></div>
+                  <div class="row hl"><span class="l">Precio</span><span class="v">${data.service.price === 'Gratis' ? 'Gratis' : data.service.price}</span></div>
+                </div>
+                ${data.form.nombre ? `<div class="patient"><span class="l">Paciente</span><span class="v">${data.form.nombre} ${data.form.apellido}</span></div>` : ''}
+              </div>
+              <div class="footer"><p>Este documento es tu comprobante de reserva.<br/>Conserva tu código: <strong>${data.code}</strong></p></div>
+              </div></body></html>`;
+              const w = window.open('', '_blank');
+              if (w) { w.document.write(html); w.document.close(); w.print(); }
+            }}
+            className="w-full flex items-center justify-center gap-2 py-3 bg-green-deep text-[#fff] rounded-xl text-[0.82rem] font-normal tracking-[0.06em] transition-all hover:bg-text-dark cursor-pointer border-0"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-[18px] h-[18px]">
+              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+            Descargar confirmación (PDF)
           </button>
         </div>
       </div>

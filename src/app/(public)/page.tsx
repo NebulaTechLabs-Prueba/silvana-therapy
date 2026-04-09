@@ -11,6 +11,8 @@ import ProfileSection from '@/components/public/home/ProfileSection';
 import ContactSection from '@/components/public/home/ContactSection';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 
+export const dynamic = 'force-dynamic';
+
 export const metadata = {
   title: 'Lda. Silvana López — Psicoterapia Online',
   description:

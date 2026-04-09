@@ -287,11 +287,11 @@ export async function upsertBooking(data: {
     clientId = newClient.id;
   }
 
-  // Build the preferred_date from fecha + hora (Argentina time)
-  const preferredDate = `${data.fecha}T${data.hora}:00-03:00`;
+  // Build the preferred_date from fecha + hora (Eastern time)
+  const preferredDate = `${data.fecha}T${data.hora}:00`;
 
-  // Compute client-local time if country differs from Argentina
-  const clientLocalTime = data.pais && data.pais !== 'Argentina' && data.pais !== 'Otro' && data.fecha && data.hora
+  // Compute client-local time if state differs from Florida (base)
+  const clientLocalTime = data.pais && data.pais !== 'Florida' && data.pais !== 'Otro' && data.fecha && data.hora
     ? getClientTime(data.fecha, data.hora, data.pais)
     : null;
 
@@ -331,6 +331,7 @@ export async function upsertBooking(data: {
       .eq('id', data.id);
     if (error) return { success: false, error: error.message };
   } else {
+    const idempotencyKey = `dash-${clientId.slice(0,8)}-${data.fecha}-${data.hora}-${Date.now()}`;
     const { error } = await supabase
       .from('bookings')
       .insert({
@@ -340,6 +341,7 @@ export async function upsertBooking(data: {
         status: bookingStatus,
         admin_notes: data.notas || null,
         client_local_time: clientLocalTime,
+        idempotency_key: idempotencyKey,
       });
     if (error) return { success: false, error: error.message };
   }
@@ -420,6 +422,8 @@ export async function upsertPaymentMethod(data: {
   politicaReembolso?: string;
   activo?: boolean;
   prioridad?: number;
+  recargoPct?: number;
+  color?: string;
 }) {
   const supabase = await getSupabase();
 
@@ -447,6 +451,8 @@ export async function upsertPaymentMethod(data: {
     politica_reembolso: data.politicaReembolso || null,
     activo: data.activo ?? true,
     prioridad: data.prioridad ?? 1,
+    recargo_pct: data.recargoPct ?? 0,
+    color: data.color || null,
   };
 
   if (data.id) {

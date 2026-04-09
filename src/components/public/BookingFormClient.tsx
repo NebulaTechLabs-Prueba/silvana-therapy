@@ -45,7 +45,9 @@ function isDayEnabled(dayOfWeek: number, wh: WorkingHoursMap | null): boolean {
   return wh[key]?.enabled ?? false;
 }
 
-const COUNTRIES = ['Venezuela','Colombia','México','Argentina','Chile','Perú','Ecuador','España','Estados Unidos','Panamá','República Dominicana','Costa Rica','Uruguay','Bolivia','Paraguay','Guatemala','Honduras','El Salvador','Nicaragua','Cuba','Otro'];
+const US_STATES = ['Alabama','Alaska','Arizona','Arkansas','California','Colorado','Connecticut','Delaware','Florida','Georgia','Guam','Hawaii','Idaho','Illinois','Indiana','Iowa','Kansas','Kentucky','Louisiana','Maine','Maryland','Massachusetts','Michigan','Minnesota','Mississippi','Missouri','Montana','Nebraska','Nevada','New Hampshire','New Jersey','New Mexico','New York','North Carolina','North Dakota','Ohio','Oklahoma','Oregon','Pennsylvania','Puerto Rico','Rhode Island','South Carolina','South Dakota','Tennessee','Texas','U.S. Virgin Islands','Utah','Vermont','Virginia','Washington','Washington D.C.','West Virginia','Wisconsin','Wyoming','Otro'];
+
+type PaymentMethodInfo = { nombre: string; recargoPct: number };
 
 interface Props {
   serviceId: string;
@@ -53,7 +55,7 @@ interface Props {
   serviceDuration: number;
   workingHours?: WorkingHoursMap | null;
   isFree?: boolean;
-  activePaymentMethods?: string[];
+  activePaymentMethods?: PaymentMethodInfo[];
 }
 
 /* ─── Component ─── */
@@ -77,9 +79,16 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
         if (svc.id) setSvcId(svc.id);
         if (svc.title) setSvcName(svc.title);
         if (svc.duration) setSvcDuration(parseInt(svc.duration) || propServiceDuration);
-        if (svc.price) {
-          setSvcPrice(svc.price === 'Gratis' ? 'Gratis' : `$${svc.price} USD`);
-          if (svc.price !== 'Gratis') setEffectiveIsFree(false);
+        // Determine free status: explicit is_free flag takes priority
+        const svcIsFree = svc.is_free === true;
+        setEffectiveIsFree(svcIsFree);
+        if (svcIsFree) {
+          setSvcPrice('Gratis');
+        } else if (svc.price && svc.price !== 'Gratis') {
+          setSvcPrice(`$${svc.price} USD`);
+        } else {
+          // Hidden price: not free, but no price shown
+          setSvcPrice('Consultar');
         }
       }
       // Clear sessionStorage after reading to prevent stale data on next visit
@@ -153,7 +162,7 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
   }
 
   /* ─── Validation ─── */
-  const formValid = nombre.trim() && apellido.trim() && /\S+@\S+\.\S+/.test(email);
+  const formValid = nombre.trim() && apellido.trim() && /\S+@\S+\.\S+/.test(email) && tel.trim();
 
   /* ─── Format helpers ─── */
   function formatDate(iso: string) {
@@ -170,11 +179,11 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
     if (!selDate || !selTime || !svcId) return;
     setSubmitting(true);
 
-    // Build ISO datetime for preferred_date (Argentina time)
-    const preferredDate = `${selDate}T${selTime}:00-03:00`;
+    // Build ISO datetime for preferred_date (Eastern time)
+    const preferredDate = `${selDate}T${selTime}:00`;
 
-    // Compute client-local time if country differs from Argentina
-    const clientLocalTime = pais && pais !== 'Argentina' && pais !== 'Otro'
+    // Compute client-local time if state differs from Florida (base)
+    const clientLocalTime = pais && pais !== 'Florida' && pais !== 'Otro'
       ? getClientTime(selDate, selTime, pais)
       : null;
 
@@ -203,10 +212,15 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
       const data = await res.json();
 
       // Store data for confirmation page
+      const selPM = activePaymentMethods.find(m => m.nombre === metodoPago);
+      const surPct = selPM?.recargoPct || 0;
+      const baseNum = parseFloat(svcPrice.replace(/[^0-9.]/g, '')) || 0;
+      const totalPrice = surPct > 0 && baseNum > 0 ? `$${(baseNum * (1 + surPct / 100)).toFixed(2)} USD` : svcPrice;
+
       sessionStorage.setItem('sl_code', data.booking?.id?.slice(0, 8)?.toUpperCase() || `SL-${Date.now().toString().slice(-6)}`);
       sessionStorage.setItem('sl_service', JSON.stringify({
         title: svcName,
-        price: svcPrice,
+        price: totalPrice,
         duration: `${svcDuration} min`,
       }));
       sessionStorage.setItem('sl_form', JSON.stringify({ nombre, apellido, email, tel }));
@@ -257,6 +271,13 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
 
   /* ─── Summary sidebar ─── */
   function Summary() {
+    const selPM = activePaymentMethods.find(m => m.nombre === metodoPago);
+    const surPct = selPM?.recargoPct || 0;
+    const baseNum = parseFloat(svcPrice.replace(/[^0-9.]/g, '')) || 0;
+    const hasSur = surPct > 0 && baseNum > 0 && !effectiveIsFree;
+    const surAmount = hasSur ? baseNum * (surPct / 100) : 0;
+    const totalDisplay = hasSur ? `$${(baseNum + surAmount).toFixed(2)} USD` : svcPrice;
+
     return (
       <div className="md:sticky md:top-[90px] self-start">
         <div className="bg-green-lightest border border-green-pale rounded-3xl p-7">
@@ -267,20 +288,17 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
           <SumRow label="Duración" value={`${svcDuration} min`} />
           <SumRow label="Modalidad" value="Online" />
           {selDate && <SumRow label="Fecha" value={formatDate(selDate)} />}
-          {selTime && <SumRow label="Hora" value={`${selTime} (Argentina)`} />}
-          {selDate && selTime && pais && pais !== 'Argentina' && pais !== 'Otro' && (() => {
-            const local = getClientTime(selDate, selTime, pais);
-            return local ? (
-              <div className="flex justify-between py-2 border-b border-green-pale">
-                <span className="text-[0.8rem] text-text-light">En tu país</span>
-                <span className="text-[0.8rem] text-green-deep font-normal">{local} ({pais})</span>
-              </div>
-            ) : null;
-          })()}
+          {selTime && <SumRow label="Hora" value={`${selTime} hs`} />}
+          {hasSur && (
+            <>
+              <SumRow label="Subtotal" value={svcPrice} />
+              <SumRow label={`Recargo ${selPM?.nombre} (${surPct}%)`} value={`+$${surAmount.toFixed(2)}`} />
+            </>
+          )}
           <div className="flex justify-between pt-4 mt-2 border-t border-green-pale">
             <span className="text-[0.85rem] text-text-light">Total</span>
             <span className={`font-serif text-[1.6rem] font-light ${effectiveIsFree ? 'text-green-deep' : 'text-text-dark'}`}>
-              {svcPrice}
+              {totalDisplay}
             </span>
           </div>
         </div>
@@ -442,7 +460,7 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
               </div>
               <div className="flex flex-col gap-1.5">
                 <label className="text-[0.65rem] tracking-[0.12em] uppercase text-text-light font-medium">
-                  WhatsApp (opcional)
+                  WhatsApp *
                 </label>
                 <input
                   type="tel"
@@ -456,15 +474,15 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
 
             <div className="flex flex-col gap-1.5 mb-5">
               <label className="text-[0.65rem] tracking-[0.12em] uppercase text-text-light font-medium">
-                País
+                Ubicación
               </label>
               <select
                 value={pais}
                 onChange={e => setPais(e.target.value)}
                 className="text-[0.88rem] py-3 px-4 border border-green-pale rounded-xl bg-[#fff] text-text-dark outline-none transition-all focus:border-green-deep focus:shadow-[0_0_0_3px_rgba(74,122,74,0.1)] cursor-pointer"
               >
-                <option value="">Selecciona tu país</option>
-                {COUNTRIES.map(c => <option key={c} value={c}>{c}</option>)}
+                <option value="">Selecciona tu estado</option>
+                {US_STATES.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
 
@@ -488,22 +506,41 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
                 <div className="flex flex-wrap gap-2">
                   {activePaymentMethods.map(m => (
                     <button
-                      key={m}
+                      key={m.nombre}
                       type="button"
-                      onClick={() => setMetodoPago(m)}
+                      onClick={() => setMetodoPago(m.nombre)}
                       className={`py-2 px-5 rounded-full border text-[0.82rem] cursor-pointer transition-all duration-200 ${
-                        metodoPago === m
+                        metodoPago === m.nombre
                           ? 'bg-green-deep text-[#fff] border-green-deep'
                           : 'bg-[#fff] text-text-mid border-green-soft hover:bg-green-pale'
                       }`}
                     >
-                      {m}
+                      {m.nombre}
                     </button>
                   ))}
                 </div>
-                <span className="text-[0.72rem] text-text-light">
-                  Recibirás un enlace de pago tras agendar
-                </span>
+                {(() => {
+                  const selPM = activePaymentMethods.find(m => m.nombre === metodoPago);
+                  if (selPM && selPM.recargoPct > 0) {
+                    return (
+                      <span className="text-[0.72rem] text-[#b08050]">
+                        Este método aplica un {selPM.recargoPct}% adicional al monto total
+                      </span>
+                    );
+                  }
+                  if (selPM && selPM.recargoPct === 0) {
+                    return (
+                      <span className="text-[0.72rem] text-green-deep">
+                        Sin cargos adicionales
+                      </span>
+                    );
+                  }
+                  return (
+                    <span className="text-[0.72rem] text-text-light">
+                      Recibirás un enlace de pago tras agendar
+                    </span>
+                  );
+                })()}
               </div>
             )}
 
@@ -543,13 +580,23 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
               </p>
               <ReviewRow label="Servicio" value={svcName} />
               {selDate && <ReviewRow label="Fecha" value={formatDateFull(selDate)} />}
-              {selTime && <ReviewRow label="Hora (Argentina)" value={`${selTime} hs`} />}
-              {selDate && selTime && pais && pais !== 'Argentina' && pais !== 'Otro' && (() => {
-                const local = getClientTime(selDate, selTime, pais);
-                return local ? <ReviewRow label={`Hora (${pais})`} value={`${local} hs`} /> : null;
-              })()}
+              {selTime && <ReviewRow label="Hora" value={`${selTime} hs`} />}
               <ReviewRow label="Duración" value={`${svcDuration} min`} />
-              <ReviewRow label="Precio" value={svcPrice} highlight />
+              {(() => {
+                const pm = activePaymentMethods.find(m => m.nombre === metodoPago);
+                const sPct = pm?.recargoPct || 0;
+                const bNum = parseFloat(svcPrice.replace(/[^0-9.]/g, '')) || 0;
+                const hasSur = sPct > 0 && bNum > 0 && !effectiveIsFree;
+                if (hasSur) {
+                  const surAmt = bNum * (sPct / 100);
+                  return (<>
+                    <ReviewRow label="Subtotal" value={svcPrice} />
+                    <ReviewRow label={`Recargo ${pm?.nombre} (${sPct}%)`} value={`+$${surAmt.toFixed(2)}`} />
+                    <ReviewRow label="Total" value={`$${(bNum + surAmt).toFixed(2)} USD`} highlight />
+                  </>);
+                }
+                return <ReviewRow label="Precio" value={svcPrice} highlight />;
+              })()}
             </div>
 
             {/* User data */}
@@ -559,8 +606,8 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
               </p>
               <ReviewRow label="Nombre" value={`${nombre} ${apellido}`} />
               <ReviewRow label="Email" value={email} />
-              {tel && <ReviewRow label="WhatsApp" value={tel} />}
-              {pais && <ReviewRow label="País" value={pais} />}
+              <ReviewRow label="WhatsApp" value={tel} />
+              {pais && <ReviewRow label="Ubicación" value={pais} />}
               {metodoPago && <ReviewRow label="Método de pago" value={metodoPago} />}
             </div>
 

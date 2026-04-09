@@ -57,7 +57,7 @@ const I = {
 const DIAS_ES = ["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"];
 const MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 const HORAS = ["08:00","09:00","10:00","11:00","12:00","13:00","14:00","15:00","16:00","17:00","18:00","19:00"];
-const PAISES = ['','Argentina','Venezuela','Colombia','México','Chile','Perú','Ecuador','España','Estados Unidos','Panamá','República Dominicana','Costa Rica','Uruguay','Bolivia','Paraguay','Guatemala','Honduras','El Salvador','Nicaragua','Cuba','Otro'];
+const UBICACIONES = ['','Alabama','Alaska','Arizona','Arkansas','California','Colorado','Connecticut','Delaware','Florida','Georgia','Guam','Hawaii','Idaho','Illinois','Indiana','Iowa','Kansas','Kentucky','Louisiana','Maine','Maryland','Massachusetts','Michigan','Minnesota','Mississippi','Missouri','Montana','Nebraska','Nevada','New Hampshire','New Jersey','New Mexico','New York','North Carolina','North Dakota','Ohio','Oklahoma','Oregon','Pennsylvania','Puerto Rico','Rhode Island','South Carolina','South Dakota','Tennessee','Texas','U.S. Virgin Islands','Utah','Vermont','Virginia','Washington','Washington D.C.','West Virginia','Wisconsin','Wyoming','Otro'];
 const TC = {
   Individual:{bg:"#f0f5f0",text:"#2a3528",dot:"#4a7a4a"},
   Pareja:{bg:"#e8eff4",text:"#2b4a6e",dot:"#5a82b0"},
@@ -131,7 +131,7 @@ function DropMenu({items,onClose}){
 /* ═══ INVOICE HTML ═══ */
 function makeInvHTML(inv, acc) {
   const parts = [];
-  parts.push('<!DOCTYPE html><html><head><meta charset="utf-8"><title>Factura</title>');
+  parts.push('<!DOCTYPE html><html><head><meta charset="utf-8"><title>Comprobante de Pago</title>');
   parts.push('<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:Helvetica,Arial,sans-serif;color:#2a3528;padding:40px}');
   parts.push('.c{max-width:680px;margin:0 auto;border:1px solid #e2ede2;border-radius:8px;overflow:hidden}');
   parts.push('.h{background:#2a3528;color:#fff;padding:30px 36px;display:flex;justify-content:space-between;align-items:center}');
@@ -147,7 +147,7 @@ function makeInvHTML(inv, acc) {
   parts.push('.lb a{color:#4a7a4a;font-weight:600;font-size:13px;text-decoration:none}');
   parts.push('</style></head><body><div class="c">');
   const num = String(inv.id).padStart(4,'0');
-  parts.push('<div class="h"><div class="logo">Lda. Silvana López</div><div style="text-align:right"><div style="font-size:11px;text-transform:uppercase;letter-spacing:2px;opacity:.6">Factura</div><div style="font-size:18px;font-weight:700;margin-top:4px">#' + num + '</div></div></div>');
+  parts.push('<div class="h"><div class="logo">Lda. Silvana López</div><div style="text-align:right"><div style="font-size:11px;text-transform:uppercase;letter-spacing:2px;opacity:.6">Comprobante de Pago</div><div style="font-size:18px;font-weight:700;margin-top:4px">#' + num + '</div></div></div>');
   parts.push('<div class="b"><div class="ir">');
   parts.push('<div class="ib"><h4>De</h4><p><strong>' + acc.nombre + '</strong><br>' + acc.especialidad + '<br>Ced. Prof. ' + acc.cedula + '<br>' + acc.email + '<br>' + acc.telefono + '</p></div>');
   const bc = inv.estado === 'pagada' ? 'bp' : inv.estado === 'pendiente' ? 'bpn' : 'bv';
@@ -156,7 +156,11 @@ function makeInvHTML(inv, acc) {
   parts.push('<tbody><tr><td>' + inv.concepto + '</td><td>1</td><td style="text-align:right">$' + inv.monto.toLocaleString() + ' USD</td></tr>');
   parts.push('<tr class="tr"><td colspan="2">Total</td><td style="text-align:right">$' + inv.monto.toLocaleString() + ' USD</td></tr></tbody></table>');
   if (inv.estado !== 'pagada') {
-    parts.push('<div class="lb"><div style="font-size:10px;color:#849884;margin-bottom:5px">LINK DE PAGO</div><a href="' + absUrl(inv.link) + '">' + inv.link + '</a></div>');
+    if (inv.link) {
+      parts.push('<div class="lb"><div style="font-size:10px;color:#849884;margin-bottom:5px">LINK DE PAGO</div><a href="' + absUrl(inv.link) + '">' + inv.link + '</a></div>');
+    } else {
+      parts.push('<div class="lb"><div style="font-size:10px;color:#849884;margin-bottom:5px">LINK DE PAGO</div><span style="color:#b08050;font-style:italic">Sin link de pago asignado</span></div>');
+    }
   }
   parts.push('</div><div class="f">Lda. Silvana López · Psicoterapia Online · silvana@psicoterapia.com</div></div></body></html>');
   return parts.join('');
@@ -242,6 +246,8 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
   const [eInvId, setEInvId] = useState(null);
   const [openMenu, setOpenMenu] = useState(null);
   const [invFilter, setInvFilter] = useState('todos');
+  const [invSearch, setInvSearch] = useState('');
+  const [delInvConfirm, setDelInvConfirm] = useState(null);
   const [confirmModal, setConfirmModal] = useState(null);
 
   const [reservas, setReservas] = useState(() => {
@@ -277,6 +283,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
   });
   const [calView, setCalView] = useState('week');
   const [calDate, setCalDate] = useState(new Date(TODAY));
+  const [calSearch, setCalSearch] = useState('');
   const [selRes, setSelRes] = useState(null);
   const [resModal, setResModal] = useState(false);
   const [resF, setResF] = useState({paciente:'',email:'',telefono:'',fecha:'',hora:'',duracion:60,tipo:'',serviceId:'',notas:'',estado:'pendiente',pais:''});
@@ -309,30 +316,34 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
         idComercio: m.id_comercio || '',
         activo: m.activo !== false,
         prioridad: m.prioridad || 1,
+        recargoPct: m.recargo_pct || 0,
+        color: m.color || '',
       }));
     }
     return [];
   });
   const [metModal, setMetModal] = useState(false);
-  const [metF, setMetF] = useState({tipo:'Transferencia',nombre:'',banco:'',titular:'',cuentaVisible:'',cuentaCompleta:'',moneda:'USD',tiempoConfirm:'24–48h',instrucciones:'',notasInternas:'',correoProveedor:'',comision:'',estadoConexion:'conectado',monedasAceptadas:'USD',pagosRecurrentes:false,tipoCuenta:'Personal',tiempoAcredit:'Instantáneo',politicaReembolso:'',clavePublica:'',claveSecreta:'',idComercio:'',prioridad:1});
+  const [metF, setMetF] = useState({tipo:'Transferencia',nombre:'',banco:'',titular:'',cuentaVisible:'',cuentaCompleta:'',moneda:'USD',tiempoConfirm:'24–48h',instrucciones:'',notasInternas:'',correoProveedor:'',comision:'',estadoConexion:'conectado',monedasAceptadas:'USD',pagosRecurrentes:false,tipoCuenta:'Personal',tiempoAcredit:'Instantáneo',politicaReembolso:'',clavePublica:'',claveSecreta:'',idComercio:'',prioridad:1,recargoPct:0,color:''});
   const [eMetId, setEMetId] = useState(null);
   const [metViewId, setMetViewId] = useState(null);
 
   /* Invoice ops */
   const emptyInvF = {paciente:'',email:'',telefono:'',cedula:'',pais:'',direccion:'',concepto:'',monto:'',estado:'pendiente',metodoPago:'',link:'',bookingId:''};
   const saveInv = async () => {
-    if (!invF.paciente || !invF.monto) return;
+    if (!invF.paciente || !invF.monto) { show('Paciente y monto son requeridos'); return; }
+    if (!invF.concepto) { show('Selecciona un servicio o concepto'); return; }
     const _selSvc = services.find(s=>s.nombre===invF.concepto);
-    if (_selSvc?.is_free) { show('No se puede facturar un servicio gratuito'); return; }
+    if (_selSvc?.is_free) { show('No se puede crear comprobante para un servicio gratuito'); return; }
     // Validate: if not linked to booking, email is required for sending
-    if (!invF.bookingId && !invF.email) { show('Email es requerido para facturas sin reserva'); return; }
-    const _met = metodos.find(m=>m.id===invF.metodoPago);
-    const finalMonto = _met?.tipo === 'PayPal' ? Number(invF.monto) * 1.10 : Number(invF.monto);
+    if (!invF.bookingId && !invF.email) { show('Email es requerido para comprobantes sin reserva'); return; }
+    const _met = metodos.find(m=>String(m.id)===String(invF.metodoPago));
+    const _pct = _met?.recargoPct || 0;
+    const finalMonto = _pct > 0 ? Number(invF.monto) * (1 + _pct / 100) : Number(invF.monto);
     if (eInvId) {
       setInvoices(p => p.map(i => i.id === eInvId ? {...i,...invF,monto:finalMonto,booking_id:invF.bookingId||null} : i));
-      show('Factura actualizada');
+      show('Comprobante actualizado');
       setInvModal(false); setEInvId(null); setInvF(emptyInvF);
-      try { await upsertInvoice({id: eInvId, paciente: invF.paciente, email: invF.email, telefono: invF.telefono, cedula: invF.cedula, pais: invF.pais, direccion: invF.direccion, concepto: invF.concepto, monto: finalMonto, estado: invF.estado, link: invF.link, booking_id: invF.bookingId || null}); } catch(e) { show('Error al guardar factura'); }
+      try { await upsertInvoice({id: eInvId, paciente: invF.paciente, email: invF.email, telefono: invF.telefono, cedula: invF.cedula, pais: invF.pais, direccion: invF.direccion, concepto: invF.concepto, monto: finalMonto, estado: invF.estado, link: invF.link, booking_id: invF.bookingId || null}); } catch(e) { show('Error al guardar comprobante'); }
     } else {
       const newInv = {...invF,monto:finalMonto,fecha:new Date().toISOString().slice(0,10)};
       setInvModal(false);
@@ -346,18 +357,18 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
       const savedInv = {...confirmModal, id: result?.data?.id || Date.now(), booking_id: confirmModal.bookingId || null};
       setInvoices(p => [...p, savedInv]);
       if (em || wa) {
-        if (!confirmModal.email && em) { show('Factura creada. No se pudo enviar correo: falta email del cliente.'); }
-        else if (!confirmModal.telefono && wa) { show('Factura creada. No se pudo enviar WhatsApp: falta teléfono del cliente.'); }
+        if (!confirmModal.email && em) { show('Comprobante creado. No se pudo enviar correo: falta email del cliente.'); }
+        else if (!confirmModal.telefono && wa) { show('Comprobante creado. No se pudo enviar WhatsApp: falta teléfono del cliente.'); }
         else {
           const msgs = [];
           if (em && confirmModal.email) msgs.push('correo');
           if (wa && confirmModal.telefono) msgs.push('WhatsApp');
-          show('Factura creada' + (msgs.length ? ' · Notificación por ' + msgs.join(' y ') + ' pendiente' : ''));
+          show('Comprobante creado' + (msgs.length ? ' · Notificación por ' + msgs.join(' y ') + ' pendiente' : ''));
         }
       } else {
-        show('Factura guardada');
+        show('Comprobante guardado');
       }
-    } catch(e) { show('Error al guardar factura'); }
+    } catch(e) { show('Error al guardar comprobante'); }
     setConfirmModal(null); setInvF(emptyInvF);
   };
   const exportCSV = () => {
@@ -367,15 +378,15 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
     const csv = rows.map(r => r.map(c => '"'+c+'"').join(',')).join('\n');
     const blob = new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'});
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href=url; a.download='facturas_'+new Date().toISOString().slice(0,10)+'.csv'; a.click();
+    const a = document.createElement('a'); a.href=url; a.download='comprobantes_'+new Date().toISOString().slice(0,10)+'.csv'; a.click();
     URL.revokeObjectURL(url); show('CSV exportado');
   };
   const dlInv = inv => {
     const html = makeInvHTML(inv,account);
     const blob = new Blob([html],{type:'text/html'});
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href=url; a.download='factura_'+String(inv.id).padStart(4,'0')+'.html'; a.click();
-    URL.revokeObjectURL(url); show('Factura descargada');
+    const a = document.createElement('a'); a.href=url; a.download='comprobante_'+String(inv.id).padStart(4,'0')+'.html'; a.click();
+    URL.revokeObjectURL(url); show('Comprobante descargado');
   };
   const prevInv = inv => {
     const html = makeInvHTML(inv,account);
@@ -385,8 +396,13 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
   const copyLnk = link => { navigator.clipboard?.writeText(link); show('Link copiado'); };
 
   const fInvs = useMemo(() => {
-    return invFilter === 'todos' ? invoices : invoices.filter(i => i.estado === invFilter);
-  }, [invoices, invFilter]);
+    let filtered = invFilter === 'todos' ? invoices : invoices.filter(i => i.estado === invFilter);
+    if (invSearch.trim()) {
+      const q = invSearch.trim().toLowerCase();
+      filtered = filtered.filter(i => String(i.id).includes(q) || (i.paciente||'').toLowerCase().includes(q) || (i.concepto||'').toLowerCase().includes(q));
+    }
+    return filtered;
+  }, [invoices, invFilter, invSearch]);
 
   /* Reserva ops */
   const saveRes = async () => {
@@ -432,8 +448,8 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
     if (!metF.nombre || !metF.tipo) return;
     if (eMetId) { setMetodos(p=>p.map(m=>m.id===eMetId?{...m,...metF}:m)); show('Método actualizado'); }
     else { const nid=Math.max(0,...metodos.map(m=>m.id))+1; setMetodos(p=>[...p,{...metF,id:nid,activo:true,prioridad:p.length+1}]); show('Método agregado'); }
-    setMetModal(false); setEMetId(null); setMetF({tipo:'Transferencia',nombre:'',banco:'',titular:'',cuentaVisible:'',cuentaCompleta:'',moneda:'USD',tiempoConfirm:'24–48h',instrucciones:'',notasInternas:'',correoProveedor:'',comision:'',estadoConexion:'conectado',monedasAceptadas:'USD',pagosRecurrentes:false,tipoCuenta:'Personal',tiempoAcredit:'Instantáneo',politicaReembolso:'',clavePublica:'',claveSecreta:'',idComercio:'',prioridad:1});
-    try { await upsertPaymentMethod({...metF, id: eMetId || undefined}); } catch(e) { show('Error al guardar método'); }
+    setMetModal(false); setEMetId(null); setMetF({tipo:'Transferencia',nombre:'',banco:'',titular:'',cuentaVisible:'',cuentaCompleta:'',moneda:'USD',tiempoConfirm:'24–48h',instrucciones:'',notasInternas:'',correoProveedor:'',comision:'',estadoConexion:'conectado',monedasAceptadas:'USD',pagosRecurrentes:false,tipoCuenta:'Personal',tiempoAcredit:'Instantáneo',politicaReembolso:'',clavePublica:'',claveSecreta:'',idComercio:'',prioridad:1,recargoPct:0,color:''});
+    try { await upsertPaymentMethod({...metF, id: eMetId || undefined, recargoPct: metF.recargoPct, color: metF.color}); } catch(e) { show('Error al guardar método'); }
   };
 
   /* Calendar */
@@ -466,7 +482,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
   const navItems = [
     {key:'inicio',label:'Inicio',icon:I.home},
     {key:'cuenta',label:'Mi Cuenta',icon:I.user},
-    {key:'facturas',label:'Facturas',icon:I.invoice},
+    {key:'facturas',label:'Comprobantes',icon:I.invoice},
     {key:'reservas',label:'Calendario',icon:I.calendar},
     {key:'pagos',label:'Métodos de Pago',icon:I.credit},
     {key:'config',label:'Configuración',icon:I.gear},
@@ -519,7 +535,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
               <p style={{color:'#849884',margin:'0 0 22px',fontSize:14,fontWeight:300}}>Bienvenida, <strong style={{color:txMain,fontWeight:500}}>{nickname}</strong>. Resumen del consultorio.</p>
               <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(185px,1fr))',gap:14,marginBottom:26}}>
                 {[
-                  {l:'Facturado',v:'$'+totalF.toLocaleString(),icon:I.dollar,g:'linear-gradient(135deg,#4a7a4a,#3a6a3a)'},
+                  {l:'Cobrado',v:'$'+totalF.toLocaleString(),icon:I.dollar,g:'linear-gradient(135deg,#4a7a4a,#3a6a3a)'},
                   {l:'Pendientes',v:pend,icon:I.invoice,g:'linear-gradient(135deg,#c4956a,#b08050)'},
                   {l:'Citas hoy',v:citH,icon:I.calendar,g:'linear-gradient(135deg,#5a82b0,#3a6b9f)'},
                   {l:'Pacientes',v:reservas.length,icon:I.patients,g:'linear-gradient(135deg,#8fb08f,#6a9a6a)'},
@@ -532,7 +548,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
               </div>
               <h3 style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:16,marginBottom:10,fontWeight:400}}>Acciones rápidas</h3>
               <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
-                <button onClick={()=>{setSection('facturas');setTimeout(()=>setInvModal(true),80)}} style={btnP}>{I.plus} Nueva Factura</button>
+                <button onClick={()=>{setSection('facturas');setTimeout(()=>setInvModal(true),80)}} style={btnP}>{I.plus} Nuevo Comprobante</button>
                 <button onClick={()=>{setSection('reservas');setTimeout(()=>setResModal(true),80)}} style={{...btnP,background:'linear-gradient(135deg,#5a82b0,#3a6b9f)'}}>{I.plus} Nueva Cita</button>
                 <button onClick={()=>setSection('config')} style={btnS}>{I.gear} Configuración</button>
               </div>
@@ -692,32 +708,33 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
             </div>
           )}
 
-          {/* FACTURAS */}
+          {/* COMPROBANTES */}
           {section === 'facturas' && (
             <div style={{animation:'slideIn .3s'}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16,flexWrap:'wrap',gap:10}}>
-                <div style={{display:'flex',gap:5}}>
+                <div style={{display:'flex',gap:5,alignItems:'center'}}>
                   {['todos','pendiente','pagada','vencida'].map(f => (
                     <button key={f} onClick={()=>setInvFilter(f)} style={{padding:'6px 15px',borderRadius:20,border:'1.5px solid',fontSize:12,fontWeight:500,cursor:'pointer',fontFamily:"'DM Sans',sans-serif",borderColor:invFilter===f?'#4a7a4a':'#c8ddc8',background:invFilter===f?'#f0f5f0':'#fdfcfa',color:invFilter===f?'#4a7a4a':'#4e6050',textTransform:'capitalize'}}>{f}</button>
                   ))}
+                  <input value={invSearch} onChange={e=>setInvSearch(e.target.value)} placeholder="Buscar por ID, paciente..." style={{padding:'6px 14px',borderRadius:20,border:'1.5px solid #c8ddc8',fontSize:12,fontFamily:"'DM Sans',sans-serif",background:'#fdfcfa',color:'#2a3528',outline:'none',width:200,marginLeft:6}} />
                 </div>
                 <div style={{display:'flex',gap:8}}>
                   <button onClick={exportCSV} style={{...btnS,fontSize:12,padding:'7px 15px'}}>{I.download} CSV</button>
-                  <button onClick={()=>{setEInvId(null);setInvF(emptyInvF);setInvModal(true)}} style={{...btnP,fontSize:12,padding:'7px 15px'}}>{I.plus} Nueva</button>
+                  <button onClick={()=>{setEInvId(null);setInvF(emptyInvF);setInvModal(true)}} style={{...btnP,fontSize:12,padding:'7px 15px'}}>{I.plus} Nuevo</button>
                 </div>
               </div>
               <div style={{...CARD,overflow:'hidden'}}>
                 <div style={{overflowX:'auto'}}>
                   <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
                     <thead><tr style={{borderBottom:'2px solid '+(dm?'#333':'#e2ede2')}}>
-                      {['#','Paciente','Concepto','Monto','Estado','Fecha',''].map(h => (
+                      {['ID','Paciente','Concepto','Monto','Estado','Fecha',''].map(h => (
                         <th key={h} style={{padding:'11px 13px',textAlign:'left',fontSize:10,fontWeight:500,color:'#849884',textTransform:'uppercase',letterSpacing:'.5px',whiteSpace:'nowrap'}}>{h}</th>
                       ))}
                     </tr></thead>
                     <tbody>
                       {fInvs.map((inv, idx) => (
                         <tr key={inv.id} style={{borderBottom:'1px solid '+(dm?'#2a2a2a':'#f0f5f0')}} onMouseEnter={e=>e.currentTarget.style.background=(dm?'#252525':'#f0f5f0')} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
-                          <td style={{padding:'11px 13px',color:'#849884',fontSize:12,fontFamily:'monospace'}}>{String(idx + 1).padStart(4,'0')}</td>
+                          <td style={{padding:'11px 13px',color:'#849884',fontSize:12,fontFamily:'monospace'}}>{inv.id}</td>
                           <td style={{padding:'11px 13px',fontWeight:500}}>{inv.paciente}</td>
                           <td style={{padding:'11px 13px',color:'#4e6050'}}>{inv.concepto}</td>
                           <td style={{padding:'11px 13px',fontWeight:500}}>{'$'+inv.monto.toLocaleString()}</td>
@@ -728,16 +745,16 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                               <button title="Ver" onClick={()=>prevInv(inv)} style={{border:'none',background:'#f0f5f0',borderRadius:7,width:30,height:30,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#4a7a4a'}}>{I.eye}</button>
                               <button title="Descargar" onClick={()=>dlInv(inv)} style={{border:'none',background:'#f0f5f0',borderRadius:7,width:30,height:30,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#4a7a4a'}}>{I.download}</button>
                               <button title="Editar" onClick={()=>{setEInvId(inv.id);setInvF({paciente:inv.paciente,email:inv.email||'',telefono:inv.telefono||'',cedula:inv.cedula||'',pais:inv.pais||'',direccion:inv.direccion||'',concepto:inv.concepto,monto:inv.monto,estado:inv.estado,metodoPago:'',link:inv.link||'',bookingId:inv.booking_id||''});setInvModal(true)}} style={{border:'none',background:'#e2ede2',borderRadius:7,width:30,height:30,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#4a7a4a'}}>{I.edit}</button>
-                              <button title="Eliminar" onClick={async ()=>{
+                              <button title="Eliminar" onClick={()=>{
                                 // Check if invoice link matches any booking's payment link
                                 if (inv.link) {
                                   const linkedBooking = reservas.find(r => (r.paymentLinks || []).some(pl => pl.url === inv.link));
                                   if (linkedBooking) {
-                                    window.alert(`Este enlace de pago está asociado a la cita de "${linkedBooking.paciente}" (${linkedBooking.fecha}).\n\nDebes desvincular el enlace de la cita primero antes de eliminar esta factura.`);
+                                    window.alert(`Este enlace de pago está asociado a la cita de "${linkedBooking.paciente}" (${linkedBooking.fecha}).\n\nDebes desvincular el enlace de la cita primero antes de eliminar este comprobante.`);
                                     return;
                                   }
                                 }
-                                setInvoices(p=>p.filter(i=>i.id!==inv.id));show('Eliminada');try{await deleteInvoice(inv.id)}catch(e){show('Error al eliminar')}
+                                setDelInvConfirm(inv);
                               }} style={{border:'none',background:'#FFEBEE',borderRadius:7,width:30,height:30,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#C62828'}}>{I.trash}</button>
                             </div>
                           </td>
@@ -746,10 +763,26 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                     </tbody>
                   </table>
                 </div>
-                {fInvs.length === 0 && <div style={{padding:36,textAlign:'center',color:'#849884',fontSize:14}}>No se encontraron facturas</div>}
+                {fInvs.length === 0 && <div style={{padding:36,textAlign:'center',color:'#849884',fontSize:14}}>No se encontraron comprobantes</div>}
               </div>
 
-              <Modal dark={dm} open={invModal} onClose={()=>{setInvModal(false);setEInvId(null)}} title={eInvId?'Editar Factura':'Nueva Factura'} width={540} zIndex={1010}>
+              {/* Delete confirmation modal */}
+              <Modal dark={dm} open={!!delInvConfirm} onClose={()=>setDelInvConfirm(null)} title="Confirmar eliminación" width={420} zIndex={1020}>
+                <div style={{textAlign:'center',padding:'10px 0 20px'}}>
+                  <div style={{width:48,height:48,borderRadius:'50%',background:'#FFEBEE',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 16px',color:'#C62828'}}>{I.trash}</div>
+                  <p style={{fontSize:14,color:dm?'#e0e0e0':'#2a3528',marginBottom:6}}>¿Estás segura de eliminar este comprobante?</p>
+                  {delInvConfirm && <p style={{fontSize:12,color:'#849884',margin:0}}>#{delInvConfirm.id} — {delInvConfirm.paciente} · {delInvConfirm.concepto} · ${Number(delInvConfirm.monto).toFixed(2)}</p>}
+                  <p style={{fontSize:11,color:'#C62828',marginTop:10,fontStyle:'italic'}}>Esta acción no se puede deshacer.</p>
+                </div>
+                <div style={{display:'flex',gap:10,justifyContent:'center'}}>
+                  <button onClick={()=>setDelInvConfirm(null)} style={btnS}>Cancelar</button>
+                  <button onClick={async ()=>{if(!delInvConfirm)return;const id=delInvConfirm.id;setDelInvConfirm(null);setInvoices(p=>p.filter(i=>i.id!==id));show('Comprobante eliminado');try{await deleteInvoice(id)}catch(e){show('Error al eliminar')}}} style={{...btnP,background:'#C62828'}}>Eliminar</button>
+                </div>
+              </Modal>
+
+              <Modal dark={dm} open={invModal} onClose={()=>{setInvModal(false);setEInvId(null)}} title={eInvId?'Editar Comprobante':'Nuevo Comprobante de Pago'} width={540} zIndex={1010}>
+                {/* ID (read-only) */}
+                {eInvId && <div style={{marginBottom:12,padding:'8px 14px',background:dm?'#1a1a1a':'#f0f5f0',borderRadius:10,border:'1px solid '+(dm?'#333':'#e2ede2')}}><span style={{fontSize:10,color:'#849884',textTransform:'uppercase',letterSpacing:'.5px',fontWeight:500}}>ID del comprobante</span><div style={{fontSize:14,fontFamily:'monospace',color:dm?'#e0e0e0':'#2a3528',marginTop:2}}>{eInvId}</div></div>}
                 {/* Booking association */}
                 <Field label="Asociar a reserva">
                   <select style={sel} value={invF.bookingId} onChange={e=>{
@@ -776,8 +809,8 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                 </div>
                 {!invF.bookingId && (
                   <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'0 14px'}}>
-                    <Field label="Cédula"><input style={inp} value={invF.cedula} onChange={e=>setInvF({...invF,cedula:e.target.value})} placeholder="V-00000000"/></Field>
-                    <Field label="País"><select style={sel} value={invF.pais} onChange={e=>setInvF({...invF,pais:e.target.value})}>{PAISES.map(p=><option key={p} value={p}>{p||'— Sin país —'}</option>)}</select></Field>
+                    <Field label="Cédula / DNI"><input style={inp} value={invF.cedula} onChange={e=>setInvF({...invF,cedula:e.target.value})} placeholder="00000000"/></Field>
+                    <Field label="Ubicación"><select style={sel} value={invF.pais} onChange={e=>setInvF({...invF,pais:e.target.value})}>{UBICACIONES.map(p=><option key={p} value={p}>{p||'— Sin ubicación —'}</option>)}</select></Field>
                     <Field label="Dirección"><input style={inp} value={invF.direccion} onChange={e=>setInvF({...invF,direccion:e.target.value})} placeholder="Ciudad, Estado"/></Field>
                   </div>
                 )}
@@ -787,15 +820,16 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                 {(() => {
                   const selectedSvc = services.find(s=>s.nombre===invF.concepto);
                   const isFreeService = selectedSvc?.is_free === true;
-                  const selMet = metodos.find(m=>m.id===invF.metodoPago);
-                  const isPayPal = selMet?.tipo === 'PayPal';
+                  const selMet = metodos.find(m=>String(m.id)===String(invF.metodoPago));
+                  const surchargePct = selMet?.recargoPct || 0;
+                  const hasSurcharge = surchargePct > 0;
                   const baseAmount = Number(invF.monto) || 0;
-                  const surchargeAmount = isPayPal ? baseAmount * 0.10 : 0;
+                  const surchargeAmount = hasSurcharge ? baseAmount * (surchargePct / 100) : 0;
                   const totalAmount = baseAmount + surchargeAmount;
                   return (<>
-                <Field label="Concepto"><select style={sel} value={invF.concepto} onChange={e=>{const name=e.target.value;const svc=services.find(s=>s.nombre===name);setInvF({...invF,concepto:name,monto:svc&&svc.precio&&!svc.is_free?svc.precio:''});}}>{services.filter(s=>s.active!==false).map(s=>(<option key={s.id} value={s.nombre}>{s.nombre}{s.is_free?' (Gratis)':s.precio?' — $'+s.precio+' USD':''}</option>))}<option value="Otro">Otro</option></select></Field>
+                <Field label="Concepto"><select style={sel} value={invF.concepto} onChange={e=>{const name=e.target.value;const svc=services.find(s=>s.nombre===name);setInvF({...invF,concepto:name,monto:svc&&svc.precio&&!svc.is_free?svc.precio:''});}}><option value="">Seleccionar servicio...</option>{services.filter(s=>s.active!==false).map(s=>(<option key={s.id} value={s.nombre}>{s.nombre}{s.is_free?' (Gratis)':s.precio?' — $'+s.precio+' USD':''}</option>))}<option value="Otro">Otro</option></select></Field>
                 {isFreeService && (
-                  <div style={{background:'#FFF8E1',borderRadius:10,padding:'11px 14px',fontSize:12,color:'#b08050',border:'1px solid #ffe0b2',marginTop:4}}>Este servicio es gratuito. No se puede crear factura ni enlace de pago.</div>
+                  <div style={{background:'#FFF8E1',borderRadius:10,padding:'11px 14px',fontSize:12,color:'#b08050',border:'1px solid #ffe0b2',marginTop:4}}>Este servicio es gratuito. No se puede crear comprobante ni enlace de pago.</div>
                 )}
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                   <Field label="Monto (USD)"><input style={inp} type="number" value={invF.monto} onChange={e=>setInvF({...invF,monto:e.target.value})} placeholder="0.00" disabled={isFreeService}/></Field>
@@ -808,13 +842,13 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                   <Field label="Método de pago">{metodos.filter(m=>m.activo).length > 0 ? (
                     <select style={sel} value={invF.metodoPago||''} onChange={e=>setInvF({...invF,metodoPago:e.target.value})}><option value="">Seleccionar método...</option>{metodos.filter(m=>m.activo).map(m=>(<option key={m.id} value={m.id}>{m.nombre}</option>))}</select>
                   ) : (
-                    <div style={{background:'#FFF8E1',borderRadius:10,padding:'11px 14px',fontSize:12,color:'#b08050',border:'1px solid #ffe0b2'}}>No hay métodos de pago activos. Puedes crear la factura sin enlace de pago.</div>
+                    <div style={{background:'#FFF8E1',borderRadius:10,padding:'11px 14px',fontSize:12,color:'#b08050',border:'1px solid #ffe0b2'}}>No hay métodos de pago activos. Puedes crear el comprobante sin enlace de pago.</div>
                   )}</Field>
                 )}
-                {isPayPal && baseAmount > 0 && (
+                {hasSurcharge && baseAmount > 0 && (
                   <div style={{background:'#f0f7f0',border:'1px solid #c8dcc8',borderRadius:12,padding:'12px 14px',marginBottom:4}}>
                     <div style={{display:'flex',justifyContent:'space-between',fontSize:13,color:'#4e6050',marginBottom:4}}><span>Monto base</span><span>${baseAmount.toFixed(2)}</span></div>
-                    <div style={{display:'flex',justifyContent:'space-between',fontSize:13,color:'#b08050',marginBottom:4}}><span>Recargo PayPal (10%)</span><span>+${surchargeAmount.toFixed(2)}</span></div>
+                    <div style={{display:'flex',justifyContent:'space-between',fontSize:13,color:'#b08050',marginBottom:4}}><span>Recargo {selMet?.nombre} ({surchargePct}%)</span><span>+${surchargeAmount.toFixed(2)}</span></div>
                     <div style={{display:'flex',justifyContent:'space-between',fontSize:14,fontWeight:600,color:'#2a3528',borderTop:'1px solid #c8dcc8',paddingTop:6}}><span>Total</span><span>${totalAmount.toFixed(2)}</span></div>
                   </div>
                 )}
@@ -837,7 +871,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                       <div style={{fontSize:12,color:'#849884'}}>{confirmModal.concepto}</div>
                       <div style={{fontSize:11,color:'#4a7a4a',marginTop:6,display:'flex',alignItems:'center',gap:6}}>{I.link} {confirmModal.link}</div>
                     </div>
-                    <p style={{fontSize:13,color:'#4e6050',margin:'0 0 14px'}}>Selecciona cómo notificar al paciente sobre esta factura.</p>
+                    <p style={{fontSize:13,color:'#4e6050',margin:'0 0 14px'}}>Selecciona cómo notificar al paciente sobre este comprobante.</p>
                     <div style={{display:'flex',flexDirection:'column',gap:10}}>
                       <button onClick={()=>confirmAndSend(true,true)} style={{...btnP,justifyContent:'center',width:'100%'}}>{I.mail} {I.msg} Enviar correo y WhatsApp</button>
                       <div style={{display:'flex',gap:10}}>
@@ -878,12 +912,12 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
 
                 {calView === 'week' && (
                   <div style={{...CARD,overflow:'hidden'}}>
-                    <div style={{display:'grid',gridTemplateColumns:'54px repeat(7,1fr)',borderBottom:'2px solid '+(dm?'#333':'#e2ede2')}}>
-                      <div style={{padding:8,borderRight:'1px solid '+(dm?'#2a2a2a':'#e2ede2')}}/>
+                    <div style={{display:'grid',gridTemplateColumns:'54px repeat(7,1fr)',borderBottom:'2px solid '+(dm?'#333':'#c8d8c8')}}>
+                      <div style={{padding:8,borderRight:'1px solid '+(dm?'#2a2a2a':'#d4ddd4')}}/>
                       {wd.map((d,i) => {
                         const t = sameD(d, TODAY);
                         return (
-                          <div key={i} style={{padding:'8px 4px',textAlign:'center',borderRight:i<6?'1px solid '+(dm?'#2a2a2a':'#e2ede2'):'none',background:t?(dm?'#1a2e1f':'#f0f5f0'):'transparent'}}>
+                          <div key={i} style={{padding:'8px 4px',textAlign:'center',borderRight:i<6?'1px solid '+(dm?'#2a2a2a':'#d4ddd4'):'none',background:t?(dm?'#1a2e1f':'#f0f5f0'):'transparent'}}>
                             <div style={{fontSize:10,fontWeight:500,color:'#849884',textTransform:'uppercase'}}>{DIAS_ES[i]}</div>
                             <div style={{fontSize:17,fontWeight:t?500:400,fontFamily:"'Cormorant Garamond',Georgia,serif",color:t?'#4a7a4a':'#2a3528',marginTop:1}}>{d.getDate()}</div>
                           </div>
@@ -892,15 +926,15 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                     </div>
                     <div style={{maxHeight:500,overflowY:'auto'}}>
                       {HORAS.map(hora => (
-                        <div key={hora} style={{display:'grid',gridTemplateColumns:'54px repeat(7,1fr)',minHeight:50,borderBottom:'1px solid '+(dm?'#2a2a2a':'#f0f5f0')}}>
-                          <div style={{padding:'4px 5px 0',textAlign:'right',fontSize:10,color:'#c8ddc8',fontWeight:400,borderRight:'1px solid '+(dm?'#2a2a2a':'#e2ede2')}}>{hora}</div>
+                        <div key={hora} style={{display:'grid',gridTemplateColumns:'54px repeat(7,1fr)',minHeight:50,borderBottom:'1px solid '+(dm?'#2a2a2a':'#d4ddd4')}}>
+                          <div style={{padding:'4px 5px 0',textAlign:'right',fontSize:10,color:'#a0b5a0',fontWeight:400,borderRight:'1px solid '+(dm?'#2a2a2a':'#d4ddd4')}}>{hora}</div>
                           {wd.map((d, di) => {
                             const dk2 = dkey(d);
                             const evs = resDay(dk2).filter(r => r.hora === hora);
                             const t = sameD(d, TODAY);
                             return (
                               <div key={di} onClick={() => {if(!evs.length){setEResId(null);setResF({paciente:'',email:'',telefono:'',fecha:dk2,hora:hora,duracion:60,tipo:'',serviceId:'',notas:'',estado:'pendiente',pais:''});setResModal(true)}}}
-                                style={{padding:'2px 3px',borderRight:di<6?'1px solid '+(dm?'#2a2a2a':'#f0f5f0'):'none',background:t?(dm?'rgba(74,122,74,.08)':'rgba(240,245,240,.4)'):'transparent',cursor:evs.length?'default':'pointer',minHeight:50}}>
+                                style={{padding:'2px 3px',borderRight:di<6?'1px solid '+(dm?'#2a2a2a':'#d4ddd4'):'none',background:t?(dm?'rgba(74,122,74,.08)':'rgba(240,245,240,.5)'):'transparent',cursor:evs.length?'default':'pointer',minHeight:50}}>
                                 {evs.map(ev => {
                                   const tc = TC[ev.tipo] || TC.Individual;
                                   return (
@@ -924,18 +958,18 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
 
                 {calView === 'month' && (
                   <div style={{...CARD,overflow:'hidden'}}>
-                    <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',borderBottom:'2px solid '+(dm?'#333':'#e2ede2')}}>
+                    <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',borderBottom:'2px solid '+(dm?'#333':'#c8d8c8')}}>
                       {DIAS_ES.map(d => <div key={d} style={{padding:8,textAlign:'center',fontSize:10,fontWeight:500,color:'#849884',textTransform:'uppercase'}}>{d}</div>)}
                     </div>
                     <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)'}}>
                       {md.map((d, i) => {
-                        if (d === null) return <div key={'e'+i} style={{minHeight:74,borderBottom:'1px solid '+(dm?'#2a2a2a':'#f0f5f0'),borderRight:i%7<6?'1px solid '+(dm?'#2a2a2a':'#f0f5f0'):'none',background:dm?'#1a1a1a':'#f0f5f0'}}/>;
+                        if (d === null) return <div key={'e'+i} style={{minHeight:74,borderBottom:'1px solid '+(dm?'#2a2a2a':'#d4ddd4'),borderRight:i%7<6?'1px solid '+(dm?'#2a2a2a':'#d4ddd4'):'none',background:dm?'#1a1a1a':'#f7faf7'}}/>;
                         const dk2 = dkey(d);
                         const evs = resDay(dk2);
                         const t = sameD(d, TODAY);
                         return (
                           <div key={'d'+i} onClick={() => {if(!evs.length){setEResId(null);setResF({paciente:'',email:'',telefono:'',fecha:dk2,hora:'09:00',duracion:60,tipo:'',serviceId:'',notas:'',estado:'pendiente',pais:''});setResModal(true)}}}
-                            style={{minHeight:74,padding:'3px 4px',borderBottom:'1px solid '+(dm?'#2a2a2a':'#f0f5f0'),borderRight:i%7<6?'1px solid '+(dm?'#2a2a2a':'#f0f5f0'):'none',background:t?(dm?'#1a2e1f':'#f0f5f0'):'transparent',cursor:'pointer'}}>
+                            style={{minHeight:74,padding:'3px 4px',borderBottom:'1px solid '+(dm?'#2a2a2a':'#d4ddd4'),borderRight:i%7<6?'1px solid '+(dm?'#2a2a2a':'#d4ddd4'):'none',background:t?(dm?'#1a2e1f':'#f0f5f0'):'transparent',cursor:'pointer'}}>
                             <div style={{fontSize:11,fontWeight:t?500:400,color:t?'#4a7a4a':'#4e6050',marginBottom:2}}>{d.getDate()}</div>
                             {evs.slice(0,2).map(ev => {
                               const tc = TC[ev.tipo] || TC.Individual;
@@ -957,18 +991,28 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                 )}
 
                 {calView === 'list' && (
-                  <div style={{...CARD,overflow:'hidden'}}>
+                  <div>
+                    <div style={{marginBottom:12}}>
+                      <input value={calSearch} onChange={e=>setCalSearch(e.target.value)} placeholder="Buscar por código de reserva o paciente..." style={{padding:'8px 16px',borderRadius:20,border:'1.5px solid #c8ddc8',fontSize:12,fontFamily:"'DM Sans',sans-serif",background:'#fdfcfa',color:'#2a3528',outline:'none',width:'100%',maxWidth:400}} />
+                    </div>
+                    <div style={{...CARD,overflow:'hidden'}}>
                     <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
                       <thead><tr style={{borderBottom:'2px solid '+(dm?'#333':'#e2ede2')}}>
-                        {['Fecha','Hora','Paciente','Tipo','Duración','Estado',''].map(h => (
+                        {['Código','Fecha','Hora','Paciente','Tipo','Duración','Estado',''].map(h => (
                           <th key={h} style={{padding:'11px 13px',textAlign:'left',fontSize:10,fontWeight:500,color:'#849884',textTransform:'uppercase',letterSpacing:'.5px',whiteSpace:'nowrap'}}>{h}</th>
                         ))}
                       </tr></thead>
                       <tbody>
-                        {[...reservas].sort((a,b) => (a.fecha+a.hora).localeCompare(b.fecha+b.hora)).map(ev => {
+                        {[...reservas].filter(ev => {
+                          if (!calSearch.trim()) return true;
+                          const q = calSearch.trim().toLowerCase();
+                          const code = (ev.id||'').slice(0,8).toLowerCase();
+                          return code.includes(q) || (ev.paciente||'').toLowerCase().includes(q) || (ev.email||'').toLowerCase().includes(q);
+                        }).sort((a,b) => (a.fecha+a.hora).localeCompare(b.fecha+b.hora)).map(ev => {
                           const tc = TC[ev.tipo] || TC.Individual;
                           return (
                             <tr key={ev.id} onClick={()=>setSelRes(ev)} style={{borderBottom:'1px solid '+(dm?'#2a2a2a':'#f0f5f0'),cursor:'pointer',background:selRes?.id===ev.id?(dm?'#1a2e1f':'#f0f5f0'):'transparent'}} onMouseEnter={e=>{if(selRes?.id!==ev.id)e.currentTarget.style.background=(dm?'#252525':'#f8fbf8')}} onMouseLeave={e=>{if(selRes?.id!==ev.id)e.currentTarget.style.background='transparent'}}>
+                              <td style={{padding:'11px 13px',fontFamily:'monospace',fontSize:11,color:'#849884'}}>{(ev.id||'').slice(0,8).toUpperCase()}</td>
                               <td style={{padding:'11px 13px',whiteSpace:'nowrap',fontSize:12,color:'#4e6050'}}>{ev.fecha}</td>
                               <td style={{padding:'11px 13px',fontWeight:500}}>{ev.hora}</td>
                               <td style={{padding:'11px 13px',fontWeight:500}}>{ev.paciente}</td>
@@ -987,6 +1031,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                       </tbody>
                     </table>
                     {reservas.length === 0 && <div style={{padding:36,textAlign:'center',color:'#849884',fontSize:14}}>No hay citas registradas</div>}
+                  </div>
                   </div>
                 )}
               </div>
@@ -1029,20 +1074,20 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'0 14px'}}>
                   <Field label="Email"><input style={inp} type="email" value={resF.email} onChange={e=>setResF({...resF,email:e.target.value})} placeholder="correo@mail.com"/></Field>
                   <Field label="Teléfono"><input style={inp} value={resF.telefono} onChange={e=>setResF({...resF,telefono:e.target.value})} placeholder="+54 9 11 0000-0000"/></Field>
-                  <Field label="País"><select style={sel} value={resF.pais} onChange={e=>setResF({...resF,pais:e.target.value})}>{PAISES.map(p=><option key={p} value={p}>{p||'— Sin país —'}</option>)}</select></Field>
+                  <Field label="Ubicación"><select style={sel} value={resF.pais} onChange={e=>setResF({...resF,pais:e.target.value})}>{UBICACIONES.map(p=><option key={p} value={p}>{p||'— Sin ubicación —'}</option>)}</select></Field>
                 </div>
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'0 14px'}}>
                   <Field label="Fecha"><input style={inp} type="date" value={resF.fecha} onChange={e=>setResF({...resF,fecha:e.target.value})}/></Field>
                   <Field label="Hora"><select style={sel} value={resF.hora} onChange={e=>setResF({...resF,hora:e.target.value})}><option value="">—</option>{HORAS.map(h=><option key={h}>{h}</option>)}</select></Field>
                   <Field label="Duración"><select style={sel} value={resF.duracion} onChange={e=>setResF({...resF,duracion:e.target.value})}><option value={30}>30 min</option><option value={60}>60 min</option><option value={90}>90 min</option><option value={120}>120 min</option></select></Field>
                 </div>
-                {resF.pais && resF.pais !== 'Argentina' && resF.pais !== 'Otro' && resF.fecha && resF.hora && (() => {
+                {resF.pais && resF.pais !== 'Florida' && resF.pais !== 'Otro' && resF.fecha && resF.hora && (() => {
                   const localTime = getClientTime(resF.fecha, resF.hora, resF.pais);
                   return localTime ? (
                     <div style={{background:'#f0f7f0',border:'1px solid #c8dcc8',borderRadius:12,padding:'10px 14px',marginBottom:8,display:'flex',alignItems:'center',gap:10}}>
                       <span style={{fontSize:16}}>🌎</span>
                       <span style={{fontSize:13,color:'#4a7a4a'}}>
-                        <strong>{resF.pais}</strong> — {localTime} hs <span style={{color:'#849884',fontWeight:300}}>(Argentina {resF.hora} hs)</span>
+                        <strong>{resF.pais}</strong> — {localTime} hs <span style={{color:'#849884',fontWeight:300}}>(Florida {resF.hora} hs)</span>
                       </span>
                     </div>
                   ) : null;
@@ -1094,14 +1139,14 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                     </div>
                   );
                 })()}
-                {/* Facturas asociadas */}
+                {/* Comprobantes asociados */}
                 {eResId && (() => {
                   const linkedInvs = invoices.filter(inv => inv.bookingId === eResId || inv.booking_id === eResId);
                   const bookingSvcForInv = services.find(s=>s.id===resF.serviceId);
                   const canCreateInvoice = !bookingSvcForInv?.is_free;
                   return (
                     <div style={{marginBottom:14}}>
-                      <label style={{display:'block',fontSize:11,fontWeight:500,color:'#849884',marginBottom:5,letterSpacing:'.5px',textTransform:'uppercase',fontFamily:"'DM Sans',sans-serif"}}>Facturas asociadas</label>
+                      <label style={{display:'block',fontSize:11,fontWeight:500,color:'#849884',marginBottom:5,letterSpacing:'.5px',textTransform:'uppercase',fontFamily:"'DM Sans',sans-serif"}}>Comprobantes asociados</label>
                       {linkedInvs.length > 0 ? (
                         <div style={{display:'flex',flexDirection:'column',gap:6,marginBottom:8}}>
                           {linkedInvs.map(inv => (
@@ -1115,7 +1160,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                           ))}
                         </div>
                       ) : (
-                        <p style={{fontSize:12,color:'#849884',margin:'0 0 8px',fontStyle:'italic'}}>Sin facturas asociadas</p>
+                        <p style={{fontSize:12,color:'#849884',margin:'0 0 8px',fontStyle:'italic'}}>Sin comprobantes asociados</p>
                       )}
                       {canCreateInvoice && (
                         <button onClick={()=>{
@@ -1125,7 +1170,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                           setInvF({...emptyInvF, bookingId: eResId, paciente: bk?.paciente||'', email: bk?.email||'', telefono: bk?.telefono||'', pais: bk?.pais||'', concepto: svc?.nombre||'', monto: svc&&svc.precio&&!svc.is_free?svc.precio:''});
                           setInvModal(true);
                         }} style={{border:'1px solid #c8ddc8',background:'#f0f5f0',borderRadius:8,padding:'6px 14px',fontSize:12,cursor:'pointer',color:'#4a7a4a',fontFamily:"'DM Sans',sans-serif"}}>
-                          {I.plus} Crear factura para esta cita
+                          {I.plus} Crear comprobante para esta cita
                         </button>
                       )}
                     </div>
@@ -1176,18 +1221,19 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
             <div style={{animation:'slideIn .3s'}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
                 <p style={{color:'#849884',margin:0,fontSize:14,fontWeight:300}}>Configura cómo recibes los pagos. Ordénalos por prioridad.</p>
-                <button onClick={()=>{setEMetId(null);setMetViewId(null);setMetF({tipo:'Transferencia',nombre:'',banco:'',titular:'',cuentaVisible:'',cuentaCompleta:'',moneda:'USD',tiempoConfirm:'24–48h',instrucciones:'',notasInternas:'',correoProveedor:'',comision:'',estadoConexion:'conectado',monedasAceptadas:'USD',pagosRecurrentes:false,tipoCuenta:'Personal',tiempoAcredit:'Instantáneo',politicaReembolso:'',clavePublica:'',claveSecreta:'',idComercio:'',prioridad:metodos.length+1});setMetModal(true)}} style={btnP}>{I.plus} Agregar método</button>
+                <button onClick={()=>{setEMetId(null);setMetViewId(null);setMetF({tipo:'Transferencia',nombre:'',banco:'',titular:'',cuentaVisible:'',cuentaCompleta:'',moneda:'USD',tiempoConfirm:'24–48h',instrucciones:'',notasInternas:'',correoProveedor:'',comision:'',estadoConexion:'conectado',monedasAceptadas:'USD',pagosRecurrentes:false,tipoCuenta:'Personal',tiempoAcredit:'Instantáneo',politicaReembolso:'',clavePublica:'',claveSecreta:'',idComercio:'',prioridad:metodos.length+1,recargoPct:0,color:''});setMetModal(true)}} style={btnP}>{I.plus} Agregar método</button>
               </div>
               <div style={{display:'grid',gap:12}}>
                 {[...metodos].sort((a,b)=>a.prioridad-b.prioridad).map((m) => {
                   const isOpen = metViewId === m.id;
-                  const typeIcon = m.tipo==='Transferencia'?'🏦':m.tipo==='Tarjeta'?'💳':'🅿️';
-                  const gradBg = m.tipo==='Transferencia'?'linear-gradient(135deg,#4a7a4a,#3a6a3a)':m.tipo==='Tarjeta'?'linear-gradient(135deg,#5a82b0,#3a6b9f)':'linear-gradient(135deg,#c4956a,#b08050)';
+                  const typeIcon = m.tipo==='PayPal'?'PP':m.tipo==='Tarjeta'?'💳':m.tipo==='Transferencia'?'🏦':m.tipo==='Efectivo'?'💵':'💱';
+                  const metColor = m.color || (m.tipo==='Transferencia'?'#4a7a4a':m.tipo==='Tarjeta'?'#5a82b0':m.tipo==='PayPal'?'#0070ba':m.tipo==='Efectivo'?'#6b8e6b':'#8b7355');
+                  const gradBg = `linear-gradient(135deg, ${metColor}, ${metColor}dd)`;
                   return (
                   <div key={m.id} style={{...CARD,overflow:'hidden',opacity:m.activo?1:.5,transition:'opacity .3s'}}>
                     <div style={{padding:'18px 20px',display:'flex',alignItems:'center',justifyContent:'space-between',cursor:'pointer'}} onClick={()=>setMetViewId(isOpen?null:m.id)}>
                       <div style={{display:'flex',alignItems:'center',gap:14}}>
-                        <div style={{width:44,height:44,borderRadius:12,background:gradBg,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontSize:20}}>{typeIcon}</div>
+                        <div style={{width:44,height:44,borderRadius:12,background:gradBg,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontSize:m.tipo==='PayPal'||m.tipo==='Tarjeta'?14:20,fontWeight:m.tipo==='PayPal'?700:400,fontStyle:m.tipo==='PayPal'?'italic':'normal',letterSpacing:m.tipo==='PayPal'?'-1px':'normal'}}>{typeIcon}</div>
                         <div>
                           <div style={{fontSize:14,fontWeight:500,display:'flex',alignItems:'center',gap:8}}>{m.nombre||m.tipo}
                             <span style={{fontSize:10,padding:'2px 8px',borderRadius:10,background:m.activo?'#f0f5f0':'#FFEBEE',color:m.activo?'#4a7a4a':'#C62828',fontWeight:600}}>{m.activo?'Activo':'Inactivo'}</span>
@@ -1276,13 +1322,13 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                 {metF.tipo==='Transferencia' && <>
                   <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                     <Field label="Banco"><input style={inp} value={metF.banco} onChange={e=>setMetF({...metF,banco:e.target.value})} placeholder="BBVA, Santander..."/></Field>
-                    <Field label="Moneda"><input style={inp} value={metF.moneda} onChange={e=>setMetF({...metF,moneda:e.target.value})} placeholder="USD, EUR, USD..."/></Field>
+                    <Field label="Moneda"><select style={sel} value={metF.moneda} onChange={e=>setMetF({...metF,moneda:e.target.value})}><option value="USD">USD — Dólar estadounidense</option><option value="EUR">EUR — Euro</option><option value="GBP">GBP — Libra esterlina</option><option value="ARS">ARS — Peso argentino</option><option value="MXN">MXN — Peso mexicano</option><option value="COP">COP — Peso colombiano</option><option value="CLP">CLP — Peso chileno</option><option value="BRL">BRL — Real brasileño</option><option value="PEN">PEN — Sol peruano</option><option value="UYU">UYU — Peso uruguayo</option></select></Field>
                   </div>
                   <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                     <Field label="Cuenta visible (para cliente)"><input style={inp} value={metF.cuentaVisible} onChange={e=>setMetF({...metF,cuentaVisible:e.target.value})} placeholder="**** 4521"/></Field>
                     <Field label="Cuenta completa (interno)"><input style={inp} value={metF.cuentaCompleta} onChange={e=>setMetF({...metF,cuentaCompleta:e.target.value})} placeholder="ES12 0182 1234..."/></Field>
                   </div>
-                  <Field label="Tiempo de confirmación"><input style={inp} value={metF.tiempoConfirm} onChange={e=>setMetF({...metF,tiempoConfirm:e.target.value})} placeholder="24–48h"/></Field>
+                  <Field label="Tiempo de confirmación"><select style={sel} value={metF.tiempoConfirm} onChange={e=>setMetF({...metF,tiempoConfirm:e.target.value})}><option value="Instantáneo">Instantáneo</option><option value="1–2h">1–2 horas</option><option value="12–24h">12–24 horas</option><option value="24–48h">24–48 horas</option><option value="48–72h">48–72 horas</option><option value="3–5 días">3–5 días</option></select></Field>
                   <Field label="Instrucciones para el cliente"><input style={inp} value={metF.instrucciones} onChange={e=>setMetF({...metF,instrucciones:e.target.value})} placeholder="Enviar comprobante por WhatsApp..."/></Field>
                 </>}
 
@@ -1335,7 +1381,18 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
 
                 {/* General fields for all types */}
                 <div style={{borderTop:'1px solid '+borderC,paddingTop:14,marginTop:4}}>
-                  <Field label="Prioridad (orden para el cliente)"><input style={inp} type="number" min="1" value={metF.prioridad} onChange={e=>setMetF({...metF,prioridad:Number(e.target.value)})}/></Field>
+                  <Field label="Color identificador">
+                    <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+                      {['#4a7a4a','#5a82b0','#0070ba','#6b8e6b','#8b7355','#c4956a','#7a5a8b','#b05a5a','#5aaa8b','#3a6a3a','#d4a853','#4682B4'].map(c=>(
+                        <button key={c} onClick={()=>setMetF({...metF,color:c})} style={{width:30,height:30,borderRadius:8,background:c,border:metF.color===c?'2.5px solid #2a3528':'2px solid transparent',cursor:'pointer',transition:'border .2s'}}/>
+                      ))}
+                    </div>
+                  </Field>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                    <Field label="Prioridad (orden para el cliente)"><input style={inp} type="number" min="1" value={metF.prioridad} onChange={e=>setMetF({...metF,prioridad:Number(e.target.value)})}/></Field>
+                    <Field label="Recargo adicional (%)"><input style={inp} type="number" min="0" max="100" step="0.5" value={metF.recargoPct} onChange={e=>setMetF({...metF,recargoPct:Number(e.target.value)})} placeholder="0"/></Field>
+                  </div>
+                  {metF.recargoPct > 0 && <div style={{background:'#FFF8E1',borderRadius:10,padding:'8px 14px',fontSize:12,color:'#b08050',border:'1px solid #ffe0b2',marginBottom:10}}>Se aplicará un {metF.recargoPct}% adicional al monto en los comprobantes que usen este método.</div>}
                   <Field label="Notas internas (solo administrador)"><textarea style={{...inp,minHeight:50,resize:'vertical',fontSize:13}} value={metF.notasInternas} onChange={e=>setMetF({...metF,notasInternas:e.target.value})} placeholder="Notas visibles solo para ti..."/></Field>
                 </div>
                 <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>

@@ -1,54 +1,101 @@
 /**
- * Timezone utilities — Argentina (UTC-3) as base timezone.
+ * Timezone utilities — Florida, US (Eastern Time) as base timezone.
  *
- * All session times are stored and managed in Argentina time.
- * These helpers convert between Argentina time and client-local time
- * based on the client's country selection.
+ * All session times are stored and managed in Eastern Time.
+ * These helpers convert between Eastern Time and client-local time
+ * based on the client's US state selection.
  */
 
-export const ARGENTINA_TZ = 'America/Argentina/Buenos_Aires';
+export const BASE_TZ = 'America/New_York';
 
-export const COUNTRY_TIMEZONES: Record<string, string | null> = {
-  'Argentina': 'America/Argentina/Buenos_Aires',
-  'Venezuela': 'America/Caracas',
-  'Colombia': 'America/Bogota',
-  'México': 'America/Mexico_City',
-  'Chile': 'America/Santiago',
-  'Perú': 'America/Lima',
-  'Ecuador': 'America/Guayaquil',
-  'España': 'Europe/Madrid',
-  'Estados Unidos': 'America/New_York',
-  'Panamá': 'America/Panama',
-  'República Dominicana': 'America/Santo_Domingo',
-  'Costa Rica': 'America/Costa_Rica',
-  'Uruguay': 'America/Montevideo',
-  'Bolivia': 'America/La_Paz',
-  'Paraguay': 'America/Asuncion',
-  'Guatemala': 'America/Guatemala',
-  'Honduras': 'America/Tegucigalpa',
-  'El Salvador': 'America/El_Salvador',
-  'Nicaragua': 'America/Managua',
-  'Cuba': 'America/Havana',
+/** @deprecated Use BASE_TZ instead */
+export const ARGENTINA_TZ = BASE_TZ;
+
+export const US_STATE_TIMEZONES: Record<string, string | null> = {
+  // Eastern Time
+  'Florida': 'America/New_York',
+  'New York': 'America/New_York',
+  'Georgia': 'America/New_York',
+  'North Carolina': 'America/New_York',
+  'South Carolina': 'America/New_York',
+  'Virginia': 'America/New_York',
+  'West Virginia': 'America/New_York',
+  'Ohio': 'America/New_York',
+  'Michigan': 'America/New_York',
+  'Pennsylvania': 'America/New_York',
+  'New Jersey': 'America/New_York',
+  'Connecticut': 'America/New_York',
+  'Massachusetts': 'America/New_York',
+  'Rhode Island': 'America/New_York',
+  'Vermont': 'America/New_York',
+  'New Hampshire': 'America/New_York',
+  'Maine': 'America/New_York',
+  'Delaware': 'America/New_York',
+  'Maryland': 'America/New_York',
+  'Washington D.C.': 'America/New_York',
+  'Kentucky': 'America/New_York',
+  'Indiana': 'America/Indiana/Indianapolis',
+  // Central Time
+  'Illinois': 'America/Chicago',
+  'Texas': 'America/Chicago',
+  'Wisconsin': 'America/Chicago',
+  'Minnesota': 'America/Chicago',
+  'Iowa': 'America/Chicago',
+  'Missouri': 'America/Chicago',
+  'Arkansas': 'America/Chicago',
+  'Louisiana': 'America/Chicago',
+  'Mississippi': 'America/Chicago',
+  'Alabama': 'America/Chicago',
+  'Tennessee': 'America/Chicago',
+  'Kansas': 'America/Chicago',
+  'Nebraska': 'America/Chicago',
+  'Oklahoma': 'America/Chicago',
+  'North Dakota': 'America/Chicago',
+  'South Dakota': 'America/Chicago',
+  // Mountain Time
+  'Colorado': 'America/Denver',
+  'Montana': 'America/Denver',
+  'Wyoming': 'America/Denver',
+  'Utah': 'America/Denver',
+  'New Mexico': 'America/Denver',
+  'Idaho': 'America/Boise',
+  'Arizona': 'America/Phoenix', // No DST
+  // Pacific Time
+  'California': 'America/Los_Angeles',
+  'Washington': 'America/Los_Angeles',
+  'Oregon': 'America/Los_Angeles',
+  'Nevada': 'America/Los_Angeles',
+  // Alaska & Hawaii
+  'Alaska': 'America/Anchorage',
+  'Hawaii': 'Pacific/Honolulu', // No DST
+  // Territories
+  'Puerto Rico': 'America/Puerto_Rico',
+  'U.S. Virgin Islands': 'America/Virgin',
+  'Guam': 'Pacific/Guam',
+  // Other
   'Otro': null,
 };
 
+/** Keep backward compatibility — maps old country names to timezone */
+export const COUNTRY_TIMEZONES = US_STATE_TIMEZONES;
+
 /**
- * Convert a time from Argentina timezone to a target country's timezone.
+ * Convert a time from base timezone (Eastern) to a target state's timezone.
  *
  * @param date  ISO date string YYYY-MM-DD (needed for DST accuracy)
- * @param time  HH:MM in Argentina time
- * @param country  Country name matching COUNTRY_TIMEZONES keys
+ * @param time  HH:MM in Eastern time
+ * @param state  State name matching US_STATE_TIMEZONES keys
  * @returns HH:MM in the target timezone, or null if no conversion possible
  */
 export function getClientTime(
   date: string,
   time: string,
-  country: string,
+  state: string,
 ): string | null {
-  const targetTz = COUNTRY_TIMEZONES[country];
-  if (!targetTz || targetTz === ARGENTINA_TZ) return null;
+  const targetTz = US_STATE_TIMEZONES[state];
+  if (!targetTz || targetTz === BASE_TZ) return null;
 
-  return convertTime(date, time, ARGENTINA_TZ, targetTz);
+  return convertTime(date, time, BASE_TZ, targetTz);
 }
 
 /**
@@ -61,9 +108,6 @@ export function convertTime(
   fromTz: string,
   toTz: string,
 ): string {
-  // Build a reference date in the source timezone.
-  // We use a trick: create a formatter for the source TZ to find the UTC offset,
-  // then compute the absolute UTC moment, then format in the target TZ.
   const [year, month, day] = date.split('-').map(Number);
   const [hour, minute] = time.split(':').map(Number);
 
@@ -93,7 +137,6 @@ export function convertTime(
 function getUtcOffset(utcMs: number, tz: string): number {
   const d = new Date(utcMs);
 
-  // Format parts in the target timezone
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: tz,
     year: 'numeric',

@@ -28,14 +28,14 @@ export default async function BookingPage() {
       .single(),
     supabase
       .from('payment_methods')
-      .select('nombre')
+      .select('nombre, recargo_pct')
       .eq('activo', true)
       .order('prioridad'),
   ]);
 
   const service = serviceRes.data;
   const workingHours = settingsRes.data?.working_hours ?? null;
-  const activePaymentMethods = (payMethodsRes.data ?? []).map((m: { nombre: string }) => m.nombre);
+  const activePaymentMethods = (payMethodsRes.data ?? []).map((m: { nombre: string; recargo_pct?: number }) => ({ nombre: m.nombre, recargoPct: m.recargo_pct || 0 }));
 
   return (
     <>

@@ -71,6 +71,7 @@ export default function ServiceDetailClient({ service, workingHours = null, acti
       title: service.name,
       price: service.is_free ? 'Gratis' : service.price,
       duration: `${service.duration_min} min`,
+      is_free: service.is_free,
     }));
     if (selectedDate) sessionStorage.setItem('sl_date', selectedDate);
     if (selectedTime) sessionStorage.setItem('sl_time', selectedTime);
