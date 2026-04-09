@@ -1,6 +1,7 @@
 'use server';
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 import { revalidatePath } from 'next/cache';
 import { getClientTime } from '@/lib/utils/timezone';
 import {
@@ -72,6 +73,27 @@ export async function updateProfile(raw: {
     console.error('[Profile] auth.updateUser error:', authError.message);
   }
 
+  revalidatePath(DASH);
+  return { success: true };
+}
+
+export async function updateAuthEmail(newEmail: string) {
+  if (!newEmail || !newEmail.includes('@') || newEmail.length > 320) {
+    return { success: false, error: 'Email inválido' };
+  }
+
+  // Get current user ID from the authenticated session
+  const supabase = await getSupabase();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { success: false, error: 'No autenticado' };
+
+  // Use admin client to change email directly (no confirmation needed)
+  const admin = createAdminClient();
+  const { error } = await admin.auth.admin.updateUserById(user.id, {
+    email: newEmail,
+    email_confirm: true,
+  });
+  if (error) return { success: false, error: error.message };
   revalidatePath(DASH);
   return { success: true };
 }

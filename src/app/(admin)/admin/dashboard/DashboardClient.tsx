@@ -4,7 +4,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { logoutAction } from "@/lib/actions/auth";
-import { updateProfile, updateNotepad, updateNickname, updateContactInfo, upsertService, deleteService, toggleServiceActive, upsertInvoice, deleteInvoice, upsertBooking, deleteBooking, updateBookingStatus, upsertPaymentMethod, deletePaymentMethod, togglePaymentMethodActive, upsertAdminLink, deleteAdminLink, updateSecurityQuestion, linkPaymentLinkToBooking, unlinkPaymentLinkFromBooking } from '@/lib/actions/dashboard';
+import { updateProfile, updateAuthEmail, updateNotepad, updateNickname, updateContactInfo, upsertService, deleteService, toggleServiceActive, upsertInvoice, deleteInvoice, upsertBooking, deleteBooking, updateBookingStatus, upsertPaymentMethod, deletePaymentMethod, togglePaymentMethodActive, upsertAdminLink, deleteAdminLink, updateSecurityQuestion, linkPaymentLinkToBooking, unlinkPaymentLinkFromBooking } from '@/lib/actions/dashboard';
 import { getClientTime } from '@/lib/utils/timezone';
 import { escapeHtml } from '@/lib/utils/escapeHtml';
 
@@ -206,7 +206,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
   const [eSvcId, setESvcId] = useState(null);
 
   /* Security */
-  const [secEmail, setSecEmail] = useState('silvana@psicoterapia.com');
+  const [secEmail, setSecEmail] = useState(userEmail || '');
   const [secNewEmail, setSecNewEmail] = useState('');
   const [secPwd, setSecPwd] = useState({current:'',new1:'',new2:''});
   const [secQuestion, setSecQuestion] = useState(initialSettings?.security_question || '¿Nombre de tu primera mascota?');
@@ -270,6 +270,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
           notas: b.admin_notes || '',
           estado: statusToEs[b.status] || b.status || 'pendiente',
           pais: b.client?.country || '',
+          motivo: b.client?.reason || '',
           paymentLinks: (b.payment_links || []).map(pl => ({
             id: pl.id,
             url: pl.url,
@@ -1055,13 +1056,15 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                         [I.user,'Tipo',selRes.tipo],
                         [I.mail,'Email',selRes.email||'—'],
                         [I.msg,'Tel',selRes.telefono||'—'],
+                        [I.globe,'Ubicación',selRes.pais||'—'],
                       ].map(([icon,label,val],i) => (
                         <div key={i} style={{display:'flex',alignItems:'center',gap:9,marginBottom:10}}>
                           <span style={{color:'#849884',display:'flex',flexShrink:0}}>{icon}</span>
                           <div><div style={{fontSize:10,color:'#849884',fontWeight:500,textTransform:'uppercase',letterSpacing:'.4px'}}>{label}</div><div style={{fontSize:13,fontWeight:400}}>{val}</div></div>
                         </div>
                       ))}
-                      {selRes.notas && <div style={{marginTop:4,padding:'8px 11px',background:dm?'#1a1a1a':'#f0f5f0',borderRadius:7,fontSize:12,color:'#4e6050',fontStyle:'italic',lineHeight:1.5,borderLeft:'3px solid #c8ddc8'}}>{selRes.notas}</div>}
+                      {selRes.motivo && <div style={{marginTop:8}}><div style={{fontSize:10,color:'#849884',fontWeight:600,textTransform:'uppercase',letterSpacing:'.4px',marginBottom:3}}>Motivo del paciente</div><div style={{padding:'8px 11px',background:dm?'#1a2a1a':'#f5f9f5',borderRadius:7,fontSize:12,color:dm?'#a0b8a0':'#5a7a5a',lineHeight:1.5,borderLeft:'3px solid #8fb08f'}}>{selRes.motivo}</div></div>}
+                      {selRes.notas && <div style={{marginTop:8}}><div style={{fontSize:10,color:'#849884',fontWeight:600,textTransform:'uppercase',letterSpacing:'.4px',marginBottom:3}}>Notas internas</div><div style={{padding:'8px 11px',background:dm?'#1a1a1a':'#f0f5f0',borderRadius:7,fontSize:12,color:'#4e6050',fontStyle:'italic',lineHeight:1.5,borderLeft:'3px solid #c8ddc8'}}>{selRes.notas}</div></div>}
                       <div style={{display:'flex',gap:7,marginTop:14}}>
                         <button onClick={()=>{setEResId(selRes.id);setResF({...selRes});setResModal(true)}} style={{...btnP,flex:1,justifyContent:'center',fontSize:12,padding:'8px 0'}}>{I.edit} Editar</button>
                         <button onClick={()=>delRes(selRes.id)} style={{border:'none',background:'#FFEBEE',borderRadius:10,width:36,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#C62828'}}>{I.trash}</button>
@@ -1156,7 +1159,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                               <span style={{fontSize:11,color:inv.estado==='pagada'?'#4a7a4a':inv.estado==='pendiente'?'#b08050':'#849884',fontWeight:500,textTransform:'uppercase',minWidth:60}}>{inv.estado}</span>
                               <span style={{fontSize:12,color:'#2a3528',flex:1}}>{inv.concepto} · ${Number(inv.monto).toFixed(2)} USD</span>
                               {inv.link && <button onClick={()=>{navigator.clipboard?.writeText(inv.link);show('Link copiado')}} style={{border:'none',background:'#e8f0e8',borderRadius:6,padding:'4px 8px',fontSize:11,cursor:'pointer',color:'#4a7a4a'}}>Copiar link</button>}
-                              {inv.link && <a href={absUrl(inv.link)} target="_blank" rel="noopener noreferrer" style={{border:'none',background:'#e8f0e8',borderRadius:6,padding:'4px 8px',fontSize:11,cursor:'pointer',color:'#4a7a4a',textDecoration:'none'}}>Abrir</a>}
+                              <button onClick={()=>prevInv(inv)} style={{border:'none',background:'#e8f0e8',borderRadius:6,padding:'4px 8px',fontSize:11,cursor:'pointer',color:'#4a7a4a'}}>Abrir</button>
                               <button onClick={()=>{setEInvId(inv.id);setInvF({paciente:inv.paciente||'',email:inv.email||'',telefono:inv.telefono||'',cedula:inv.cedula||'',pais:inv.pais||'',direccion:inv.direccion||'',concepto:inv.concepto||'',monto:String(inv.monto)||'',estado:inv.estado||'pendiente',metodoPago:'',link:inv.link||'',bookingId:inv.bookingId||inv.booking_id||''});setInvModal(true)}} style={{border:'none',background:'#e8f0e8',borderRadius:6,padding:'4px 8px',fontSize:11,cursor:'pointer',color:'#4a7a4a'}}>Editar</button>
                             </div>
                           ))}
@@ -1546,13 +1549,13 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
               </div>
 
               {/* Change email modal */}
-              <Modal dark={dm} open={secEditModal==='email'} onClose={()=>setSecEditModal(null)} title="Cambiar correo principal" width={440}>
+              <Modal dark={dm} open={secEditModal==='email'} onClose={()=>setSecEditModal(null)} title="Cambiar correo de acceso" width={440}>
                 <Field label="Correo actual"><input style={{...inp,opacity:.6}} value={secEmail} disabled/></Field>
                 <Field label="Nuevo correo"><input style={inp} type="email" value={secNewEmail} onChange={e=>setSecNewEmail(e.target.value)} placeholder="nuevo@correo.com"/></Field>
-                <p style={{fontSize:12,color:'#849884',margin:'0 0 14px',fontWeight:300}}>Te enviaremos un enlace de verificación al nuevo correo antes de realizar el cambio.</p>
+                <p style={{fontSize:12,color:'#849884',margin:'0 0 14px',fontWeight:300}}>El correo de acceso se actualizará inmediatamente. Usarás el nuevo correo para iniciar sesión.</p>
                 <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
                   <button onClick={()=>setSecEditModal(null)} style={btnS}>Cancelar</button>
-                  <button onClick={()=>{if(!secNewEmail)return;setSecEmail(secNewEmail);setSecEditModal(null);show('Enlace de verificación enviado')}} style={btnP}>{I.check} Enviar verificación</button>
+                  <button onClick={async()=>{if(!secNewEmail||!secNewEmail.includes('@'))return show('Ingresa un correo válido');try{const res=await updateAuthEmail(secNewEmail);if(res.success){setSecEmail(secNewEmail);setSecNewEmail('');setSecEditModal(null);show('Correo de acceso actualizado')}else{show(res.error||'Error al cambiar correo')}}catch(e){show('Error al cambiar correo')}}} style={btnP}>{I.check} Cambiar correo</button>
                 </div>
               </Modal>
 
