@@ -79,7 +79,7 @@ export async function requestPasswordResetAction(
 ): Promise<ActionResult> {
   const email = formData.get('email') as string;
 
-  if (!email || !email.includes('@')) {
+  if (!email || !email.includes('@') || email.length > 320) {
     return { success: false, error: 'Email inválido' };
   }
 
@@ -129,9 +129,13 @@ export async function verifySecurityAnswerAction(
     return { success: false, error: 'Ingresa tu respuesta.' };
   }
 
+  if (answer.length > 200) {
+    return { success: false, error: 'Respuesta demasiado larga.' };
+  }
+
   // Use admin client — this runs on the unauthenticated login page
-  const supabase = createAdminClient();
-  const { data } = await supabase
+  const adminSupabase = createAdminClient();
+  const { data } = await adminSupabase
     .from('admin_settings')
     .select('security_answer, notification_email')
     .limit(1)
@@ -145,19 +149,32 @@ export async function verifySecurityAnswerAction(
     return { success: false, error: 'Respuesta incorrecta.' };
   }
 
-  // Answer correct — send password reset email to the admin
-  const siteUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+  // Answer correct — generate a magic link token without sending email
   const email = data.notification_email;
-  if (email) {
-    await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${siteUrl}/login`,
-    });
+  if (!email) {
+    return { success: false, error: 'No hay email de administrador configurado.' };
   }
 
-  return {
-    success: true,
-    data: 'Respuesta correcta. Se envió un enlace de restablecimiento a tu correo.',
-  };
+  try {
+    const { data: linkData, error: linkError } = await adminSupabase.auth.admin.generateLink({
+      type: 'magiclink',
+      email,
+    });
+
+    if (linkError || !linkData?.properties?.hashed_token) {
+      console.error('[Auth] generateLink error:', linkError);
+      return { success: false, error: 'Error al generar acceso. Intenta nuevamente.' };
+    }
+
+    // Return the hashed token and email so the client can verify the OTP
+    return {
+      success: true,
+      data: { token: linkData.properties.hashed_token, email },
+    };
+  } catch (err) {
+    console.error('[Auth] Security question login error:', err);
+    return { success: false, error: 'Error interno. Intenta nuevamente.' };
+  }
 }
 
 // ─── Update Password (after reset link clicked) ───────────

@@ -423,7 +423,7 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
                 <input
                   type="text"
                   value={nombre}
-                  onChange={e => setNombre(e.target.value)}
+                  onChange={e => { const v = e.target.value.replace(/[0-9]/g, ''); setNombre(v); }}
                   placeholder="Tu nombre"
                   className="text-[0.88rem] py-3 px-4 border border-green-pale rounded-xl bg-[#fff] text-text-dark outline-none transition-all focus:border-green-deep focus:shadow-[0_0_0_3px_rgba(74,122,74,0.1)]"
                 />
@@ -435,7 +435,7 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
                 <input
                   type="text"
                   value={apellido}
-                  onChange={e => setApellido(e.target.value)}
+                  onChange={e => { const v = e.target.value.replace(/[0-9]/g, ''); setApellido(v); }}
                   placeholder="Tu apellido"
                   className="text-[0.88rem] py-3 px-4 border border-green-pale rounded-xl bg-[#fff] text-text-dark outline-none transition-all focus:border-green-deep focus:shadow-[0_0_0_3px_rgba(74,122,74,0.1)]"
                 />
@@ -465,7 +465,7 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
                 <input
                   type="tel"
                   value={tel}
-                  onChange={e => setTel(e.target.value)}
+                  onChange={e => { const v = e.target.value.replace(/[a-zA-Z]/g, ''); setTel(v); }}
                   placeholder="+1 000 000 0000"
                   className="text-[0.88rem] py-3 px-4 border border-green-pale rounded-xl bg-[#fff] text-text-dark outline-none transition-all focus:border-green-deep focus:shadow-[0_0_0_3px_rgba(74,122,74,0.1)]"
                 />

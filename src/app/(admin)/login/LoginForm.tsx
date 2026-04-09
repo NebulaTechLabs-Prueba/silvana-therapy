@@ -3,7 +3,9 @@
 import { useFormState, useFormStatus } from 'react-dom';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { loginAction, requestPasswordResetAction, getSecurityQuestionAction, verifySecurityAnswerAction, type ActionResult } from '@/lib/actions/auth';
+import { createBrowserClient } from '@supabase/ssr';
 
 /**
  * Login Form (Client Component)
@@ -24,6 +26,10 @@ export default function LoginForm() {
   const [showPassword, setShowPassword] = useState(false);
   const [mode, setMode] = useState<'login' | 'reset' | 'security'>('login');
   const [securityQuestion, setSecurityQuestion] = useState<string | null>(null);
+  const [securityLoading, setSecurityLoading] = useState(false);
+  const [securityError, setSecurityError] = useState<string | null>(null);
+  const [securitySuccess, setSecuritySuccess] = useState<string | null>(null);
+  const router = useRouter();
 
   useEffect(() => {
     if (mode === 'security' && !securityQuestion) {
@@ -33,6 +39,32 @@ export default function LoginForm() {
       });
     }
   }, [mode, securityQuestion]);
+
+  // Handle security question verification + direct login via token
+  useEffect(() => {
+    if (securityState?.success && securityState.data && typeof securityState.data === 'object') {
+      const { token, email } = securityState.data as { token: string; email: string };
+      if (token && email) {
+        setSecurityLoading(true);
+        setSecurityError(null);
+        setSecuritySuccess('Respuesta correcta. Iniciando sesión...');
+        const supabase = createBrowserClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+        );
+        supabase.auth.verifyOtp({ type: 'magiclink', email, token })
+          .then(({ error }) => {
+            if (error) {
+              setSecurityError('Error al iniciar sesión: ' + error.message);
+              setSecuritySuccess(null);
+              setSecurityLoading(false);
+            } else {
+              router.push('/admin/dashboard');
+            }
+          });
+      }
+    }
+  }, [securityState, router]);
 
   return (
     <div
@@ -427,7 +459,7 @@ export default function LoginForm() {
         ) : mode === 'security' ? (
           <form action={securityFormAction}>
             <p style={{ fontSize: 13, color: '#4e6050', marginBottom: '1.25rem', lineHeight: 1.6 }}>
-              Responde tu pregunta de seguridad para recibir un enlace de restablecimiento.
+              Responde tu pregunta de seguridad para acceder al panel.
             </p>
 
             {securityQuestion ? (
@@ -457,19 +489,24 @@ export default function LoginForm() {
               </div>
             )}
 
-            {securityState?.success && securityState.data != null && (
-              <div role="status" style={{ padding: '10px 14px', background: '#f0f5f0', border: '1px solid #c8ddc8', borderRadius: 8, color: '#4a7a4a', fontSize: 13, marginBottom: '1.25rem' }}>
-                {String(securityState.data)}
+            {securitySuccess && (
+              <div role="status" style={{ padding: '10px 14px', background: '#f0f5f0', border: '1px solid #c8ddc8', borderRadius: 8, color: '#4a7a4a', fontSize: 13, marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: 8 }}>
+                {securityLoading && (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ animation: 'spin 0.8s linear infinite', flexShrink: 0 }}>
+                    <path d="M21 12a9 9 0 11-6.219-8.56" strokeLinecap="round" />
+                  </svg>
+                )}
+                {securitySuccess}
               </div>
             )}
 
-            {securityState && !securityState.success && securityState.error && (
+            {(securityError || (securityState && !securityState.success && securityState.error)) && (
               <div role="alert" style={{ padding: '10px 14px', background: '#FFEBEE', border: '1px solid #ffcdd2', borderRadius: 8, color: '#c62828', fontSize: 13, marginBottom: '1.25rem' }}>
-                {securityState.error}
+                {securityError || securityState?.error}
               </div>
             )}
 
-            {securityQuestion && <SubmitButton label="Verificar respuesta" />}
+            {securityQuestion && !securityLoading && <SubmitButton label="Verificar e ingresar" />}
 
             <div style={{ textAlign: 'center', marginTop: '1rem' }}>
               <button type="button" onClick={() => setMode('reset')} style={{ background: 'none', border: 'none', color: '#4a7a4a', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', textDecoration: 'underline', textUnderlineOffset: 3 }}>

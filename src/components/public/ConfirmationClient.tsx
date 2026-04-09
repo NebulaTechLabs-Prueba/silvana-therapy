@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { escapeHtml } from '@/lib/utils/escapeHtml';
 
 const DAYS_F = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
 const MONTHS_F = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
@@ -146,7 +147,8 @@ export default function ConfirmationClient() {
           </p>
           <button
             onClick={() => {
-              const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Confirmación — ${data.code}</title>
+              const e = escapeHtml;
+              const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Confirmación — ${e(data.code)}</title>
               <style>
               *{margin:0;padding:0;box-sizing:border-box}
               body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#f7faf7;color:#2a3528;padding:0;min-height:100vh;display:flex;align-items:center;justify-content:center}
@@ -180,21 +182,21 @@ export default function ConfirmationClient() {
               <div class="body">
                 <div style="text-align:center;margin-bottom:20px">
                   <div class="check"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5"><polyline points="20 6 9 17 4 12" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-                  <div class="code-wrap"><span class="code">${data.code}</span></div>
+                  <div class="code-wrap"><span class="code">${e(data.code)}</span></div>
                   <h1>Confirmación de cita</h1>
                 </div>
                 <div class="details">
-                  <div class="row"><span class="l">Servicio</span><span class="v">${data.service.title}</span></div>
+                  <div class="row"><span class="l">Servicio</span><span class="v">${e(data.service.title)}</span></div>
                   <div class="row"><span class="l">Profesional</span><span class="v">Lda. Silvana López</span></div>
-                  <div class="row"><span class="l">Fecha</span><span class="v">${dateStr}</span></div>
-                  <div class="row"><span class="l">Hora</span><span class="v">${data.time} hs</span></div>
-                  <div class="row"><span class="l">Duración</span><span class="v">${data.service.duration}</span></div>
+                  <div class="row"><span class="l">Fecha</span><span class="v">${e(dateStr)}</span></div>
+                  <div class="row"><span class="l">Hora</span><span class="v">${e(data.time)} hs</span></div>
+                  <div class="row"><span class="l">Duración</span><span class="v">${e(data.service.duration)}</span></div>
                   <div class="row"><span class="l">Modalidad</span><span class="v">Online · Videollamada</span></div>
-                  <div class="row hl"><span class="l">Precio</span><span class="v">${data.service.price === 'Gratis' ? 'Gratis' : data.service.price}</span></div>
+                  <div class="row hl"><span class="l">Precio</span><span class="v">${data.service.price === 'Gratis' ? 'Gratis' : e(data.service.price)}</span></div>
                 </div>
-                ${data.form.nombre ? `<div class="patient"><span class="l">Paciente</span><span class="v">${data.form.nombre} ${data.form.apellido}</span></div>` : ''}
+                ${data.form.nombre ? `<div class="patient"><span class="l">Paciente</span><span class="v">${e(data.form.nombre)} ${e(data.form.apellido)}</span></div>` : ''}
               </div>
-              <div class="footer"><p>Este documento es tu comprobante de reserva.<br/>Conserva tu código: <strong>${data.code}</strong></p></div>
+              <div class="footer"><p>Este documento es tu comprobante de reserva.<br/>Conserva tu código: <strong>${e(data.code)}</strong></p></div>
               </div></body></html>`;
               const w = window.open('', '_blank');
               if (w) { w.document.write(html); w.document.close(); w.print(); }

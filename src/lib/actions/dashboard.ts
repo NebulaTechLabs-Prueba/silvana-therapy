@@ -3,6 +3,18 @@
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
 import { getClientTime } from '@/lib/utils/timezone';
+import {
+  updateProfileSchema,
+  upsertServiceSchema,
+  upsertInvoiceSchema,
+  upsertBookingDashboardSchema,
+  upsertPaymentMethodSchema,
+  upsertAdminLinkSchema,
+  updateSecurityQuestionSchema,
+  updateNotepadSchema,
+  updateNicknameSchema,
+  updateContactInfoSchema,
+} from '@/lib/validators/schemas';
 
 // ============================================================
 // Dashboard Server Actions — CRUD for all dashboard sections
@@ -16,7 +28,7 @@ async function getSupabase() {
 
 // ─── Admin Profile (Mi Cuenta) ──────────────────────────────
 
-export async function updateProfile(data: {
+export async function updateProfile(raw: {
   nombre: string;
   especialidad: string;
   cedula: string;
@@ -27,6 +39,9 @@ export async function updateProfile(data: {
   bio: string;
   working_hours?: Record<string, { start: string; end: string; enabled: boolean }>;
 }) {
+  const parsed = updateProfileSchema.safeParse(raw);
+  if (!parsed.success) return { success: false, error: 'Datos de perfil inválidos' };
+  const data = parsed.data;
   const supabase = await getSupabase();
   const update: Record<string, unknown> = {
     nombre: data.nombre,
@@ -62,27 +77,34 @@ export async function updateProfile(data: {
 }
 
 export async function updateNotepad(text: string) {
+  const parsed = updateNotepadSchema.safeParse({ text });
+  if (!parsed.success) return { success: false, error: 'Texto demasiado largo' };
   const supabase = await getSupabase();
   const { error } = await supabase
     .from('admin_settings')
-    .update({ notepad: text })
+    .update({ notepad: parsed.data.text })
     .not('id', 'is', null);
   if (error) return { success: false, error: error.message };
   return { success: true };
 }
 
 export async function updateNickname(name: string) {
+  const parsed = updateNicknameSchema.safeParse({ name });
+  if (!parsed.success) return { success: false, error: 'Nombre inválido' };
   const supabase = await getSupabase();
   const { error } = await supabase
     .from('admin_settings')
-    .update({ nickname: name })
+    .update({ nickname: parsed.data.name })
     .not('id', 'is', null);
   if (error) return { success: false, error: error.message };
   revalidatePath(DASH);
   return { success: true };
 }
 
-export async function updateContactInfo(data: { contact_email?: string; contact_phone?: string }) {
+export async function updateContactInfo(raw: { contact_email?: string; contact_phone?: string }) {
+  const parsed = updateContactInfoSchema.safeParse(raw);
+  if (!parsed.success) return { success: false, error: 'Datos de contacto inválidos' };
+  const data = parsed.data;
   const supabase = await getSupabase();
   const update: Record<string, string> = {};
   if (data.contact_email !== undefined) update.contact_email = data.contact_email;
@@ -107,7 +129,7 @@ function toSlug(name: string): string {
     .replace(/^-|-$/g, '');
 }
 
-export async function upsertService(data: {
+export async function upsertService(raw: {
   id?: string;
   nombre: string;
   descripcion: string;
@@ -122,6 +144,9 @@ export async function upsertService(data: {
   typeLabel?: string;
   subtitle?: string;
 }) {
+  const parsed = upsertServiceSchema.safeParse(raw);
+  if (!parsed.success) return { success: false, error: 'Datos de servicio inválidos' };
+  const data = parsed.data;
   const supabase = await getSupabase();
   const slug = toSlug(data.nombre);
 
@@ -159,6 +184,7 @@ export async function upsertService(data: {
 }
 
 export async function deleteService(id: string) {
+  if (!id || typeof id !== 'string' || id.length > 50) return { success: false, error: 'ID inválido' };
   const supabase = await getSupabase();
   const { error } = await supabase.from('services').delete().eq('id', id);
   if (error) return { success: false, error: error.message };
@@ -167,6 +193,7 @@ export async function deleteService(id: string) {
 }
 
 export async function toggleServiceActive(id: string, active: boolean) {
+  if (!id || typeof id !== 'string' || id.length > 50) return { success: false, error: 'ID inválido' };
   const supabase = await getSupabase();
   const { error } = await supabase
     .from('services')
@@ -179,7 +206,7 @@ export async function toggleServiceActive(id: string, active: boolean) {
 
 // ─── Invoices (Facturas) ────────────────────────────────────
 
-export async function upsertInvoice(data: {
+export async function upsertInvoice(raw: {
   id?: string;
   paciente: string;
   email?: string;
@@ -193,6 +220,9 @@ export async function upsertInvoice(data: {
   link?: string;
   booking_id?: string | null;
 }) {
+  const parsed = upsertInvoiceSchema.safeParse(raw);
+  if (!parsed.success) return { success: false, error: 'Datos de factura inválidos' };
+  const data = parsed.data;
   const supabase = await getSupabase();
 
   const row = {
@@ -230,6 +260,7 @@ export async function upsertInvoice(data: {
 }
 
 export async function deleteInvoice(id: string) {
+  if (!id || typeof id !== 'string' || id.length > 50) return { success: false, error: 'ID inválido' };
   const supabase = await getSupabase();
   const { error } = await supabase.from('invoices').delete().eq('id', id);
   if (error) return { success: false, error: error.message };
@@ -239,7 +270,7 @@ export async function deleteInvoice(id: string) {
 
 // ─── Bookings (Calendario) ──────────────────────────────────
 
-export async function upsertBooking(data: {
+export async function upsertBooking(raw: {
   id?: string;
   paciente: string;
   email: string;
@@ -253,6 +284,9 @@ export async function upsertBooking(data: {
   pais?: string;
   serviceId?: string;
 }) {
+  const parsed = upsertBookingDashboardSchema.safeParse(raw);
+  if (!parsed.success) return { success: false, error: 'Datos de reserva inválidos' };
+  const data = parsed.data;
   const supabase = await getSupabase();
 
   // For bookings, the dashboard uses a simplified view.
@@ -350,6 +384,7 @@ export async function upsertBooking(data: {
 }
 
 export async function deleteBooking(id: string, deletePaymentLinks = false) {
+  if (!id || typeof id !== 'string' || id.length > 50) return { success: false, error: 'ID inválido' };
   const supabase = await getSupabase();
   if (deletePaymentLinks) {
     // Delete payment links associated with this booking before deleting the booking
@@ -363,6 +398,7 @@ export async function deleteBooking(id: string, deletePaymentLinks = false) {
 }
 
 export async function linkPaymentLinkToBooking(paymentLinkId: string, bookingId: string) {
+  if (!paymentLinkId || !bookingId || paymentLinkId.length > 50 || bookingId.length > 50) return { success: false, error: 'ID inválido' };
   const supabase = await getSupabase();
   const { error } = await supabase
     .from('payment_links')
@@ -374,6 +410,7 @@ export async function linkPaymentLinkToBooking(paymentLinkId: string, bookingId:
 }
 
 export async function unlinkPaymentLinkFromBooking(paymentLinkId: string) {
+  if (!paymentLinkId || paymentLinkId.length > 50) return { success: false, error: 'ID inválido' };
   const supabase = await getSupabase();
   const { error } = await supabase
     .from('payment_links')
@@ -385,6 +422,7 @@ export async function unlinkPaymentLinkFromBooking(paymentLinkId: string) {
 }
 
 export async function updateBookingStatus(id: string, status: string) {
+  if (!id || id.length > 50 || !status || status.length > 50) return { success: false, error: 'Datos inválidos' };
   const supabase = await getSupabase();
   const { error } = await supabase
     .from('bookings')
@@ -397,7 +435,7 @@ export async function updateBookingStatus(id: string, status: string) {
 
 // ─── Payment Methods (Métodos de Pago) ──────────────────────
 
-export async function upsertPaymentMethod(data: {
+export async function upsertPaymentMethod(raw: {
   id?: string;
   tipo: string;
   nombre: string;
@@ -425,6 +463,9 @@ export async function upsertPaymentMethod(data: {
   recargoPct?: number;
   color?: string;
 }) {
+  const parsed = upsertPaymentMethodSchema.safeParse(raw);
+  if (!parsed.success) return { success: false, error: 'Datos de método de pago inválidos' };
+  const data = parsed.data;
   const supabase = await getSupabase();
 
   const row = {
@@ -472,6 +513,7 @@ export async function upsertPaymentMethod(data: {
 }
 
 export async function deletePaymentMethod(id: string) {
+  if (!id || id.length > 50) return { success: false, error: 'ID inválido' };
   const supabase = await getSupabase();
   const { error } = await supabase.from('payment_methods').delete().eq('id', id);
   if (error) return { success: false, error: error.message };
@@ -480,6 +522,7 @@ export async function deletePaymentMethod(id: string) {
 }
 
 export async function togglePaymentMethodActive(id: string, activo: boolean) {
+  if (!id || id.length > 50) return { success: false, error: 'ID inválido' };
   const supabase = await getSupabase();
   const { error } = await supabase
     .from('payment_methods')
@@ -492,7 +535,10 @@ export async function togglePaymentMethodActive(id: string, activo: boolean) {
 
 // ─── Admin Links (Tutoriales) ──────────────────────────────
 
-export async function upsertAdminLink(data: { id?: string; title: string; url: string }) {
+export async function upsertAdminLink(raw: { id?: string; title: string; url: string }) {
+  const parsed = upsertAdminLinkSchema.safeParse(raw);
+  if (!parsed.success) return { success: false, error: 'Datos de enlace inválidos' };
+  const data = parsed.data;
   const supabase = await getSupabase();
   if (data.id) {
     const { error } = await supabase
@@ -511,6 +557,7 @@ export async function upsertAdminLink(data: { id?: string; title: string; url: s
 }
 
 export async function deleteAdminLink(id: string) {
+  if (!id || id.length > 50) return { success: false, error: 'ID inválido' };
   const supabase = await getSupabase();
   const { error } = await supabase.from('admin_links').delete().eq('id', id);
   if (error) return { success: false, error: error.message };
@@ -521,10 +568,12 @@ export async function deleteAdminLink(id: string) {
 // ─── Security Question ─────────────────────────────────────
 
 export async function updateSecurityQuestion(question: string, answer: string) {
+  const parsed = updateSecurityQuestionSchema.safeParse({ question, answer });
+  if (!parsed.success) return { success: false, error: 'Datos de pregunta de seguridad inválidos' };
   const supabase = await getSupabase();
   const { error } = await supabase
     .from('admin_settings')
-    .update({ security_question: question, security_answer: answer })
+    .update({ security_question: parsed.data.question, security_answer: parsed.data.answer })
     .not('id', 'is', null);
   if (error) return { success: false, error: error.message };
   revalidatePath(DASH);

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { logoutAction } from "@/lib/actions/auth";
 import { updateProfile, updateNotepad, updateNickname, updateContactInfo, upsertService, deleteService, toggleServiceActive, upsertInvoice, deleteInvoice, upsertBooking, deleteBooking, updateBookingStatus, upsertPaymentMethod, deletePaymentMethod, togglePaymentMethodActive, upsertAdminLink, deleteAdminLink, updateSecurityQuestion, linkPaymentLinkToBooking, unlinkPaymentLinkFromBooking } from '@/lib/actions/dashboard';
 import { getClientTime } from '@/lib/utils/timezone';
+import { escapeHtml } from '@/lib/utils/escapeHtml';
 
 interface DashboardClientProps {
   userEmail: string;
@@ -130,6 +131,7 @@ function DropMenu({items,onClose}){
 
 /* ═══ INVOICE HTML ═══ */
 function makeInvHTML(inv, acc) {
+  const e = escapeHtml;
   const parts = [];
   parts.push('<!DOCTYPE html><html><head><meta charset="utf-8"><title>Comprobante de Pago</title>');
   parts.push('<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:Helvetica,Arial,sans-serif;color:#2a3528;padding:40px}');
@@ -147,17 +149,17 @@ function makeInvHTML(inv, acc) {
   parts.push('.lb a{color:#4a7a4a;font-weight:600;font-size:13px;text-decoration:none}');
   parts.push('</style></head><body><div class="c">');
   const num = String(inv.id).padStart(4,'0');
-  parts.push('<div class="h"><div class="logo">Lda. Silvana López</div><div style="text-align:right"><div style="font-size:11px;text-transform:uppercase;letter-spacing:2px;opacity:.6">Comprobante de Pago</div><div style="font-size:18px;font-weight:700;margin-top:4px">#' + num + '</div></div></div>');
+  parts.push('<div class="h"><div class="logo">Lda. Silvana López</div><div style="text-align:right"><div style="font-size:11px;text-transform:uppercase;letter-spacing:2px;opacity:.6">Comprobante de Pago</div><div style="font-size:18px;font-weight:700;margin-top:4px">#' + e(num) + '</div></div></div>');
   parts.push('<div class="b"><div class="ir">');
-  parts.push('<div class="ib"><h4>De</h4><p><strong>' + acc.nombre + '</strong><br>' + acc.especialidad + '<br>Ced. Prof. ' + acc.cedula + '<br>' + acc.email + '<br>' + acc.telefono + '</p></div>');
+  parts.push('<div class="ib"><h4>De</h4><p><strong>' + e(acc.nombre) + '</strong><br>' + e(acc.especialidad) + '<br>Ced. Prof. ' + e(acc.cedula) + '<br>' + e(acc.email) + '<br>' + e(acc.telefono) + '</p></div>');
   const bc = inv.estado === 'pagada' ? 'bp' : inv.estado === 'pendiente' ? 'bpn' : 'bv';
-  parts.push('<div class="ib" style="text-align:right"><h4>Para</h4><p><strong>' + inv.paciente + '</strong></p><h4 style="margin-top:14px">Fecha</h4><p>' + inv.fecha + '</p><h4 style="margin-top:14px">Estado</h4><p><span class="bd ' + bc + '">' + inv.estado + '</span></p></div></div>');
+  parts.push('<div class="ib" style="text-align:right"><h4>Para</h4><p><strong>' + e(inv.paciente) + '</strong></p><h4 style="margin-top:14px">Fecha</h4><p>' + e(inv.fecha) + '</p><h4 style="margin-top:14px">Estado</h4><p><span class="bd ' + bc + '">' + e(inv.estado) + '</span></p></div></div>');
   parts.push('<table><thead><tr><th>Concepto</th><th>Cant.</th><th style="text-align:right">Monto</th></tr></thead>');
-  parts.push('<tbody><tr><td>' + inv.concepto + '</td><td>1</td><td style="text-align:right">$' + inv.monto.toLocaleString() + ' USD</td></tr>');
-  parts.push('<tr class="tr"><td colspan="2">Total</td><td style="text-align:right">$' + inv.monto.toLocaleString() + ' USD</td></tr></tbody></table>');
+  parts.push('<tbody><tr><td>' + e(inv.concepto) + '</td><td>1</td><td style="text-align:right">$' + e(String(inv.monto.toLocaleString())) + ' USD</td></tr>');
+  parts.push('<tr class="tr"><td colspan="2">Total</td><td style="text-align:right">$' + e(String(inv.monto.toLocaleString())) + ' USD</td></tr></tbody></table>');
   if (inv.estado !== 'pagada') {
     if (inv.link) {
-      parts.push('<div class="lb"><div style="font-size:10px;color:#849884;margin-bottom:5px">LINK DE PAGO</div><a href="' + absUrl(inv.link) + '">' + inv.link + '</a></div>');
+      parts.push('<div class="lb"><div style="font-size:10px;color:#849884;margin-bottom:5px">LINK DE PAGO</div><a href="' + e(absUrl(inv.link)) + '">' + e(inv.link) + '</a></div>');
     } else {
       parts.push('<div class="lb"><div style="font-size:10px;color:#849884;margin-bottom:5px">LINK DE PAGO</div><span style="color:#b08050;font-style:italic">Sin link de pago asignado</span></div>');
     }
@@ -300,7 +302,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
         cuentaVisible: m.cuenta_visible || '',
         cuentaCompleta: m.cuenta_completa || '',
         moneda: m.moneda || 'USD',
-        tiempoConfirm: m.tiempo_confirm || '24–48h',
+        tiempoConfirm: m.tiempo_confirm || '24 horas',
         instrucciones: m.instrucciones || '',
         notasInternas: m.notas_internas || '',
         correoProveedor: m.correo_proveedor || '',
@@ -323,7 +325,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
     return [];
   });
   const [metModal, setMetModal] = useState(false);
-  const [metF, setMetF] = useState({tipo:'Transferencia',nombre:'',banco:'',titular:'',cuentaVisible:'',cuentaCompleta:'',moneda:'USD',tiempoConfirm:'24–48h',instrucciones:'',notasInternas:'',correoProveedor:'',comision:'',estadoConexion:'conectado',monedasAceptadas:'USD',pagosRecurrentes:false,tipoCuenta:'Personal',tiempoAcredit:'Instantáneo',politicaReembolso:'',clavePublica:'',claveSecreta:'',idComercio:'',prioridad:1,recargoPct:0,color:''});
+  const [metF, setMetF] = useState({tipo:'Transferencia',nombre:'',banco:'',titular:'',cuentaVisible:'',cuentaCompleta:'',moneda:'USD',tiempoConfirm:'24 horas',instrucciones:'',notasInternas:'',correoProveedor:'',comision:'',estadoConexion:'conectado',monedasAceptadas:'USD',pagosRecurrentes:false,tipoCuenta:'Personal',tiempoAcredit:'Instantáneo',politicaReembolso:'',clavePublica:'',claveSecreta:'',idComercio:'',prioridad:1,recargoPct:0,color:''});
   const [eMetId, setEMetId] = useState(null);
   const [metViewId, setMetViewId] = useState(null);
 
@@ -448,7 +450,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
     if (!metF.nombre || !metF.tipo) return;
     if (eMetId) { setMetodos(p=>p.map(m=>m.id===eMetId?{...m,...metF}:m)); show('Método actualizado'); }
     else { const nid=Math.max(0,...metodos.map(m=>m.id))+1; setMetodos(p=>[...p,{...metF,id:nid,activo:true,prioridad:p.length+1}]); show('Método agregado'); }
-    setMetModal(false); setEMetId(null); setMetF({tipo:'Transferencia',nombre:'',banco:'',titular:'',cuentaVisible:'',cuentaCompleta:'',moneda:'USD',tiempoConfirm:'24–48h',instrucciones:'',notasInternas:'',correoProveedor:'',comision:'',estadoConexion:'conectado',monedasAceptadas:'USD',pagosRecurrentes:false,tipoCuenta:'Personal',tiempoAcredit:'Instantáneo',politicaReembolso:'',clavePublica:'',claveSecreta:'',idComercio:'',prioridad:1,recargoPct:0,color:''});
+    setMetModal(false); setEMetId(null); setMetF({tipo:'Transferencia',nombre:'',banco:'',titular:'',cuentaVisible:'',cuentaCompleta:'',moneda:'USD',tiempoConfirm:'24 horas',instrucciones:'',notasInternas:'',correoProveedor:'',comision:'',estadoConexion:'conectado',monedasAceptadas:'USD',pagosRecurrentes:false,tipoCuenta:'Personal',tiempoAcredit:'Instantáneo',politicaReembolso:'',clavePublica:'',claveSecreta:'',idComercio:'',prioridad:1,recargoPct:0,color:''});
     try { await upsertPaymentMethod({...metF, id: eMetId || undefined, recargoPct: metF.recargoPct, color: metF.color}); } catch(e) { show('Error al guardar método'); }
   };
 
@@ -623,7 +625,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                   <Field label="Nombre"><input style={inp} value={accF.nombre} onChange={e=>setAccF({...accF,nombre:e.target.value})}/></Field>
                   <Field label="Especialidad"><input style={inp} value={accF.especialidad} onChange={e=>setAccF({...accF,especialidad:e.target.value})}/></Field>
                   <Field label="Email"><input style={inp} value={accF.email} onChange={e=>setAccF({...accF,email:e.target.value})}/></Field>
-                  <Field label="Teléfono"><input style={inp} value={accF.telefono} onChange={e=>setAccF({...accF,telefono:e.target.value})}/></Field>
+                  <Field label="Teléfono"><input style={inp} value={accF.telefono} onChange={e=>setAccF({...accF,telefono:e.target.value.replace(/[a-zA-Z]/g,'')})}/></Field>
                   <Field label="Cédula"><input style={inp} value={accF.cedula} onChange={e=>setAccF({...accF,cedula:e.target.value})}/></Field>
                 </div>
                 <Field label="Dirección"><input style={inp} value={accF.direccion} onChange={e=>setAccF({...accF,direccion:e.target.value})}/></Field>
@@ -802,10 +804,10 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                   </select>
                 </Field>
 
-                <Field label="Paciente"><input style={inp} value={invF.paciente} onChange={e=>setInvF({...invF,paciente:e.target.value})} placeholder="Nombre del paciente"/></Field>
+                <Field label="Paciente"><input style={inp} value={invF.paciente} onChange={e=>setInvF({...invF,paciente:e.target.value.replace(/[0-9]/g,'')})} placeholder="Nombre del paciente"/></Field>
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                   <Field label="Email"><input style={inp} type="email" value={invF.email} onChange={e=>setInvF({...invF,email:e.target.value})} placeholder="correo@mail.com"/></Field>
-                  <Field label="WhatsApp / Teléfono"><input style={inp} value={invF.telefono} onChange={e=>setInvF({...invF,telefono:e.target.value})} placeholder="+54 9 11 0000-0000"/></Field>
+                  <Field label="WhatsApp / Teléfono"><input style={inp} value={invF.telefono} onChange={e=>setInvF({...invF,telefono:e.target.value.replace(/[a-zA-Z]/g,'')})} placeholder="+54 9 11 0000-0000"/></Field>
                 </div>
                 {!invF.bookingId && (
                   <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'0 14px'}}>
@@ -1070,10 +1072,10 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
               )}
 
               <Modal dark={dm} open={resModal} onClose={()=>{setResModal(false);setEResId(null)}} title={eResId?'Editar Cita':'Nueva Cita'} width={520}>
-                <Field label="Paciente"><input style={inp} value={resF.paciente} onChange={e=>setResF({...resF,paciente:e.target.value})} placeholder="Nombre completo"/></Field>
+                <Field label="Paciente"><input style={inp} value={resF.paciente} onChange={e=>setResF({...resF,paciente:e.target.value.replace(/[0-9]/g,'')})} placeholder="Nombre completo"/></Field>
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'0 14px'}}>
                   <Field label="Email"><input style={inp} type="email" value={resF.email} onChange={e=>setResF({...resF,email:e.target.value})} placeholder="correo@mail.com"/></Field>
-                  <Field label="Teléfono"><input style={inp} value={resF.telefono} onChange={e=>setResF({...resF,telefono:e.target.value})} placeholder="+54 9 11 0000-0000"/></Field>
+                  <Field label="Teléfono"><input style={inp} value={resF.telefono} onChange={e=>setResF({...resF,telefono:e.target.value.replace(/[a-zA-Z]/g,'')})} placeholder="+54 9 11 0000-0000"/></Field>
                   <Field label="Ubicación"><select style={sel} value={resF.pais} onChange={e=>setResF({...resF,pais:e.target.value})}>{UBICACIONES.map(p=><option key={p} value={p}>{p||'— Sin ubicación —'}</option>)}</select></Field>
                 </div>
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'0 14px'}}>
@@ -1221,7 +1223,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
             <div style={{animation:'slideIn .3s'}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
                 <p style={{color:'#849884',margin:0,fontSize:14,fontWeight:300}}>Configura cómo recibes los pagos. Ordénalos por prioridad.</p>
-                <button onClick={()=>{setEMetId(null);setMetViewId(null);setMetF({tipo:'Transferencia',nombre:'',banco:'',titular:'',cuentaVisible:'',cuentaCompleta:'',moneda:'USD',tiempoConfirm:'24–48h',instrucciones:'',notasInternas:'',correoProveedor:'',comision:'',estadoConexion:'conectado',monedasAceptadas:'USD',pagosRecurrentes:false,tipoCuenta:'Personal',tiempoAcredit:'Instantáneo',politicaReembolso:'',clavePublica:'',claveSecreta:'',idComercio:'',prioridad:metodos.length+1,recargoPct:0,color:''});setMetModal(true)}} style={btnP}>{I.plus} Agregar método</button>
+                <button onClick={()=>{setEMetId(null);setMetViewId(null);setMetF({tipo:'Transferencia',nombre:'',banco:'',titular:'',cuentaVisible:'',cuentaCompleta:'',moneda:'USD',tiempoConfirm:'24 horas',instrucciones:'',notasInternas:'',correoProveedor:'',comision:'',estadoConexion:'conectado',monedasAceptadas:'USD',pagosRecurrentes:false,tipoCuenta:'Personal',tiempoAcredit:'Instantáneo',politicaReembolso:'',clavePublica:'',claveSecreta:'',idComercio:'',prioridad:metodos.length+1,recargoPct:0,color:''});setMetModal(true)}} style={btnP}>{I.plus} Agregar método</button>
               </div>
               <div style={{display:'grid',gap:12}}>
                 {[...metodos].sort((a,b)=>a.prioridad-b.prioridad).map((m) => {
@@ -1328,7 +1330,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                     <Field label="Cuenta visible (para cliente)"><input style={inp} value={metF.cuentaVisible} onChange={e=>setMetF({...metF,cuentaVisible:e.target.value})} placeholder="**** 4521"/></Field>
                     <Field label="Cuenta completa (interno)"><input style={inp} value={metF.cuentaCompleta} onChange={e=>setMetF({...metF,cuentaCompleta:e.target.value})} placeholder="ES12 0182 1234..."/></Field>
                   </div>
-                  <Field label="Tiempo de confirmación"><select style={sel} value={metF.tiempoConfirm} onChange={e=>setMetF({...metF,tiempoConfirm:e.target.value})}><option value="Instantáneo">Instantáneo</option><option value="1–2h">1–2 horas</option><option value="12–24h">12–24 horas</option><option value="24–48h">24–48 horas</option><option value="48–72h">48–72 horas</option><option value="3–5 días">3–5 días</option></select></Field>
+                  <Field label="Tiempo de confirmación"><select style={sel} value={metF.tiempoConfirm} onChange={e=>setMetF({...metF,tiempoConfirm:e.target.value})}><option value="Instantáneo">Instantáneo</option><option value="1 hora">1 hora</option><option value="2 horas">2 horas</option><option value="6 horas">6 horas</option><option value="12 horas">12 horas</option><option value="24 horas">24 horas</option><option value="48 horas">48 horas</option><option value="72 horas">72 horas</option><option value="5 días">5 días</option><option value="7 días">7 días</option></select></Field>
                   <Field label="Instrucciones para el cliente"><input style={inp} value={metF.instrucciones} onChange={e=>setMetF({...metF,instrucciones:e.target.value})} placeholder="Enviar comprobante por WhatsApp..."/></Field>
                 </>}
 
