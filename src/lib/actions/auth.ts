@@ -55,11 +55,10 @@ export async function loginAction(
     };
   }
 
-  // 3. Redirect to dashboard
-  // Note: redirect() throws internally, so this function
-  // never returns on success — that's expected.
+  // 3. Return success — client handles redirect
+  // Using redirect() in server actions can drop cookies in standalone mode
   revalidatePath('/', 'layout');
-  redirect('/admin/dashboard');
+  return { success: true };
 }
 
 // ─── Logout ───────────────────────────────────────────────

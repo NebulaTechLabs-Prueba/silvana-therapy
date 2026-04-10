@@ -49,6 +49,14 @@ export default function LoginForm() {
     }
   }, [mode, securityQuestion]);
 
+  // Handle successful login — redirect to dashboard
+  useEffect(() => {
+    if (loginState?.success) {
+      router.push('/admin/dashboard');
+      router.refresh();
+    }
+  }, [loginState, router]);
+
   // Handle security question verification — session created server-side, just redirect
   useEffect(() => {
     if (securityState?.success && securityState.data && typeof securityState.data === 'object') {
