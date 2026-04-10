@@ -301,6 +301,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
           estado: statusToEs[b.status] || b.status || 'pendiente',
           pais: b.client?.country || '',
           motivo: b.client?.reason || '',
+          preferenciaPago: b.preferred_payment || '',
           paymentLinks: (b.payment_links || []).map(pl => ({
             id: pl.id,
             url: pl.url,
@@ -1153,6 +1154,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                         [I.mail,'Email',selRes.email||'—'],
                         [I.msg,'Tel',selRes.telefono||'—'],
                         [I.globe,'Ubicación',selRes.pais||'—'],
+                        ...(selRes.preferenciaPago ? [[I.credit,'Método de pago preferido',selRes.preferenciaPago]] : []),
                       ].map(([icon,label,val],i) => (
                         <div key={i} style={{display:'flex',alignItems:'center',gap:9,marginBottom:10}}>
                           <span style={{color:'#849884',display:'flex',flexShrink:0}}>{icon}</span>
