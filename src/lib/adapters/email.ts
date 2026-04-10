@@ -14,7 +14,7 @@ function getResend() {
   }
   return _resend;
 }
-const FROM = process.env.EMAIL_FROM || 'Silvana López <noreply@terapiasilvanalopez.com>';
+const FROM = process.env.EMAIL_FROM || 'Silvana López <noreply@silvanalopez.com>';
 
 // ─── Types ────────────────────────────────────────────────
 
@@ -59,6 +59,39 @@ function wrapTemplate(content: string): string {
       </div>
     </div>
   `;
+}
+
+// ─── Notification: Booking Received → Client ─────────────
+
+export async function sendBookingReceivedEmail(params: {
+  clientEmail: string;
+  clientName: string;
+  serviceName: string;
+  preferredDate?: string;
+  isFirstSession: boolean;
+}): Promise<void> {
+  const dateStr = params.preferredDate
+    ? new Date(params.preferredDate).toLocaleString('es-AR', {
+        weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+        hour: '2-digit', minute: '2-digit',
+      })
+    : null;
+
+  await sendEmail({
+    to: params.clientEmail,
+    subject: 'Hemos recibido tu solicitud — Lda. Silvana López',
+    html: wrapTemplate(`
+      <h3 style="color: ${brandColor};">¡Solicitud recibida!</h3>
+      <p>Hola ${params.clientName},</p>
+      <p>Tu solicitud de cita ha sido recibida exitosamente. ${params.isFirstSession ? 'Al ser tu primera consulta, es completamente gratuita.' : ''}</p>
+      <div style="background: ${brandLight}; padding: 20px; border-radius: 8px; margin: 16px 0;">
+        <p><strong>Servicio:</strong> ${params.serviceName}</p>
+        ${dateStr ? `<p><strong>Fecha solicitada:</strong> ${dateStr} (hora Miami, FL)</p>` : ''}
+      </div>
+      <p>Revisaré tu solicitud y te confirmaré la cita a la brevedad. Si necesitas comunicarte, puedes escribirme por WhatsApp.</p>
+      <p style="color: #888; font-style: italic;">Gracias por tu confianza.</p>
+    `),
+  });
 }
 
 // ─── Notification: New Booking → Silvana ──────────────────
@@ -239,6 +272,46 @@ export async function sendPasswordResetEmail(params: {
         </a>
       </div>
       <p style="font-size: 13px; color: #888;">Este enlace expira en 1 hora. Si no solicitaste este cambio, ignora este correo.</p>
+    `),
+  });
+}
+
+// ─── Invoice/Comprobante → Client ────────────────────────
+
+export async function sendInvoiceEmail(params: {
+  clientEmail: string;
+  clientName: string;
+  concepto: string;
+  monto: number;
+  estado: string;
+  fecha: string;
+  paymentMethods?: { nombre: string; instrucciones?: string }[];
+}): Promise<void> {
+  const methodsHtml = (params.paymentMethods || []).map(m =>
+    `<div style="background: #fff; padding: 10px 14px; border: 1px solid #e2ede2; border-radius: 6px; margin-bottom: 6px;">
+      <strong>${m.nombre}</strong>
+      ${m.instrucciones ? `<br><span style="font-size: 12px; color: #666;">${m.instrucciones}</span>` : ''}
+    </div>`
+  ).join('');
+
+  await sendEmail({
+    to: params.clientEmail,
+    subject: `Comprobante de pago — Lda. Silvana López`,
+    html: wrapTemplate(`
+      <h3 style="color: ${brandColor};">Comprobante de pago</h3>
+      <p>Hola ${params.clientName},</p>
+      <p>Te enviamos los detalles de tu comprobante:</p>
+      <div style="background: ${brandLight}; padding: 20px; border-radius: 8px; margin: 16px 0;">
+        <p><strong>Concepto:</strong> ${params.concepto}</p>
+        <p><strong>Monto:</strong> $${params.monto.toFixed(2)} USD</p>
+        <p><strong>Estado:</strong> ${params.estado}</p>
+        <p><strong>Fecha:</strong> ${params.fecha}</p>
+      </div>
+      ${params.estado !== 'pagada' && methodsHtml ? `
+        <p><strong>Métodos de pago disponibles:</strong></p>
+        ${methodsHtml}
+      ` : ''}
+      <p style="color: #888; font-style: italic;">Si tienes dudas, escríbeme por WhatsApp.</p>
     `),
   });
 }

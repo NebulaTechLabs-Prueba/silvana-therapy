@@ -68,7 +68,7 @@ INSERT INTO payment_methods (
   activo, prioridad, recargo_pct, color
 ) VALUES
 (
-  'Transferencia', 'Zelle — Bank of America',
+  'Zelle', 'Zelle — Bank of America',
   'Bank of America', 'Silvana López', '**** 7832', '021000322-4587832190',
   'USD', '1 hora',
   'Enviar Zelle al correo indicado. Adjuntar captura de pantalla como comprobante.',

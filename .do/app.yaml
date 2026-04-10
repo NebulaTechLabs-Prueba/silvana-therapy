@@ -8,7 +8,7 @@ region: nyc
 services:
   - name: web
     github:
-      repo: TU_USUARIO/silvana-therapy
+      repo: NebulaTechLabs-Prueba/silvana-therapy
       branch: main
       deploy_on_push: true
     dockerfile_path: Dockerfile
@@ -35,10 +35,10 @@ services:
       # ── App URLs
       - key: NEXT_PUBLIC_APP_URL
         scope: BUILD_TIME
-        value: https://terapiasilvanalopez.com
+        value: https://silvanalopez.com
       - key: NEXT_PUBLIC_ADMIN_URL
         scope: BUILD_TIME
-        value: https://admin.terapiasilvanalopez.com
+        value: https://admin.silvanalopez.com
       
       # ── Stripe
       - key: STRIPE_SECRET_KEY
@@ -77,10 +77,10 @@ services:
         type: SECRET
       - key: EMAIL_FROM
         scope: RUN_TIME
-        value: "Silvana López <noreply@terapiasilvanalopez.com>"
+        value: "Silvana López <noreply@silvanalopez.com>"
 
 domains:
-  - domain: terapiasilvanalopez.com
+  - domain: silvanalopez.com
     type: PRIMARY
-  - domain: admin.terapiasilvanalopez.com
+  - domain: admin.silvanalopez.com
     type: ALIAS

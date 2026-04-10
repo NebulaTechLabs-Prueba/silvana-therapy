@@ -10,8 +10,8 @@ const nextConfig = {
   },
 
   // ─── Domain configuration ───
-  // Public:  terapiasilvanalopez.com
-  // Admin:   admin.terapiasilvanalopez.com
+  // Public:  silvanalopez.com
+  // Admin:   admin.silvanalopez.com
   // Both served from the same Next.js app, routed via middleware
 
   // ─── Security headers ───

@@ -13,25 +13,34 @@ const DAYS_F = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sáb
 
 const STEP_LABELS = ['Fecha y hora', 'Tus datos', 'Confirmar'];
 
-const DEFAULT_SLOTS = ['09:00','10:00','11:00','15:00','16:00','17:00'];
-
 type DaySchedule = { start: string; end: string; enabled: boolean };
 type WorkingHoursMap = Record<string, DaySchedule>;
 
 const DAY_KEYS = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
 
+// Default schedule when working_hours is not configured in DB
+const DEFAULT_WH: WorkingHoursMap = {
+  sunday:    { start: '00:00', end: '00:00', enabled: false },
+  monday:    { start: '09:00', end: '18:00', enabled: true },
+  tuesday:   { start: '09:00', end: '18:00', enabled: true },
+  wednesday: { start: '09:00', end: '18:00', enabled: true },
+  thursday:  { start: '09:00', end: '18:00', enabled: true },
+  friday:    { start: '09:00', end: '14:00', enabled: true },
+  saturday:  { start: '00:00', end: '00:00', enabled: false },
+};
+
 function getSlotsForDay(dayOfWeek: number, wh: WorkingHoursMap | null): string[] {
-  if (!wh) return DEFAULT_SLOTS;
+  const schedule = wh || DEFAULT_WH;
   const key = DAY_KEYS[dayOfWeek];
-  const day = wh[key];
+  const day = schedule[key];
   if (!day?.enabled) return [];
-  // Generate hourly slots between start and end
+  // Generate 30-min slots between start and end
   const [sh, sm] = day.start.split(':').map(Number);
   const [eh, em] = day.end.split(':').map(Number);
   const startMin = sh * 60 + (sm || 0);
   const endMin = eh * 60 + (em || 0);
   const slots: string[] = [];
-  for (let m = startMin; m < endMin; m += 60) {
+  for (let m = startMin; m < endMin; m += 30) {
     const h = Math.floor(m / 60);
     const min = m % 60;
     slots.push(`${String(h).padStart(2,'0')}:${String(min).padStart(2,'0')}`);
@@ -40,14 +49,32 @@ function getSlotsForDay(dayOfWeek: number, wh: WorkingHoursMap | null): string[]
 }
 
 function isDayEnabled(dayOfWeek: number, wh: WorkingHoursMap | null): boolean {
-  if (!wh) return dayOfWeek !== 0 && dayOfWeek !== 6; // default: no weekends
+  const schedule = wh || DEFAULT_WH;
   const key = DAY_KEYS[dayOfWeek];
-  return wh[key]?.enabled ?? false;
+  return schedule[key]?.enabled ?? false;
 }
 
 const US_STATES = ['Alabama','Alaska','Arizona','Arkansas','California','Colorado','Connecticut','Delaware','Florida','Georgia','Guam','Hawaii','Idaho','Illinois','Indiana','Iowa','Kansas','Kentucky','Louisiana','Maine','Maryland','Massachusetts','Michigan','Minnesota','Mississippi','Missouri','Montana','Nebraska','Nevada','New Hampshire','New Jersey','New Mexico','New York','North Carolina','North Dakota','Ohio','Oklahoma','Oregon','Pennsylvania','Puerto Rico','Rhode Island','South Carolina','South Dakota','Tennessee','Texas','U.S. Virgin Islands','Utah','Vermont','Virginia','Washington','Washington D.C.','West Virginia','Wisconsin','Wyoming','Otro'];
 
 type PaymentMethodInfo = { nombre: string; recargoPct: number };
+type BookedSlot = { date: string; time: string; duration: number };
+
+/** Check if a candidate slot overlaps with any booked slot on the same date */
+function isSlotAvailable(date: string, time: string, serviceDuration: number, booked: BookedSlot[]): boolean {
+  const [ch, cm] = time.split(':').map(Number);
+  const candStart = ch * 60 + cm;
+  const candEnd = candStart + serviceDuration;
+
+  for (const b of booked) {
+    if (b.date !== date) continue;
+    const [bh, bm] = b.time.split(':').map(Number);
+    const bStart = bh * 60 + bm;
+    const bEnd = bStart + (b.duration || 60);
+    // Overlap: candStart < bEnd AND candEnd > bStart
+    if (candStart < bEnd && candEnd > bStart) return false;
+  }
+  return true;
+}
 
 interface Props {
   serviceId: string;
@@ -56,10 +83,11 @@ interface Props {
   workingHours?: WorkingHoursMap | null;
   isFree?: boolean;
   activePaymentMethods?: PaymentMethodInfo[];
+  bookedSlots?: BookedSlot[];
 }
 
 /* ─── Component ─── */
-export default function BookingFormClient({ serviceId: propServiceId, serviceName: propServiceName, serviceDuration: propServiceDuration, workingHours = null, isFree = true, activePaymentMethods = [] }: Props) {
+export default function BookingFormClient({ serviceId: propServiceId, serviceName: propServiceName, serviceDuration: propServiceDuration, workingHours = null, isFree = true, activePaymentMethods = [], bookedSlots = [] }: Props) {
   const router = useRouter();
   const [step, setStep] = useState(1);
 
@@ -85,9 +113,9 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
         if (svcIsFree) {
           setSvcPrice('Gratis');
         } else if (svc.price && svc.price !== 'Gratis') {
-          setSvcPrice(`$${svc.price} USD`);
+          const raw = String(svc.price).replace(/[^0-9.]/g, '');
+          setSvcPrice(raw ? `$${raw} USD` : 'Consultar');
         } else {
-          // Hidden price: not free, but no price shown
           setSvcPrice('Consultar');
         }
       }
@@ -130,8 +158,9 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
   const [pais, setPais] = useState('');
   const [metodoPago, setMetodoPago] = useState('');
 
-  // Loading
+  // Loading & errors
   const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   // Hydration guard — sessionStorage values only exist on client
   const [hasMounted, setHasMounted] = useState(false);
@@ -159,6 +188,7 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
 
   function pickTime(t: string) {
     setSelTime(t);
+    setSubmitError(null);
   }
 
   /* ─── Validation ─── */
@@ -208,7 +238,16 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
         }),
       });
 
-      if (!res.ok) throw new Error('Booking failed');
+      if (!res.ok) {
+        const errData = await res.json().catch(() => null);
+        if (res.status === 409 && errData?.error?.includes('reservado')) {
+          setSubmitError(errData.error + ' Regresa al paso 1 y elige otro horario.');
+          setStep(1);
+          setSelTime(null);
+          return;
+        }
+        throw new Error('Booking failed');
+      }
       const data = await res.json();
 
       // Store data for confirmation page
@@ -223,7 +262,7 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
         price: totalPrice,
         duration: `${svcDuration} min`,
       }));
-      sessionStorage.setItem('sl_form', JSON.stringify({ nombre, apellido, email, tel }));
+      sessionStorage.setItem('sl_form', JSON.stringify({ nombre, apellido, email, tel, pais }));
       sessionStorage.setItem('sl_date', selDate);
       sessionStorage.setItem('sl_time', selTime);
 
@@ -288,7 +327,11 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
           <SumRow label="Duración" value={`${svcDuration} min`} />
           <SumRow label="Modalidad" value="Online" />
           {selDate && <SumRow label="Fecha" value={formatDate(selDate)} />}
-          {selTime && <SumRow label="Hora" value={`${selTime} hs`} />}
+          {selTime && <SumRow label="Hora Miami" value={`${selTime} hs`} />}
+          {selTime && pais && pais !== 'Florida' && pais !== 'Otro' && selDate && (() => {
+            const localT = getClientTime(selDate, selTime, pais);
+            return localT ? <SumRow label={`Hora ${pais}`} value={`${localT} hs`} /> : null;
+          })()}
           {hasSur && (
             <>
               <SumRow label="Subtotal" value={svcPrice} />
@@ -374,27 +417,53 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
               })}
             </div>
 
+            {submitError && (
+              <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-xl text-[0.82rem] text-red-700">
+                {submitError}
+              </div>
+            )}
+
             {/* Time slots */}
-            <p className="text-[0.65rem] tracking-[0.15em] uppercase text-text-light mb-3">
+            <p className="text-[0.65rem] tracking-[0.15em] uppercase text-text-light mb-1">
               {selDate ? `Horarios — ${formatDate(selDate)}` : 'Selecciona un día para ver horarios'}
             </p>
             {selDate && (
-              <div className="grid grid-cols-4 max-md:grid-cols-3 max-sm:grid-cols-2 gap-2 mb-6">
-                {getSlotsForDay(new Date(selDate + 'T12:00:00').getDay(), workingHours).map(t => (
-                  <button
-                    key={t}
-                    onClick={() => pickTime(t)}
-                    className={`py-2 px-4 rounded-full border text-[0.82rem] transition-all duration-200 cursor-pointer ${
-                      hasMounted && selTime === t
-                        ? 'bg-green-deep text-[#fff] border-green-deep'
-                        : 'bg-transparent border-green-soft text-text-mid hover:bg-green-pale hover:border-green-deep hover:text-green-deep'
-                    }`}
-                  >
-                    {t}
-                  </button>
-                ))}
-              </div>
+              <p className="text-[0.68rem] text-text-light mb-3 italic">
+                Horarios en hora Miami, FL (Este de EE.UU.)
+              </p>
             )}
+            {selDate && (() => {
+              const allSlots = getSlotsForDay(new Date(selDate + 'T12:00:00').getDay(), workingHours);
+              const availableSlots = allSlots.filter(t => isSlotAvailable(selDate, t, svcDuration, bookedSlots));
+              return (
+                <div className="grid grid-cols-4 max-md:grid-cols-3 max-sm:grid-cols-2 gap-2 mb-6">
+                  {allSlots.map(t => {
+                    const available = availableSlots.includes(t);
+                    return (
+                      <button
+                        key={t}
+                        disabled={!available}
+                        onClick={() => available && pickTime(t)}
+                        className={`py-2 px-4 rounded-full border text-[0.82rem] transition-all duration-200 ${
+                          !available
+                            ? 'bg-transparent border-green-pale text-green-pale cursor-not-allowed line-through opacity-50'
+                            : hasMounted && selTime === t
+                              ? 'bg-green-deep text-[#fff] border-green-deep cursor-pointer'
+                              : 'bg-transparent border-green-soft text-text-mid hover:bg-green-pale hover:border-green-deep hover:text-green-deep cursor-pointer'
+                        }`}
+                      >
+                        {t}
+                      </button>
+                    );
+                  })}
+                  {availableSlots.length === 0 && allSlots.length > 0 && (
+                    <p className="col-span-full text-center text-[0.82rem] text-text-light italic py-4">
+                      No hay horarios disponibles este día. Selecciona otra fecha.
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
 
             <div className="flex justify-end mt-4">
               <button
@@ -484,6 +553,20 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
                 <option value="">Selecciona tu estado</option>
                 {US_STATES.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
+              {selTime && pais && (() => {
+                const localT = pais !== 'Florida' && pais !== 'Otro' && selDate
+                  ? getClientTime(selDate, selTime, pais)
+                  : null;
+                return localT ? (
+                  <span className="text-[0.72rem] text-green-deep">
+                    {selTime} hs hora Miami — {localT} hs hora {pais}
+                  </span>
+                ) : selTime && pais === 'Florida' ? (
+                  <span className="text-[0.72rem] text-text-light">
+                    {selTime} hs hora Miami (misma zona horaria)
+                  </span>
+                ) : null;
+              })()}
             </div>
 
             <div className="flex flex-col gap-1.5 mb-5">
@@ -580,7 +663,15 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
               </p>
               <ReviewRow label="Servicio" value={svcName} />
               {selDate && <ReviewRow label="Fecha" value={formatDateFull(selDate)} />}
-              {selTime && <ReviewRow label="Hora" value={`${selTime} hs`} />}
+              {selTime && (() => {
+                const localT = pais && pais !== 'Florida' && pais !== 'Otro' && selDate
+                  ? getClientTime(selDate, selTime, pais)
+                  : null;
+                return (<>
+                  <ReviewRow label="Hora Miami" value={`${selTime} hs`} />
+                  {localT && <ReviewRow label={`Hora ${pais}`} value={`${localT} hs`} />}
+                </>);
+              })()}
               <ReviewRow label="Duración" value={`${svcDuration} min`} />
               {(() => {
                 const pm = activePaymentMethods.find(m => m.nombre === metodoPago);

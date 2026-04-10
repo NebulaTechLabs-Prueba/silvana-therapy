@@ -3,8 +3,8 @@
 import { useFormState, useFormStatus } from 'react-dom';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { loginAction, requestPasswordResetAction, getSecurityQuestionAction, verifySecurityAnswerAction, type ActionResult } from '@/lib/actions/auth';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { loginAction, requestPasswordResetAction, updatePasswordAction, getSecurityQuestionAction, verifySecurityAnswerAction, type ActionResult } from '@/lib/actions/auth';
 import { createBrowserClient } from '@supabase/ssr';
 
 /**
@@ -22,14 +22,23 @@ const initialState: ActionResult | null = null;
 export default function LoginForm() {
   const [loginState, loginFormAction] = useFormState(loginAction, initialState);
   const [resetState, resetFormAction] = useFormState(requestPasswordResetAction, initialState);
+  const [newPwdState, newPwdFormAction] = useFormState(updatePasswordAction, initialState);
   const [securityState, securityFormAction] = useFormState(verifySecurityAnswerAction, initialState);
   const [showPassword, setShowPassword] = useState(false);
-  const [mode, setMode] = useState<'login' | 'reset' | 'security'>('login');
+  const [mode, setMode] = useState<'login' | 'reset' | 'security' | 'newpassword'>('login');
   const [securityQuestion, setSecurityQuestion] = useState<string | null>(null);
   const [securityLoading, setSecurityLoading] = useState(false);
   const [securityError, setSecurityError] = useState<string | null>(null);
   const [securitySuccess, setSecuritySuccess] = useState<string | null>(null);
   const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // Detect recovery flow from email link
+  useEffect(() => {
+    if (searchParams.get('recovered') === '1') {
+      setMode('newpassword');
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     if (mode === 'security' && !securityQuestion) {
@@ -40,28 +49,16 @@ export default function LoginForm() {
     }
   }, [mode, securityQuestion]);
 
-  // Handle security question verification + direct login via token
+  // Handle security question verification — session created server-side, just redirect
   useEffect(() => {
     if (securityState?.success && securityState.data && typeof securityState.data === 'object') {
-      const { token, email } = securityState.data as { token: string; email: string };
-      if (token && email) {
+      const { redirect } = securityState.data as { redirect?: boolean };
+      if (redirect) {
         setSecurityLoading(true);
         setSecurityError(null);
         setSecuritySuccess('Respuesta correcta. Iniciando sesión...');
-        const supabase = createBrowserClient(
-          process.env.NEXT_PUBLIC_SUPABASE_URL!,
-          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-        );
-        supabase.auth.verifyOtp({ type: 'magiclink', email, token })
-          .then(({ error }) => {
-            if (error) {
-              setSecurityError('Error al iniciar sesión: ' + error.message);
-              setSecuritySuccess(null);
-              setSecurityLoading(false);
-            } else {
-              router.push('/admin/dashboard');
-            }
-          });
+        router.push('/admin/dashboard');
+        router.refresh();
       }
     }
   }, [securityState, router]);
@@ -513,6 +510,34 @@ export default function LoginForm() {
                 ← Volver a recuperación por correo
               </button>
             </div>
+          </form>
+        ) : mode === 'newpassword' ? (
+          <form action={newPwdFormAction}>
+            <p style={{ fontSize: 13, color: '#5a6b58', marginBottom: '1.25rem', lineHeight: 1.6 }}>
+              Ingresa tu nueva contraseña.
+            </p>
+
+            <div style={{ marginBottom: '1.25rem' }}>
+              <label htmlFor="password" style={{ display: 'block', fontSize: 12, fontWeight: 500, color: '#5a6b58', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                Nueva contraseña
+              </label>
+              <input id="password" name="password" type="password" required minLength={8} placeholder="Mínimo 8 caracteres" style={{ width: '100%', padding: '12px 16px', border: '1px solid #c8ddc8', borderRadius: 10, fontSize: 14, color: '#2a3528', outline: 'none', background: '#fafcfa', fontFamily: 'inherit', transition: 'border-color 0.2s, box-shadow 0.2s', boxSizing: 'border-box' }} />
+            </div>
+
+            <div style={{ marginBottom: '1.25rem' }}>
+              <label htmlFor="confirmPassword" style={{ display: 'block', fontSize: 12, fontWeight: 500, color: '#5a6b58', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                Confirmar contraseña
+              </label>
+              <input id="confirmPassword" name="confirmPassword" type="password" required minLength={8} placeholder="Repite la contraseña" style={{ width: '100%', padding: '12px 16px', border: '1px solid #c8ddc8', borderRadius: 10, fontSize: 14, color: '#2a3528', outline: 'none', background: '#fafcfa', fontFamily: 'inherit', transition: 'border-color 0.2s, box-shadow 0.2s', boxSizing: 'border-box' }} />
+            </div>
+
+            {newPwdState && !newPwdState.success && newPwdState.error && (
+              <div role="alert" style={{ padding: '10px 14px', background: '#FFEBEE', border: '1px solid #ffcdd2', borderRadius: 8, color: '#c62828', fontSize: 13, marginBottom: '1.25rem' }}>
+                {newPwdState.error}
+              </div>
+            )}
+
+            <SubmitButton label="Actualizar contraseña" />
           </form>
         ) : null}
 

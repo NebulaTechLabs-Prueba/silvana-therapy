@@ -4,6 +4,7 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { revalidatePath } from 'next/cache';
 import { getClientTime } from '@/lib/utils/timezone';
+import { sendInvoiceEmail } from '@/lib/adapters/email';
 import {
   updateProfileSchema,
   upsertServiceSchema,
@@ -64,16 +65,46 @@ export async function updateProfile(raw: {
   if (error) return { success: false, error: error.message };
 
   // Sync display name and phone to Supabase Auth user metadata
-  const phone = data.telefono?.replace(/[^+\d]/g, '') || '';
-  const { error: authError } = await supabase.auth.updateUser({
-    data: { full_name: data.nombre },
-    ...(phone.length >= 8 ? { phone } : {}),
-  });
-  if (authError) {
-    console.error('[Profile] auth.updateUser error:', authError.message);
+  const { data: { user } } = await supabase.auth.getUser();
+  if (user) {
+    const admin = createAdminClient();
+    const phone = data.telefono?.replace(/[^+\d]/g, '') || '';
+    const authUpdate: Record<string, unknown> = {
+      user_metadata: { full_name: data.nombre },
+    };
+    if (phone.length >= 8) authUpdate.phone = phone;
+    const { error: authError } = await admin.auth.admin.updateUserById(user.id, authUpdate);
+    if (authError) {
+      console.error('[Profile] admin.updateUserById error:', authError.message);
+    }
   }
 
   revalidatePath(DASH);
+  return { success: true };
+}
+
+export async function updateAuthPassword(currentPassword: string, newPassword: string) {
+  if (!newPassword || newPassword.length < 8) {
+    return { success: false, error: 'La contraseña debe tener al menos 8 caracteres' };
+  }
+
+  const supabase = await getSupabase();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user || !user.email) return { success: false, error: 'No autenticado' };
+
+  // Verify current password by attempting sign-in
+  const admin = createAdminClient();
+  const { error: signInError } = await admin.auth.signInWithPassword({
+    email: user.email,
+    password: currentPassword,
+  });
+  if (signInError) return { success: false, error: 'Contraseña actual incorrecta' };
+
+  // Update password using admin client
+  const { error } = await admin.auth.admin.updateUserById(user.id, {
+    password: newPassword,
+  });
+  if (error) return { success: false, error: error.message };
   return { success: true };
 }
 
@@ -290,6 +321,25 @@ export async function deleteInvoice(id: string) {
   return { success: true };
 }
 
+export async function sendInvoiceNotification(inv: { paciente: string; email: string; concepto: string; monto: number; estado: string; fecha: string }, paymentMethods: { nombre: string; instrucciones?: string }[]) {
+  if (!inv.email || !inv.email.includes('@')) return { success: false, error: 'Email del cliente requerido' };
+  try {
+    await sendInvoiceEmail({
+      clientEmail: inv.email,
+      clientName: inv.paciente,
+      concepto: inv.concepto,
+      monto: inv.monto,
+      estado: inv.estado,
+      fecha: inv.fecha,
+      paymentMethods: paymentMethods.filter(m => m.nombre),
+    });
+    return { success: true };
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : 'Error desconocido';
+    return { success: false, error: msg };
+  }
+}
+
 // ─── Bookings (Calendario) ──────────────────────────────────
 
 export async function upsertBooking(raw: {
@@ -373,6 +423,36 @@ export async function upsertBooking(raw: {
     'rechazada': 'rejected', 'rejected': 'rejected',
   };
   const bookingStatus = statusMap[data.estado] || 'pending';
+
+  // Check for time slot conflicts (skip cancelled/rejected)
+  if (bookingStatus !== 'cancelled' && bookingStatus !== 'rejected') {
+    const { data: conflicts } = await supabase
+      .from('bookings')
+      .select('id, preferred_date, service:services(duration_min)')
+      .not('status', 'in', '("cancelled","rejected")')
+      .gte('preferred_date', data.fecha + 'T00:00:00')
+      .lt('preferred_date', data.fecha + 'T23:59:59');
+
+    if (conflicts && conflicts.length > 0) {
+      const [rh, rm] = data.hora.split(':').map(Number);
+      const reqStart = rh * 60 + rm;
+      const reqEnd = reqStart + Number(data.duracion);
+      for (const ex of conflicts) {
+        if (data.id && ex.id === data.id) continue; // skip self on edit
+        // Extract time from string directly — avoids Date TZ issues
+        const exTimeStr = String(ex.preferred_date || '');
+        const exTimePart = exTimeStr.includes('T') ? exTimeStr.split('T')[1].slice(0, 5) : '';
+        if (!exTimePart) continue;
+        const [eh, em] = exTimePart.split(':').map(Number);
+        const exStart = eh * 60 + em;
+        const exDur = (ex.service as any)?.duration_min || 60;
+        const exEnd = exStart + exDur;
+        if (reqStart < exEnd && reqEnd > exStart) {
+          return { success: false, error: 'Ya existe una reserva en ese horario. Cambia la hora o la fecha.' };
+        }
+      }
+    }
+  }
 
   if (data.id) {
     const { error } = await supabase
@@ -486,7 +566,11 @@ export async function upsertPaymentMethod(raw: {
   color?: string;
 }) {
   const parsed = upsertPaymentMethodSchema.safeParse(raw);
-  if (!parsed.success) return { success: false, error: 'Datos de método de pago inválidos' };
+  if (!parsed.success) {
+    const fieldErrors = parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join(', ');
+    console.error('[PaymentMethod] Validation failed:', fieldErrors);
+    return { success: false, error: `Datos inválidos: ${fieldErrors}` };
+  }
   const data = parsed.data;
   const supabase = await getSupabase();
 

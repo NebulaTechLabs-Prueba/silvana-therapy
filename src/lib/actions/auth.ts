@@ -86,7 +86,7 @@ export async function requestPasswordResetAction(
   const supabase = await createServerSupabaseClient();
   const siteUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${siteUrl}/login`,
+    redirectTo: `${siteUrl}/auth/callback?next=/login?recovered=1`,
   });
 
   // Always return success even if email doesn't exist
@@ -149,13 +149,26 @@ export async function verifySecurityAnswerAction(
     return { success: false, error: 'Respuesta incorrecta.' };
   }
 
-  // Answer correct — generate a magic link token without sending email
+  // Answer correct — create session server-side using admin API
   const email = data.notification_email;
   if (!email) {
     return { success: false, error: 'No hay email de administrador configurado.' };
   }
 
   try {
+    // Get the user by email
+    const { data: { users }, error: listError } = await adminSupabase.auth.admin.listUsers();
+    if (listError) {
+      console.error('[Auth] listUsers error:', listError);
+      return { success: false, error: 'Error al buscar usuario.' };
+    }
+
+    const user = users.find(u => u.email === email);
+    if (!user) {
+      return { success: false, error: 'Usuario no encontrado.' };
+    }
+
+    // Generate a magic link and extract the full URL
     const { data: linkData, error: linkError } = await adminSupabase.auth.admin.generateLink({
       type: 'magiclink',
       email,
@@ -166,10 +179,22 @@ export async function verifySecurityAnswerAction(
       return { success: false, error: 'Error al generar acceso. Intenta nuevamente.' };
     }
 
-    // Return the hashed token and email so the client can verify the OTP
+    // Use the server supabase client to verify the OTP server-side (sets cookies)
+    // When using token_hash, Supabase requires ONLY token_hash + type (no email)
+    const supabase = await createServerSupabaseClient();
+    const { error: verifyError } = await supabase.auth.verifyOtp({
+      type: 'magiclink',
+      token_hash: linkData.properties.hashed_token,
+    });
+
+    if (verifyError) {
+      console.error('[Auth] verifyOtp error:', verifyError);
+      return { success: false, error: 'Error al iniciar sesión. Intenta nuevamente.' };
+    }
+
     return {
       success: true,
-      data: { token: linkData.properties.hashed_token, email },
+      data: { redirect: true },
     };
   } catch (err) {
     console.error('[Auth] Security question login error:', err);

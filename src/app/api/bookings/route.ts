@@ -36,10 +36,20 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('[API] POST /api/bookings error:', error);
 
+    const msg = (error as Error).message || '';
+
     // Idempotency conflict — not an error
-    if ((error as Error).message?.includes('duplicate')) {
+    if (msg.includes('duplicate')) {
       return NextResponse.json(
         { error: 'Esta solicitud ya fue enviada' },
+        { status: 409 }
+      );
+    }
+
+    // Time slot conflict
+    if (msg.includes('ya está reservado')) {
+      return NextResponse.json(
+        { error: msg },
         { status: 409 }
       );
     }

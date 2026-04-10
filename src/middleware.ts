@@ -37,6 +37,7 @@ export async function middleware(request: NextRequest) {
   const isAdminDomain = hostname.startsWith('admin.');
   const isAdminRoute = pathname.startsWith('/admin');
   const isLoginRoute = pathname === '/login';
+  const isAuthCallback = pathname.startsWith('/auth/callback');
   const isApiRoute = pathname.startsWith('/api');
   const isWebhookRoute = pathname.startsWith('/api/webhooks');
 
@@ -52,7 +53,7 @@ export async function middleware(request: NextRequest) {
 
   // Admin routes: require authentication
   if (isAdminDomain || isAdminRoute) {
-    if (!user && !isLoginRoute) {
+    if (!user && !isLoginRoute && !isAuthCallback) {
       const loginUrl = new URL('/login', request.url);
       loginUrl.searchParams.set('redirect', pathname);
       return NextResponse.redirect(loginUrl);

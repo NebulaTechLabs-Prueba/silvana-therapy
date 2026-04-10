@@ -102,15 +102,19 @@ export default function ContactSection({ paymentMethods = [], contactEmail = '',
               <div className="flex flex-col gap-3">
                 {paymentMethods.map((m) => (
                   <div key={m.nombre} className="flex items-center gap-3.5 text-[0.85rem] text-text-mid">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-6 h-6 text-green-deep shrink-0">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-6 h-6 text-green-deep shrink-0">
                       {m.tipo === 'PayPal' ? (
-                        <circle cx="12" cy="12" r="10" />
+                        <><path d="M7 21h2l1-7h3c4 0 7-2 7-6s-2-5-6-5H8L5 21" /><path d="M10 14l1-7" /></>
+                      ) : m.tipo === 'Zelle' ? (
+                        <><path d="M6 6h12" /><path d="M18 6L6 18" /><path d="M6 18h12" /></>
                       ) : m.tipo === 'Tarjeta' ? (
                         <><rect x="1" y="4" width="22" height="16" rx="2" ry="2" /><line x1="1" y1="10" x2="23" y2="10" /></>
                       ) : m.tipo === 'Transferencia' ? (
                         <><path d="M21 12V7H5a2 2 0 010-4h14v4" /><path d="M3 12v5h16a2 2 0 010 4H5v-4" /></>
+                      ) : m.tipo === 'Efectivo' ? (
+                        <><line x1="12" y1="1" x2="12" y2="23" /><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" /></>
                       ) : (
-                        <><circle cx="12" cy="12" r="10" /><path d="M12 6v6l4 2" /></>
+                        <><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="16" /><line x1="8" y1="12" x2="16" y2="12" /></>
                       )}
                     </svg>
                     <span className="text-[0.8rem] text-text-mid">{m.nombre}</span>

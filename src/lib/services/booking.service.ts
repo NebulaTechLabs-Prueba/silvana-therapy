@@ -1,6 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/admin';
 import { createCalendarEvent, updateCalendarEvent, deleteCalendarEvent } from '@/lib/adapters/google-calendar';
-import { sendNewBookingNotification, sendBookingConfirmedEmail, sendBookingRejectedEmail, sendRescheduledEmail, sendPaymentLinkEmail } from '@/lib/adapters/email';
+import { sendNewBookingNotification, sendBookingReceivedEmail, sendBookingConfirmedEmail, sendBookingRejectedEmail, sendRescheduledEmail, sendPaymentLinkEmail } from '@/lib/adapters/email';
 import { createStripePaymentLink } from '@/lib/adapters/stripe';
 import { createPayPalOrder } from '@/lib/adapters/paypal';
 import type { CreateBookingDTO, AcceptBookingDTO, RejectBookingDTO, RescheduleBookingDTO, CreatePaymentLinkDTO, Booking, BookingWithClient } from '@/types/database';
@@ -49,7 +49,49 @@ export async function createBooking(dto: CreateBookingDTO): Promise<Booking> {
     clientId = newClient.id;
   }
 
-  // 2. Create booking (trigger auto-detects is_first_session)
+  // 2. Check for time conflicts before creating booking
+  if (dto.preferred_date) {
+    const reqDate = dto.preferred_date.slice(0, 10); // "YYYY-MM-DD"
+    const reqTime = dto.preferred_date.slice(11, 16); // "HH:MM" — string parse, no Date TZ issues
+    const [rh, rm] = reqTime.split(':').map(Number);
+    const reqStart = rh * 60 + rm;
+
+    // Get the requested service duration
+    const { data: reqSvc } = await supabase
+      .from('services')
+      .select('duration_min')
+      .eq('id', dto.service_id)
+      .single();
+    const reqDuration = reqSvc?.duration_min || 60;
+    const reqEnd = reqStart + reqDuration;
+
+    // Fetch all active bookings on the same date
+    // Use the same date string for range query to avoid TZ mismatches
+    const { data: sameDayBookings } = await supabase
+      .from('bookings')
+      .select('preferred_date, service:services(duration_min)')
+      .not('status', 'in', '("cancelled","rejected")')
+      .gte('preferred_date', reqDate + 'T00:00:00')
+      .lt('preferred_date', reqDate + 'T23:59:59');
+
+    if (sameDayBookings && sameDayBookings.length > 0) {
+      for (const existing of sameDayBookings) {
+        // Extract time from string directly — avoids Date object timezone conversion
+        const exTimeStr = String(existing.preferred_date || '');
+        const exTimePart = exTimeStr.includes('T') ? exTimeStr.split('T')[1].slice(0, 5) : '';
+        if (!exTimePart) continue;
+        const [eh, em] = exTimePart.split(':').map(Number);
+        const exStart = eh * 60 + em;
+        const exDur = (existing.service as any)?.duration_min || 60;
+        const exEnd = exStart + exDur;
+        if (reqStart < exEnd && reqEnd > exStart) {
+          throw new Error('Este horario ya está reservado. Por favor selecciona otro.');
+        }
+      }
+    }
+  }
+
+  // 3. Create booking (trigger auto-detects is_first_session)
   const { data: booking, error: bookingError } = await supabase
     .from('bookings')
     .insert({
@@ -98,6 +140,19 @@ export async function createBooking(dto: CreateBookingDTO): Promise<Booking> {
       // Don't fail the booking if email fails
       console.error('[BookingService] Email notification failed:', emailError);
     }
+  }
+
+  // 4. Notify client via email
+  try {
+    await sendBookingReceivedEmail({
+      clientEmail: dto.email,
+      clientName: dto.full_name,
+      serviceName: booking.service?.name || 'Consulta',
+      preferredDate: dto.preferred_date,
+      isFirstSession: booking.is_first_session,
+    });
+  } catch (emailError) {
+    console.error('[BookingService] Client email failed:', emailError);
   }
 
   return booking;

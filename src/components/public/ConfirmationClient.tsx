@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { escapeHtml } from '@/lib/utils/escapeHtml';
+import { getClientTime } from '@/lib/utils/timezone';
 
 const DAYS_F = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
 const MONTHS_F = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
@@ -10,7 +11,7 @@ const MONTHS_F = ['enero','febrero','marzo','abril','mayo','junio','julio','agos
 interface BookingData {
   code: string;
   service: { title: string; price: string; duration: string };
-  form: { nombre: string; apellido: string; email: string; tel?: string };
+  form: { nombre: string; apellido: string; email: string; tel?: string; pais?: string };
   date: string;
   time: string;
 }
@@ -34,11 +35,16 @@ export default function ConfirmationClient() {
     ? `${DAYS_F[dateObj.getDay()]}, ${dateObj.getDate()} de ${MONTHS_F[dateObj.getMonth()]} ${dateObj.getFullYear()}`
     : '—';
 
+  // Use client's local time for calendar exports (hora estado), fall back to Miami time
+  const clientTime = data?.date && data?.time && data?.form?.pais && data.form.pais !== 'Florida' && data.form.pais !== 'Otro'
+    ? getClientTime(data.date, data.time, data.form.pais) || data.time
+    : data?.time || '';
+
   // Google Calendar link
   function getGCalUrl() {
-    if (!data?.date || !data?.time) return '#';
-    const start = data.date.replace(/-/g, '') + 'T' + data.time.replace(':', '') + '00';
-    const [h, m] = data.time.split(':').map(Number);
+    if (!data?.date || !clientTime) return '#';
+    const start = data.date.replace(/-/g, '') + 'T' + clientTime.replace(':', '') + '00';
+    const [h, m] = clientTime.split(':').map(Number);
     const durMin = parseInt(data.service.duration) || 50;
     const endMin = h * 60 + m + durMin;
     const end = data.date.replace(/-/g, '') + 'T' + String(Math.floor(endMin / 60)).padStart(2, '0') + String(endMin % 60).padStart(2, '0') + '00';
@@ -63,8 +69,7 @@ export default function ConfirmationClient() {
           ¡Tu cita está confirmada!
         </h1>
         <p className="text-[0.9rem] text-text-mid">
-          Recibirás un email de confirmación en{' '}
-          <strong className="text-text-dark">{data.form.email}</strong>
+          Descarga tu comprobante y guárdalo como respaldo.
         </p>
       </div>
 
@@ -73,7 +78,14 @@ export default function ConfirmationClient() {
         <Row label="Servicio" value={data.service.title} />
         <Row label="Profesional" value="Lda. Silvana López" />
         <Row label="Fecha" value={dateStr} />
-        <Row label="Hora" value={data.time ? `${data.time} hs` : '—'} />
+        <Row label="Hora Miami" value={data.time ? `${data.time} hs` : '—'} />
+        {data.form.pais && data.form.pais !== 'Florida' && data.form.pais !== 'Otro' && data.date && data.time && (() => {
+          const localT = getClientTime(data.date, data.time, data.form.pais!);
+          return localT ? <Row label={`Hora ${data.form.pais}`} value={`${localT} hs`} /> : null;
+        })()}
+        {data.form.pais === 'Florida' && data.time && (
+          <Row label="Zona horaria" value="Miami, FL (misma zona)" />
+        )}
         <Row label="Duración" value={data.service.duration} />
         <Row label="Modalidad" value="Online · Videollamada" />
         <Row
@@ -105,10 +117,10 @@ export default function ConfirmationClient() {
           </a>
           <button
             onClick={() => {
-              if (!data?.date || !data?.time) return;
-              const [h, m] = data.time.split(':').map(Number);
+              if (!data?.date || !clientTime) return;
+              const [h, m] = clientTime.split(':').map(Number);
               const durMin = parseInt(data.service.duration) || 50;
-              const startDt = data.date.replace(/-/g, '') + 'T' + data.time.replace(':', '') + '00';
+              const startDt = data.date.replace(/-/g, '') + 'T' + clientTime.replace(':', '') + '00';
               const endMin = h * 60 + m + durMin;
               const endDt = data.date.replace(/-/g, '') + 'T' + String(Math.floor(endMin / 60)).padStart(2, '0') + String(endMin % 60).padStart(2, '0') + '00';
               const ics = [
@@ -218,9 +230,9 @@ export default function ConfirmationClient() {
         </p>
 
         <div className="flex flex-col gap-5">
-          <NextStep n={1} title="Confirmación por email" desc="Recibirás un email con todos los detalles de tu cita y el enlace de videollamada." />
+          <NextStep n={1} title="Guarda tu confirmación" desc="Descarga o imprime tu comprobante de reserva desde el botón de arriba. Es tu respaldo de la cita." />
           <div className="border-t border-green-pale" />
-          <NextStep n={2} title="Recordatorio" desc="24 horas antes de tu cita recibirás un recordatorio con el link de acceso." />
+          <NextStep n={2} title="Te contactaremos" desc="Nos comunicaremos contigo por email o WhatsApp para coordinar los detalles y enviarte el enlace de videollamada." />
           <div className="border-t border-green-pale" />
           <NextStep n={3} title="Tu sesión" desc="Conéctate a la hora indicada desde cualquier dispositivo. Solo necesitás internet." />
         </div>

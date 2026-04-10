@@ -11,8 +11,8 @@ export const metadata = {
 export default async function BookingPage() {
   const supabase = await createServerSupabaseClient();
 
-  // Fetch service + working hours in parallel
-  const [serviceRes, settingsRes, payMethodsRes] = await Promise.all([
+  // Fetch service, working hours, payment methods, and existing bookings in parallel
+  const [serviceRes, settingsRes, payMethodsRes, bookingsRes] = await Promise.all([
     supabase
       .from('services')
       .select('id, name, duration_min, is_free')
@@ -31,11 +31,29 @@ export default async function BookingPage() {
       .select('nombre, recargo_pct')
       .eq('activo', true)
       .order('prioridad'),
+    // Fetch active bookings to block occupied slots
+    supabase
+      .from('bookings')
+      .select('preferred_date, service:services(duration_min)')
+      .not('status', 'in', '("cancelled","rejected")')
+      .gte('preferred_date', new Date().toISOString().slice(0, 10)),
   ]);
 
   const service = serviceRes.data;
   const workingHours = settingsRes.data?.working_hours ?? null;
   const activePaymentMethods = (payMethodsRes.data ?? []).map((m: { nombre: string; recargo_pct?: number }) => ({ nombre: m.nombre, recargoPct: m.recargo_pct || 0 }));
+
+  // Build booked slots: array of { date, time, duration }
+  const bookedSlots = (bookingsRes.data ?? [])
+    .filter((b: any) => b.preferred_date)
+    .map((b: any) => {
+      const str = String(b.preferred_date);
+      const date = str.slice(0, 10);
+      // Extract time from string directly — avoids Date TZ conversion issues
+      const time = str.includes('T') ? str.split('T')[1].slice(0, 5) : '00:00';
+      const duration = b.service?.duration_min || 60;
+      return { date, time, duration };
+    });
 
   return (
     <>
@@ -58,6 +76,7 @@ export default async function BookingPage() {
         workingHours={workingHours}
         isFree={service?.is_free ?? true}
         activePaymentMethods={activePaymentMethods}
+        bookedSlots={bookedSlots}
       />
       <Footer />
     </>
