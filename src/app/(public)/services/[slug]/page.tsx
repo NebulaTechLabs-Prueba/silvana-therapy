@@ -29,7 +29,7 @@ export default async function ServiceDetailPage({ params }: Props) {
 
   const [serviceRes, settingsRes, payMethodsRes] = await Promise.all([
     supabase.from('services').select('*').eq('slug', slug).eq('active', true).single(),
-    supabase.from('admin_settings').select('working_hours').limit(1).single(),
+    supabase.rpc('get_public_contact').single(),
     supabase.from('payment_methods').select('nombre').eq('activo', true).order('prioridad'),
   ]);
 

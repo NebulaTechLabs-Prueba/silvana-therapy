@@ -21,11 +21,7 @@ export default async function BookingPage() {
       .order('sort_order')
       .limit(1)
       .single(),
-    supabase
-      .from('admin_settings')
-      .select('working_hours')
-      .limit(1)
-      .single(),
+    supabase.rpc('get_public_contact').single(),
     supabase
       .from('payment_methods')
       .select('nombre, recargo_pct')

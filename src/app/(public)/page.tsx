@@ -21,9 +21,9 @@ export const metadata = {
 
 export default async function HomePage() {
   const supabase = await createServerSupabaseClient();
-  const [{ data: payMethods }, { data: settings }] = await Promise.all([
+  const [{ data: payMethods }, { data: contactData }] = await Promise.all([
     supabase.from('payment_methods').select('nombre, tipo').eq('activo', true).order('prioridad'),
-    supabase.from('admin_settings').select('contact_email, contact_phone').limit(1).single(),
+    supabase.rpc('get_public_contact').single(),
   ]);
 
   const activePaymentMethods = (payMethods ?? []).map((m: { nombre: string; tipo: string }) => ({ nombre: m.nombre, tipo: m.tipo }));
@@ -41,8 +41,8 @@ export default async function HomePage() {
       <ProfileSection />
       <ContactSection
         paymentMethods={activePaymentMethods}
-        contactEmail={settings?.contact_email || ''}
-        contactPhone={settings?.contact_phone || ''}
+        contactEmail={contactData?.contact_email || ''}
+        contactPhone={contactData?.contact_phone || ''}
       />
       <Footer />
     </>
