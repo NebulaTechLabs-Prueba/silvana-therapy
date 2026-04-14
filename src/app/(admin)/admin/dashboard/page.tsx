@@ -1,6 +1,7 @@
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import DashboardClient from './DashboardClient';
+import { getGoogleIntegrationStatus } from '@/lib/adapters/google-auth';
 
 export const metadata = {
   title: 'Dashboard — Lda. Silvana López',
@@ -24,7 +25,7 @@ export default async function DashboardPage() {
   const userName = (user.user_metadata?.full_name as string) || undefined;
 
   // Fetch all dashboard data in parallel
-  const [settingsRes, servicesRes, invoicesRes, bookingsRes, paymentMethodsRes, linksRes, availablePayLinksRes] = await Promise.all([
+  const [settingsRes, servicesRes, invoicesRes, bookingsRes, paymentMethodsRes, linksRes, availablePayLinksRes, exceptionsRes, exceptionDatesRes] = await Promise.all([
     supabase.from('admin_settings').select('*').limit(1).single(),
     supabase.from('services').select('*').order('sort_order'),
     supabase.from('invoices').select('*').order('fecha', { ascending: false }),
@@ -35,7 +36,20 @@ export default async function DashboardPage() {
     supabase.from('payment_methods').select('*').order('prioridad'),
     supabase.from('admin_links').select('*').order('sort_order'),
     supabase.from('payment_links').select('*').is('booking_id', null).eq('status', 'active').order('created_at', { ascending: false }),
+    supabase.from('availability_exceptions').select('*').order('created_at', { ascending: false }),
+    supabase.from('availability_exception_dates').select('*'),
   ]);
+
+  const googleStatus = await getGoogleIntegrationStatus().catch(() => ({ connected: false }));
+
+  const datesByExc: Record<string, string[]> = {};
+  (exceptionDatesRes.data ?? []).forEach((r: { exception_id: string; date: string }) => {
+    (datesByExc[r.exception_id] ||= []).push(r.date);
+  });
+  const exceptions = (exceptionsRes.data ?? []).map((e: Record<string, unknown>) => ({
+    ...e,
+    dates: datesByExc[e.id as string] || [],
+  }));
 
   return (
     <DashboardClient
@@ -48,6 +62,8 @@ export default async function DashboardPage() {
       initialPaymentMethods={paymentMethodsRes.data ?? []}
       initialLinks={linksRes.data ?? []}
       availablePaymentLinks={availablePayLinksRes.data ?? []}
+      initialExceptions={exceptions}
+      googleStatus={googleStatus}
     />
   );
 }

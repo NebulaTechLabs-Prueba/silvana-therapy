@@ -11,8 +11,14 @@ export const metadata = {
 export default async function BookingPage() {
   const supabase = await createServerSupabaseClient();
 
-  // Fetch service, working hours, payment methods, and existing bookings in parallel
-  const [serviceRes, settingsRes, payMethodsRes, bookingsRes] = await Promise.all([
+  // Window: today → +90 days (used for both bookings and exceptions)
+  const today = new Date();
+  const fromDate = today.toISOString().slice(0, 10);
+  const toDateObj = new Date(today); toDateObj.setDate(toDateObj.getDate() + 90);
+  const toDate = toDateObj.toISOString().slice(0, 10);
+
+  // Fetch service, working hours, payment methods, existing bookings, and active exceptions in parallel
+  const [serviceRes, settingsRes, payMethodsRes, bookingsRes, exceptionsRes] = await Promise.all([
     supabase
       .from('services')
       .select('id, name, duration_min, is_free')
@@ -32,7 +38,8 @@ export default async function BookingPage() {
       .from('bookings')
       .select('preferred_date, service:services(duration_min)')
       .not('status', 'in', '("cancelled","rejected")')
-      .gte('preferred_date', new Date().toISOString().slice(0, 10)),
+      .gte('preferred_date', fromDate),
+    supabase.rpc('get_active_exceptions', { from_date: fromDate, to_date: toDate }),
   ]);
 
   const service = serviceRes.data;
@@ -73,6 +80,7 @@ export default async function BookingPage() {
         isFree={service?.is_free ?? true}
         activePaymentMethods={activePaymentMethods}
         bookedSlots={bookedSlots}
+        activeExceptions={exceptionsRes.data ?? []}
       />
       <Footer />
     </>
