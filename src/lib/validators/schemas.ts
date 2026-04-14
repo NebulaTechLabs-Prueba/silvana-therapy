@@ -106,11 +106,6 @@ export const loginSchema = z.object({
   password: z.string().min(8, 'La contraseña debe tener al menos 8 caracteres'),
 });
 
-export const verify2FASchema = z.object({
-  code: z.string().length(6, 'El código debe tener 6 dígitos'),
-  factorId: z.string(),
-});
-
 // ─── Dashboard: Admin Profile ────────────────────────────
 
 export const updateProfileSchema = z.object({

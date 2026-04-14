@@ -357,7 +357,6 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
   const [secQuestion, setSecQuestion] = useState(initialSettings?.security_question || '¿Nombre de tu primera mascota?');
   const [secAnswer, setSecAnswer] = useState(initialSettings?.security_answer || '');
   const [recoveryEmail, setRecoveryEmail] = useState('silvana.backup@gmail.com');
-  const [twoFA, setTwoFA] = useState(false);
   const [secEditModal, setSecEditModal] = useState(null); /* 'email'|'password'|'question'|'recovery'|null */
   const [showPwd, setShowPwd] = useState({current:false,new1:false,new2:false,answer:false});
 
@@ -2344,21 +2343,6 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                   <button onClick={()=>setSecEditModal('question')} style={{...btnS,fontSize:11,padding:'6px 12px',flexShrink:0}}>{I.edit} Editar</button>
                 </div>
 
-                {/* 2FA toggle */}
-                <div style={{padding:'14px 16px',background:dm?'#1a1a1a':'#f0f5f0',borderRadius:10,border:'1px solid '+(dm?'#333':'#e2ede2'),display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-                  <div style={{display:'flex',alignItems:'center',gap:12}}>
-                    <span style={{color:'#4a7a4a'}}>
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-                    </span>
-                    <div>
-                      <div style={{fontSize:11,color:'#849884',fontWeight:500,textTransform:'uppercase',letterSpacing:'.4px'}}>Autenticación de dos factores (2FA)</div>
-                      <div style={{fontSize:13,fontWeight:400}}>{twoFA?'Activada — se requiere código al iniciar sesión':'Desactivada — recomendado activar'}</div>
-                    </div>
-                  </div>
-                  <button onClick={()=>{setTwoFA(!twoFA);show(twoFA?'2FA desactivada':'2FA activada')}} style={{width:42,height:22,borderRadius:11,border:'none',background:twoFA?'#4a7a4a':'#c8ddc8',cursor:'pointer',position:'relative',transition:'background .3s',flexShrink:0}}>
-                    <div style={{width:16,height:16,borderRadius:'50%',background:'#fff',position:'absolute',top:3,left:twoFA?23:3,transition:'left .3s',boxShadow:'0 1px 3px rgba(0,0,0,.15)'}}/>
-                  </button>
-                </div>
               </div>
 
               {/* Change email modal */}
