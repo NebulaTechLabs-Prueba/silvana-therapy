@@ -37,9 +37,8 @@ export async function updateProfile(raw: {
   email: string;
   telefono: string;
   direccion: string;
-  horario: string;
   bio: string;
-  working_hours?: Record<string, { start: string; end: string; enabled: boolean }>;
+  working_hours?: Record<string, { enabled: boolean; ranges: { start: string; end: string }[] }>;
 }) {
   const parsed = updateProfileSchema.safeParse(raw);
   if (!parsed.success) return { success: false, error: 'Datos de perfil inválidos' };
@@ -52,7 +51,6 @@ export async function updateProfile(raw: {
     notification_email: data.email,
     telefono: data.telefono,
     direccion: data.direccion,
-    horario: data.horario,
     bio: data.bio,
   };
   if (data.working_hours) {
@@ -666,6 +664,175 @@ export async function deleteAdminLink(id: string) {
   if (!id || id.length > 50) return { success: false, error: 'ID inválido' };
   const supabase = await getSupabase();
   const { error } = await supabase.from('admin_links').delete().eq('id', id);
+  if (error) return { success: false, error: error.message };
+  revalidatePath(DASH);
+  return { success: true };
+}
+
+// ─── Availability Exceptions ───────────────────────────────
+
+type ExceptionInput = {
+  id?: string;
+  title: string;
+  type: 'dates' | 'range' | 'recurring';
+  start_date?: string | null;
+  end_date?: string | null;
+  start_time?: string | null;
+  end_time?: string | null;
+  all_day?: boolean;
+  days_of_week?: number[] | null;
+  notes?: string | null;
+  dates?: string[]; // for type='dates'
+};
+
+export async function upsertAvailabilityException(input: ExceptionInput) {
+  if (!input.title?.trim()) return { success: false, error: 'Título requerido' };
+  if (!['dates','range','recurring'].includes(input.type)) return { success: false, error: 'Tipo inválido' };
+
+  const supabase = await getSupabase();
+
+  const parent = {
+    title: input.title.trim(),
+    type: input.type,
+    start_date: input.type === 'dates' ? null : (input.start_date || null),
+    end_date:   input.type === 'dates' ? null : (input.end_date   || null),
+    all_day:    !!input.all_day,
+    start_time: input.all_day ? null : (input.start_time || null),
+    end_time:   input.all_day ? null : (input.end_time   || null),
+    days_of_week: input.type === 'recurring' ? (input.days_of_week || []) : null,
+    notes: input.notes || null,
+  };
+
+  if (input.type === 'range') {
+    if (!parent.start_date || !parent.end_date) return { success: false, error: 'Rango requiere fecha inicio y fin' };
+    if (parent.end_date < parent.start_date) return { success: false, error: 'Fecha fin debe ser ≥ inicio' };
+  }
+  if (input.type === 'recurring') {
+    if (!parent.start_date) return { success: false, error: 'Recurrente requiere fecha inicio' };
+    if (!parent.days_of_week || parent.days_of_week.length === 0) return { success: false, error: 'Selecciona al menos un día de la semana' };
+  }
+  if (input.type === 'dates') {
+    if (!input.dates || input.dates.length === 0) return { success: false, error: 'Agrega al menos una fecha' };
+  }
+  if (!parent.all_day && parent.start_time && parent.end_time && parent.end_time <= parent.start_time) {
+    return { success: false, error: 'Hora fin debe ser mayor a hora inicio' };
+  }
+
+  let excId = input.id;
+  if (excId) {
+    const { error } = await supabase.from('availability_exceptions').update(parent).eq('id', excId);
+    if (error) return { success: false, error: error.message };
+  } else {
+    const { data, error } = await supabase.from('availability_exceptions').insert(parent).select('id').single();
+    if (error) return { success: false, error: error.message };
+    excId = data!.id;
+  }
+
+  if (input.type === 'dates') {
+    await supabase.from('availability_exception_dates').delete().eq('exception_id', excId);
+    const rows = (input.dates || []).map(d => ({ exception_id: excId, date: d }));
+    if (rows.length > 0) {
+      const { error } = await supabase.from('availability_exception_dates').insert(rows);
+      if (error) return { success: false, error: error.message };
+    }
+  } else {
+    await supabase.from('availability_exception_dates').delete().eq('exception_id', excId);
+  }
+
+  revalidatePath(DASH);
+  return { success: true, id: excId };
+}
+
+// ─── Integrations (SMTP + WhatsApp Templates) ───────────
+
+export async function updateIntegrations(raw: {
+  smtp_host?: string | null;
+  smtp_port?: number | null;
+  smtp_user?: string | null;
+  smtp_password?: string | null;
+  smtp_from_email?: string | null;
+  smtp_from_name?: string | null;
+  smtp_secure?: boolean | null;
+}) {
+  const supabase = await getSupabase();
+  const update: Record<string, string | number | boolean | null> = {};
+  if (raw.smtp_host !== undefined)       update.smtp_host       = raw.smtp_host       || null;
+  if (raw.smtp_port !== undefined)       update.smtp_port       = raw.smtp_port ?? null;
+  if (raw.smtp_user !== undefined)       update.smtp_user       = raw.smtp_user       || null;
+  if (raw.smtp_password !== undefined)   update.smtp_password   = raw.smtp_password   || null;
+  if (raw.smtp_from_email !== undefined) update.smtp_from_email = raw.smtp_from_email || null;
+  if (raw.smtp_from_name !== undefined)  update.smtp_from_name  = raw.smtp_from_name  || null;
+  if (raw.smtp_secure !== undefined)     update.smtp_secure     = raw.smtp_secure ?? null;
+  if (Object.keys(update).length === 0) return { success: true };
+  const { error } = await supabase.from('admin_settings').update(update).not('id', 'is', null);
+  if (error) return { success: false, error: error.message };
+  revalidatePath(DASH);
+  return { success: true };
+}
+
+export async function updateWaTemplates(templates: Record<string, string>) {
+  if (!templates || typeof templates !== 'object') {
+    return { success: false, error: 'Plantillas inválidas' };
+  }
+  // Sanitize: keep only string values, cap length per template
+  const clean: Record<string, string> = {};
+  for (const [k, v] of Object.entries(templates)) {
+    if (typeof v === 'string') clean[k] = v.slice(0, 2000);
+  }
+  const supabase = await getSupabase();
+  const { error } = await supabase
+    .from('admin_settings')
+    .update({ wa_templates: clean })
+    .not('id', 'is', null);
+  if (error) return { success: false, error: error.message };
+  revalidatePath(DASH);
+  return { success: true };
+}
+
+// Eventos y destinatarios permitidos para email_notifications.
+// Cualquier clave fuera de esta lista se descarta silenciosamente.
+const EMAIL_EVENT_SHAPE: Record<string, readonly ('client' | 'admin')[]> = {
+  booking_received:    ['client', 'admin'],
+  booking_confirmed:   ['client'],
+  booking_rejected:    ['client'],
+  booking_cancelled:   ['client', 'admin'],
+  booking_rescheduled: ['client'],
+  payment_link:        ['client'],
+  reminder_24h:        ['client'],
+  invoice:             ['client'],
+};
+
+export async function updateEmailNotifications(
+  prefs: Record<string, Record<string, boolean>>,
+) {
+  if (!prefs || typeof prefs !== 'object') {
+    return { success: false, error: 'Preferencias inválidas' };
+  }
+  const clean: Record<string, Record<string, boolean>> = {};
+  for (const [event, recipients] of Object.entries(EMAIL_EVENT_SHAPE)) {
+    const incoming = prefs[event];
+    if (!incoming || typeof incoming !== 'object') continue;
+    const eventPrefs: Record<string, boolean> = {};
+    for (const recipient of recipients) {
+      if (typeof incoming[recipient] === 'boolean') {
+        eventPrefs[recipient] = incoming[recipient];
+      }
+    }
+    if (Object.keys(eventPrefs).length > 0) clean[event] = eventPrefs;
+  }
+  const supabase = await getSupabase();
+  const { error } = await supabase
+    .from('admin_settings')
+    .update({ email_notifications: clean })
+    .not('id', 'is', null);
+  if (error) return { success: false, error: error.message };
+  revalidatePath(DASH);
+  return { success: true };
+}
+
+export async function deleteAvailabilityException(id: string) {
+  const supabase = await getSupabase();
+  const { error } = await supabase.from('availability_exceptions').delete().eq('id', id);
   if (error) return { success: false, error: error.message };
   revalidatePath(DASH);
   return { success: true };

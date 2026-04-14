@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { getClientTime } from '@/lib/utils/timezone';
+import { sanitizeName, sanitizePhoneInput, isValidName, isValidEmail } from '@/lib/utils/sanitize';
+import { normalizePhone } from '@/lib/utils/phone';
 
 /* ─── Constants ─── */
 const MONTHS = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
@@ -13,37 +15,39 @@ const DAYS_F = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sáb
 
 const STEP_LABELS = ['Fecha y hora', 'Tus datos', 'Confirmar'];
 
-type DaySchedule = { start: string; end: string; enabled: boolean };
+type TimeRange = { start: string; end: string };
+type DaySchedule = { enabled: boolean; ranges: TimeRange[] };
 type WorkingHoursMap = Record<string, DaySchedule>;
 
 const DAY_KEYS = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
 
 // Default schedule when working_hours is not configured in DB
 const DEFAULT_WH: WorkingHoursMap = {
-  sunday:    { start: '00:00', end: '00:00', enabled: false },
-  monday:    { start: '09:00', end: '18:00', enabled: true },
-  tuesday:   { start: '09:00', end: '18:00', enabled: true },
-  wednesday: { start: '09:00', end: '18:00', enabled: true },
-  thursday:  { start: '09:00', end: '18:00', enabled: true },
-  friday:    { start: '09:00', end: '14:00', enabled: true },
-  saturday:  { start: '00:00', end: '00:00', enabled: false },
+  sunday:    { enabled: false, ranges: [] },
+  monday:    { enabled: true,  ranges: [{ start: '09:00', end: '18:00' }] },
+  tuesday:   { enabled: true,  ranges: [{ start: '09:00', end: '18:00' }] },
+  wednesday: { enabled: true,  ranges: [{ start: '09:00', end: '18:00' }] },
+  thursday:  { enabled: true,  ranges: [{ start: '09:00', end: '18:00' }] },
+  friday:    { enabled: true,  ranges: [{ start: '09:00', end: '14:00' }] },
+  saturday:  { enabled: false, ranges: [] },
 };
 
 function getSlotsForDay(dayOfWeek: number, wh: WorkingHoursMap | null): string[] {
   const schedule = wh || DEFAULT_WH;
   const key = DAY_KEYS[dayOfWeek];
   const day = schedule[key];
-  if (!day?.enabled) return [];
-  // Generate 30-min slots between start and end
-  const [sh, sm] = day.start.split(':').map(Number);
-  const [eh, em] = day.end.split(':').map(Number);
-  const startMin = sh * 60 + (sm || 0);
-  const endMin = eh * 60 + (em || 0);
+  if (!day?.enabled || !day.ranges?.length) return [];
   const slots: string[] = [];
-  for (let m = startMin; m < endMin; m += 30) {
-    const h = Math.floor(m / 60);
-    const min = m % 60;
-    slots.push(`${String(h).padStart(2,'0')}:${String(min).padStart(2,'0')}`);
+  for (const r of day.ranges) {
+    const [sh, sm] = r.start.split(':').map(Number);
+    const [eh, em] = r.end.split(':').map(Number);
+    const startMin = sh * 60 + (sm || 0);
+    const endMin = eh * 60 + (em || 0);
+    for (let m = startMin; m < endMin; m += 30) {
+      const h = Math.floor(m / 60);
+      const min = m % 60;
+      slots.push(`${String(h).padStart(2,'0')}:${String(min).padStart(2,'0')}`);
+    }
   }
   return slots;
 }
@@ -58,6 +62,69 @@ const US_STATES = ['Alabama','Alaska','Arizona','Arkansas','California','Colorad
 
 type PaymentMethodInfo = { nombre: string; recargoPct: number };
 type BookedSlot = { date: string; time: string; duration: number };
+type ActiveException = {
+  type: 'dates' | 'range' | 'recurring';
+  the_date: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  start_time: string | null;
+  end_time: string | null;
+  all_day: boolean;
+  days_of_week: number[] | null;
+};
+
+/** Check if an exception row applies to a given ISO date */
+function excAppliesTo(exc: ActiveException, iso: string, dow: number): boolean {
+  if (exc.type === 'dates') return (exc.the_date || '').slice(0, 10) === iso;
+  if (exc.type === 'range') {
+    const s = (exc.start_date || '').slice(0, 10);
+    const e = (exc.end_date || '').slice(0, 10);
+    return (!s || iso >= s) && (!e || iso <= e);
+  }
+  if (exc.type === 'recurring') {
+    const s = (exc.start_date || '').slice(0, 10);
+    const e = (exc.end_date || '').slice(0, 10);
+    if (s && iso < s) return false;
+    if (e && iso > e) return false;
+    return Array.isArray(exc.days_of_week) && exc.days_of_week.includes(dow);
+  }
+  return false;
+}
+
+/** True if any exception blocks the entire day */
+function isDayFullyBlocked(iso: string, dow: number, exceptions: ActiveException[]): boolean {
+  for (const exc of exceptions) {
+    if (!excAppliesTo(exc, iso, dow)) continue;
+    if (exc.all_day || (!exc.start_time && !exc.end_time)) return true;
+  }
+  return false;
+}
+
+/** Returns time windows [start,end] blocked by exceptions for the given date */
+function getExceptionWindows(iso: string, dow: number, exceptions: ActiveException[]): Array<{ start: string; end: string }> {
+  const out: Array<{ start: string; end: string }> = [];
+  for (const exc of exceptions) {
+    if (!excAppliesTo(exc, iso, dow)) continue;
+    if (exc.all_day || (!exc.start_time && !exc.end_time)) continue; // handled as full-day
+    out.push({ start: (exc.start_time || '00:00').slice(0, 5), end: (exc.end_time || '23:59').slice(0, 5) });
+  }
+  return out;
+}
+
+/** Check if candidate slot overlaps with exception time windows on that date */
+function isSlotFreeFromExceptions(time: string, duration: number, windows: Array<{ start: string; end: string }>): boolean {
+  const [ch, cm] = time.split(':').map(Number);
+  const candStart = ch * 60 + cm;
+  const candEnd = candStart + duration;
+  for (const w of windows) {
+    const [sh, sm] = w.start.split(':').map(Number);
+    const [eh, em] = w.end.split(':').map(Number);
+    const ws = sh * 60 + sm;
+    const we = eh * 60 + em;
+    if (candStart < we && candEnd > ws) return false;
+  }
+  return true;
+}
 
 /** Check if a candidate slot overlaps with any booked slot on the same date */
 function isSlotAvailable(date: string, time: string, serviceDuration: number, booked: BookedSlot[]): boolean {
@@ -84,10 +151,11 @@ interface Props {
   isFree?: boolean;
   activePaymentMethods?: PaymentMethodInfo[];
   bookedSlots?: BookedSlot[];
+  activeExceptions?: ActiveException[];
 }
 
 /* ─── Component ─── */
-export default function BookingFormClient({ serviceId: propServiceId, serviceName: propServiceName, serviceDuration: propServiceDuration, workingHours = null, isFree = true, activePaymentMethods = [], bookedSlots = [] }: Props) {
+export default function BookingFormClient({ serviceId: propServiceId, serviceName: propServiceName, serviceDuration: propServiceDuration, workingHours = null, isFree = true, activePaymentMethods = [], bookedSlots = [], activeExceptions = [] }: Props) {
   const router = useRouter();
   const [step, setStep] = useState(1);
 
@@ -192,7 +260,7 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
   }
 
   /* ─── Validation ─── */
-  const formValid = nombre.trim() && apellido.trim() && /\S+@\S+\.\S+/.test(email) && tel.trim();
+  const formValid = isValidName(nombre) && isValidName(apellido) && isValidEmail(email) && !!normalizePhone(tel);
 
   /* ─── Format helpers ─── */
   function formatDate(iso: string) {
@@ -392,7 +460,8 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
                 const dow = d.getDay();
                 const isPast = iso < todayStr || (iso === todayStr);
                 const isDayClosed = !isDayEnabled(dow, workingHours);
-                const isOff = isPast || isDayClosed;
+                const isExcBlocked = isDayFullyBlocked(iso, dow, activeExceptions);
+                const isOff = isPast || isDayClosed || isExcBlocked;
                 const isSel = iso === selDate;
                 const isToday = iso === todayStr;
 
@@ -433,8 +502,13 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
               </p>
             )}
             {selDate && (() => {
-              const allSlots = getSlotsForDay(new Date(selDate + 'T12:00:00').getDay(), workingHours);
-              const availableSlots = allSlots.filter(t => isSlotAvailable(selDate, t, svcDuration, bookedSlots));
+              const selDow = new Date(selDate + 'T12:00:00').getDay();
+              const allSlots = getSlotsForDay(selDow, workingHours);
+              const excWindows = getExceptionWindows(selDate, selDow, activeExceptions);
+              const availableSlots = allSlots.filter(t =>
+                isSlotAvailable(selDate, t, svcDuration, bookedSlots) &&
+                isSlotFreeFromExceptions(t, svcDuration, excWindows)
+              );
               return (
                 <div className="grid grid-cols-4 max-md:grid-cols-3 max-sm:grid-cols-2 gap-2 mb-6">
                   {allSlots.map(t => {
@@ -492,8 +566,9 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
                 <input
                   type="text"
                   value={nombre}
-                  onChange={e => { const v = e.target.value.replace(/[0-9]/g, ''); setNombre(v); }}
+                  onChange={e => setNombre(sanitizeName(e.target.value))}
                   placeholder="Tu nombre"
+                  maxLength={80}
                   className="text-[0.88rem] py-3 px-4 border border-green-pale rounded-xl bg-[#fff] text-text-dark outline-none transition-all focus:border-green-deep focus:shadow-[0_0_0_3px_rgba(74,122,74,0.1)]"
                 />
               </div>
@@ -504,8 +579,9 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
                 <input
                   type="text"
                   value={apellido}
-                  onChange={e => { const v = e.target.value.replace(/[0-9]/g, ''); setApellido(v); }}
+                  onChange={e => setApellido(sanitizeName(e.target.value))}
                   placeholder="Tu apellido"
+                  maxLength={80}
                   className="text-[0.88rem] py-3 px-4 border border-green-pale rounded-xl bg-[#fff] text-text-dark outline-none transition-all focus:border-green-deep focus:shadow-[0_0_0_3px_rgba(74,122,74,0.1)]"
                 />
               </div>
@@ -534,10 +610,14 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
                 <input
                   type="tel"
                   value={tel}
-                  onChange={e => { const v = e.target.value.replace(/[a-zA-Z]/g, ''); setTel(v); }}
+                  onChange={e => setTel(sanitizePhoneInput(e.target.value))}
                   placeholder="+1 000 000 0000"
+                  maxLength={22}
                   className="text-[0.88rem] py-3 px-4 border border-green-pale rounded-xl bg-[#fff] text-text-dark outline-none transition-all focus:border-green-deep focus:shadow-[0_0_0_3px_rgba(74,122,74,0.1)]"
                 />
+                {tel.length > 0 && !normalizePhone(tel) && (
+                  <span className="text-[0.68rem] text-red-600">Formato inválido — incluye el código de país (ej. +1, +54).</span>
+                )}
               </div>
             </div>
 

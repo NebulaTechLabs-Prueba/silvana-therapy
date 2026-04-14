@@ -1,41 +1,50 @@
-# Silvana López — Terapia Online
+# Silvana Therapy
 
-Landing page y sistema de gestión de citas para la Lda. Silvana López, psicóloga online.
+Sistema de gestión de citas y landing page para **Lda. Silvana López**, psicóloga online (terapia individual, de pareja y consulta gratuita).
 
 ## Stack
 
-- **Frontend**: Next.js 14 (App Router) + Tailwind CSS
-- **Backend**: Next.js Route Handlers (monolito modular)
-- **Database**: Supabase (PostgreSQL + Auth + RLS)
-- **Pagos**: Stripe + PayPal
-- **Calendario**: Google Calendar API
-- **Email**: Resend
-- **Hosting**: DigitalOcean App Platform
+| Capa | Tecnología |
+|---|---|
+| Frontend | Next.js 14 (App Router) + Tailwind CSS |
+| Backend | Route Handlers + Server Actions (monolito modular) |
+| Base de datos | Supabase (PostgreSQL + Auth + RLS) |
+| Pagos | Stripe + PayPal (recargo 10% en PayPal) |
+| Calendario | Google Calendar API + Meet (OAuth de usuario) |
+| Email | SMTP genérico vía nodemailer (Brevo en prod) |
+| Hosting | DigitalOcean Droplet 1 GB (Ubuntu) |
+| Dominio | `silvanalopez.com` (registrador Wix) |
 
 ## Dominios
 
-| Dominio | Propósito |
-|---------|-----------|
-| `terapiasilvanalopez.com` | Landing page + formulario de reserva (público) |
-| `admin.terapiasilvanalopez.com` | Panel de administración (autenticado) |
+| URL | Propósito |
+|---|---|
+| `silvanalopez.com` | Landing pública + flujo de reserva |
+| `admin.silvanalopez.com` | Panel de administración (autenticado) |
 
-## Setup
+## Ramas — gitflow
 
-Ver `SETUP_GUIDE.md` para instrucciones completas.
+Este proyecto usa gitflow estricto, solo 4 prefijos de rama aceptados:
+
+- **`main`** — producción (coincide con lo desplegado en el Droplet)
+- **`dev`** — rama de integración; todos los PRs van a esta rama
+- **`feat/<nombre>`** — features nuevas, ramifica de `dev` y mergea de vuelta a `dev`
+- **`fix/<nombre>`** — bugfixes, mismo flujo que `feat/*`
+
+Cualquier otro prefijo (`docs/`, `chore/`, `refactor/`) no está permitido — usar `feat/docs-*` o englobar dentro de una `feat/*` mayor.
+
+## Inicio rápido
 
 ```bash
-# Instalar dependencias
 npm install
-
-# Copiar variables de entorno
-cp .env.local.example .env.local
-
-# Desarrollo local
-npm run dev
+cp .env.local.example .env.local   # rellenar valores
+npm run dev                         # http://localhost:3000
 ```
 
-## Ramas
+Ver [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) para la guía completa de desarrollo local.
 
-- `main` — Producción (auto-deploy a DigitalOcean)
-- `dev` — Desarrollo activo
-- `fix` — Hotfixes (se mergea a dev)
+## Documentación
+
+- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — instalar deps, variables de entorno, correr en local, acceder al admin, flujo de ramas
+- [docs/DEPLOY.md](docs/DEPLOY.md) — deploy al Droplet (Ubuntu, 1 GB RAM)
+- [docs/HANDOVER.md](docs/HANDOVER.md) — guía de entrega al cliente: swap de credenciales dev→Silvana (Brevo, Google Cloud, DNS)

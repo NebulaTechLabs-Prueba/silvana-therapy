@@ -65,9 +65,10 @@ export interface Booking {
   preferred_date: string | null;
   confirmed_date: string | null;
   original_date: string | null;
-  agreed_price: number | null;
-  payment_provider: PaymentProvider | null;
   google_event_id: string | null;
+  meet_link: string | null;
+  reminder_channels: string[];
+  reminder_sent_at: string | null;
   is_first_session: boolean;
   admin_notes: string | null;
   rejection_reason: string | null;
@@ -120,11 +121,35 @@ export interface AdminSettings {
   cedula: string | null;
   telefono: string | null;
   direccion: string | null;
-  horario: string | null;
   bio: string | null;
   notepad: string | null;
+  smtp_host: string | null;
+  smtp_port: number | null;
+  smtp_user: string | null;
+  smtp_password: string | null;
+  smtp_from_email: string | null;
+  smtp_from_name: string | null;
+  smtp_secure: boolean | null;
+  wa_templates: Record<string, string> | null;
+  email_notifications: EmailNotificationPrefs | null;
   updated_at: string;
 }
+
+export type EmailEventKey =
+  | 'booking_received'
+  | 'booking_confirmed'
+  | 'booking_rejected'
+  | 'booking_cancelled'
+  | 'booking_rescheduled'
+  | 'payment_link'
+  | 'reminder_24h'
+  | 'invoice';
+
+export type EmailRecipient = 'client' | 'admin';
+
+export type EmailNotificationPrefs = Partial<
+  Record<EmailEventKey, Partial<Record<EmailRecipient, boolean>>>
+>;
 
 export interface WorkingHours {
   monday: DaySchedule;
@@ -136,10 +161,14 @@ export interface WorkingHours {
   sunday: DaySchedule;
 }
 
-export interface DaySchedule {
+export interface TimeRange {
   start: string; // "09:00"
   end: string;   // "18:00"
+}
+
+export interface DaySchedule {
   enabled: boolean;
+  ranges: TimeRange[]; // máx 3
 }
 
 // ─── Invoices ────────────────────────────────────────────

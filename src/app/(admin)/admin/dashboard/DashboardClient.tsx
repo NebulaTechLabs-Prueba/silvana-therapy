@@ -4,9 +4,12 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { logoutAction } from "@/lib/actions/auth";
-import { updateProfile, updateAuthEmail, updateAuthPassword, updateNotepad, updateNickname, updateContactInfo, upsertService, deleteService, toggleServiceActive, upsertInvoice, deleteInvoice, sendInvoiceNotification, upsertBooking, deleteBooking, updateBookingStatus, upsertPaymentMethod, deletePaymentMethod, togglePaymentMethodActive, upsertAdminLink, deleteAdminLink, updateSecurityQuestion, linkPaymentLinkToBooking, unlinkPaymentLinkFromBooking } from '@/lib/actions/dashboard';
+import { updateProfile, updateAuthEmail, updateAuthPassword, updateNotepad, updateNickname, updateContactInfo, upsertService, deleteService, toggleServiceActive, upsertInvoice, deleteInvoice, sendInvoiceNotification, upsertBooking, deleteBooking, updateBookingStatus, upsertPaymentMethod, deletePaymentMethod, togglePaymentMethodActive, upsertAdminLink, deleteAdminLink, updateSecurityQuestion, linkPaymentLinkToBooking, unlinkPaymentLinkFromBooking, upsertAvailabilityException, deleteAvailabilityException, updateIntegrations, updateWaTemplates, updateEmailNotifications } from '@/lib/actions/dashboard';
 import { getClientTime } from '@/lib/utils/timezone';
 import { escapeHtml } from '@/lib/utils/escapeHtml';
+import { normalizePhone, buildWaLink } from '@/lib/utils/phone';
+import { renderTemplate, WA_TEMPLATE_EVENTS, WA_TEMPLATE_LABELS, WA_TEMPLATE_VARS } from '@/lib/utils/templates';
+import { sanitizeName, sanitizePhoneInput, isValidName, isValidEmail } from '@/lib/utils/sanitize';
 
 interface DashboardClientProps {
   userEmail: string;
@@ -18,6 +21,8 @@ interface DashboardClientProps {
   initialPaymentMethods?: any[];
   initialLinks?: any[];
   availablePaymentLinks?: any[];
+  initialExceptions?: any[];
+  googleStatus?: { connected: boolean; email?: string };
 }
 
 /* ═══ LOGO SVG (from Silvana's website) ═══ */
@@ -200,12 +205,25 @@ function makeInvHTML(inv, acc, payMethods = []) {
 /* ═══════════════════════════════════════════
    MAIN COMPONENT
    ═══════════════════════════════════════════ */
-export default function SilvanaDashboard({ userEmail, userName, initialSettings, initialServices, initialInvoices, initialBookings, initialPaymentMethods, initialLinks, availablePaymentLinks = [] }: DashboardClientProps) {
+export default function SilvanaDashboard({ userEmail, userName, initialSettings, initialServices, initialInvoices, initialBookings, initialPaymentMethods, initialLinks, availablePaymentLinks = [], initialExceptions = [], googleStatus = { connected: false } }: DashboardClientProps) {
   const [section, setSection] = useState('inicio');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [toast, setToast] = useState(null);
   const show = msg => { setToast(msg); setTimeout(() => setToast(null), 2800); };
   const router = useRouter();
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const p = new URLSearchParams(window.location.search);
+    const g = p.get('google');
+    if (!g) return;
+    if (g === 'connected') show('Google conectado');
+    else if (g === 'error') show('Error de Google: ' + (p.get('reason') || 'desconocido'));
+    const url = new URL(window.location.href);
+    url.searchParams.delete('google');
+    url.searchParams.delete('reason');
+    window.history.replaceState({}, '', url.toString());
+  }, []);
 
   const [account, setAccount] = useState({
     nombre: initialSettings?.nombre || userName || 'Lda. Silvana López',
@@ -213,15 +231,113 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
     cedula: initialSettings?.cedula || 'PSI-2024-1876',
     email: initialSettings?.email || userEmail,
     telefono: initialSettings?.telefono || '+54 9 11 5678-1234',
-    direccion: initialSettings?.direccion || 'Consulta Online — Argentina',
-    horario: initialSettings?.horario || 'Lun-Vie 9:00-18:00',
+    direccion: initialSettings?.direccion || 'Consulta Online',
     bio: initialSettings?.bio || 'Licenciada en Psicología, especialista en psicoterapia online. Acompaño procesos de bienestar emocional desde un enfoque cálido y personalizado.'
   });
-  const defaultWH = {monday:{start:'09:00',end:'18:00',enabled:true},tuesday:{start:'09:00',end:'18:00',enabled:true},wednesday:{start:'09:00',end:'18:00',enabled:true},thursday:{start:'09:00',end:'18:00',enabled:true},friday:{start:'09:00',end:'14:00',enabled:true},saturday:{start:'00:00',end:'00:00',enabled:false},sunday:{start:'00:00',end:'00:00',enabled:false}};
-  const [workingHours, setWorkingHours] = useState(initialSettings?.working_hours || defaultWH);
+  // Multi-range working_hours: { day: {enabled, ranges: [{start,end}]} } máx 3 por día
+  const DAY_KEYS = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'];
+  const DAY_LABELS_ES = {monday:'Lunes',tuesday:'Martes',wednesday:'Miércoles',thursday:'Jueves',friday:'Viernes',saturday:'Sábado',sunday:'Domingo'};
+  const DAY_LABELS_SHORT = {monday:'Lun',tuesday:'Mar',wednesday:'Mié',thursday:'Jue',friday:'Vie',saturday:'Sáb',sunday:'Dom'};
+  const normalizeWH = (wh) => {
+    const out = {};
+    DAY_KEYS.forEach(d => {
+      const v = wh?.[d] || {};
+      if (v.ranges) {
+        out[d] = { enabled: !!v.enabled, ranges: v.ranges.map(r => ({start:r.start, end:r.end})) };
+      } else if (v.start && v.end) {
+        out[d] = { enabled: !!v.enabled, ranges: v.enabled ? [{start:v.start, end:v.end}] : [] };
+      } else {
+        out[d] = { enabled: false, ranges: [] };
+      }
+    });
+    return out;
+  };
+  const defaultWH = {
+    monday:    {enabled:true,  ranges:[{start:'09:00',end:'18:00'}]},
+    tuesday:   {enabled:true,  ranges:[{start:'09:00',end:'18:00'}]},
+    wednesday: {enabled:true,  ranges:[{start:'09:00',end:'18:00'}]},
+    thursday:  {enabled:true,  ranges:[{start:'09:00',end:'18:00'}]},
+    friday:    {enabled:true,  ranges:[{start:'09:00',end:'14:00'}]},
+    saturday:  {enabled:false, ranges:[]},
+    sunday:    {enabled:false, ranges:[]},
+  };
+  const [workingHours, setWorkingHours] = useState(normalizeWH(initialSettings?.working_hours) || defaultWH);
   const [editAcc, setEditAcc] = useState(false);
   const [accF, setAccF] = useState({...account});
-  const [accWH, setAccWH] = useState({...workingHours});
+
+  // Disponibilidad section state
+  const [whDraft, setWhDraft] = useState(JSON.parse(JSON.stringify(workingHours)));
+  const [exceptions, setExceptions] = useState(initialExceptions || []);
+  const [excModal, setExcModal] = useState(false);
+  const [excEditId, setExcEditId] = useState(null);
+  const emptyExcForm = {title:'',type:'dates',dates:[],newDateInput:'',start_date:'',end_date:'',start_time:'09:00',end_time:'13:00',all_day:true,days_of_week:[],notes:''};
+  const [excF, setExcF] = useState(emptyExcForm);
+
+  const formatWorkingHours = (wh) => {
+    return DAY_KEYS.filter(k => wh[k]?.enabled && wh[k]?.ranges?.length)
+      .map(k => DAY_LABELS_SHORT[k] + ' ' + wh[k].ranges.map(r => r.start+'-'+r.end).join(', '))
+      .join(' · ');
+  };
+
+  const saveWorkingHours = async () => {
+    setWorkingHours(JSON.parse(JSON.stringify(whDraft)));
+    try {
+      await updateProfile({...account, working_hours: whDraft});
+      show('Horario laboral guardado');
+    } catch(e) { show('Error al guardar horario'); }
+  };
+
+  const openExcModal = (exc) => {
+    if (exc) {
+      setExcEditId(exc.id);
+      setExcF({
+        title: exc.title || '',
+        type: exc.type || 'dates',
+        dates: exc.dates || [],
+        newDateInput: '',
+        start_date: exc.start_date || '',
+        end_date: exc.end_date || '',
+        start_time: exc.start_time || '09:00',
+        end_time: exc.end_time || '13:00',
+        all_day: !!exc.all_day,
+        days_of_week: exc.days_of_week || [],
+        notes: exc.notes || '',
+      });
+    } else {
+      setExcEditId(null);
+      setExcF({...emptyExcForm});
+    }
+    setExcModal(true);
+  };
+
+  const saveException = async () => {
+    if (!excF.title.trim()) { show('Falta el título'); return; }
+    const payload: any = {
+      id: excEditId || undefined,
+      title: excF.title.trim(),
+      type: excF.type,
+      start_date: excF.start_date || null,
+      end_date: excF.end_date || null,
+      start_time: excF.all_day ? null : excF.start_time,
+      end_time: excF.all_day ? null : excF.end_time,
+      all_day: !!excF.all_day,
+      days_of_week: excF.type === 'recurring' ? excF.days_of_week : null,
+      notes: excF.notes || null,
+      dates: excF.type === 'dates' ? excF.dates : undefined,
+    };
+    const res = await upsertAvailabilityException(payload);
+    if (!res.success) { show(res.error || 'Error al guardar excepción'); return; }
+    // Optimistic refresh: refetch via router
+    setExcModal(false);
+    show(excEditId ? 'Excepción actualizada' : 'Excepción creada');
+    router.refresh();
+  };
+
+  const removeException = async (id) => {
+    setExceptions(p => p.filter(e => e.id !== id));
+    try { await deleteAvailabilityException(id); show('Excepción eliminada'); }
+    catch(e) { show('Error al eliminar'); }
+  };
 
   /* Services */
   const [services, setServices] = useState(() => {
@@ -265,6 +381,152 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
   const bgSub = dm ? '#1a1a1a' : '#f0f5f0';
   const borderC = dm ? '#2a2a2a' : '#e2ede2';
   const [notepad, setNotepad] = useState(initialSettings?.notepad || '');
+
+  // ─── Payment status badges ───────────────────────────────
+  // Unified visual language for payment_link.status across the UI.
+  const PAY_BADGE: Record<string, { label: string; bg: string; fg: string; dot: string }> = {
+    paid:      { label: 'Pagado',     bg: '#e8f5e9', fg: '#2e7d32', dot: '#2e7d32' },
+    active:    { label: 'Activo',     bg: '#e3f2fd', fg: '#1565c0', dot: '#1565c0' },
+    pending:   { label: 'Pendiente',  bg: '#fff8e1', fg: '#b08050', dot: '#b08050' },
+    expired:   { label: 'Expirado',   bg: '#fafafa', fg: '#757575', dot: '#9e9e9e' },
+    failed:    { label: 'Fallido',    bg: '#ffebee', fg: '#c62828', dot: '#c62828' },
+    cancelled: { label: 'Cancelado',  bg: '#f5f5f5', fg: '#616161', dot: '#9e9e9e' },
+  };
+  const PayBadge = ({ status, size = 'sm' }: { status: string; size?: 'sm'|'md' }) => {
+    const cfg = PAY_BADGE[status] || PAY_BADGE.pending;
+    const pad = size === 'md' ? '4px 11px' : '2px 8px';
+    const fs  = size === 'md' ? 11 : 10;
+    return (
+      <span style={{display:'inline-flex',alignItems:'center',gap:5,padding:pad,borderRadius:10,background:cfg.bg,color:cfg.fg,fontSize:fs,fontWeight:600,letterSpacing:'.3px',textTransform:'uppercase'}}>
+        <span style={{width:6,height:6,borderRadius:'50%',background:cfg.dot}}/>
+        {cfg.label}
+      </span>
+    );
+  };
+  // Derive a booking-level payment summary from its payment_links
+  const bookingPayState = (booking: any): string | null => {
+    const links = booking?.paymentLinks || [];
+    if (!links.length) return null;
+    if (links.some((l: any) => l.status === 'paid'))    return 'paid';
+    if (links.some((l: any) => l.status === 'failed'))  return 'failed';
+    if (links.some((l: any) => l.status === 'active'))  return 'active';
+    if (links.some((l: any) => l.status === 'pending')) return 'pending';
+    if (links.some((l: any) => l.status === 'expired')) return 'expired';
+    return links[0].status;
+  };
+
+  // ─── Integraciones ────────────────────────────────────────
+  const [smtpCfg, setSmtpCfg] = useState({
+    host:       initialSettings?.smtp_host       || '',
+    port:       initialSettings?.smtp_port       || 587,
+    user:       initialSettings?.smtp_user       || '',
+    password:   initialSettings?.smtp_password   || '',
+    from_email: initialSettings?.smtp_from_email || '',
+    from_name:  initialSettings?.smtp_from_name  || '',
+    secure:     initialSettings?.smtp_secure     || false,
+  });
+  const defaultWaTpls: Record<string,string> = {
+    booking_received:  'Hola {cliente} 👋 Recibí tu solicitud de *{servicio}* para el {fecha} a las {hora}. Te confirmo en breve.',
+    booking_confirmed: 'Hola {cliente} ✅ Tu cita de *{servicio}* queda confirmada para el {fecha} a las {hora} (hora Miami). ¡Nos vemos!',
+    payment_link:      'Hola {cliente} 💳 Aquí está tu enlace de pago para *{servicio}*: {link}. Monto: {precio} USD.',
+    reschedule:        'Hola {cliente} 🔁 Tu cita de *{servicio}* fue reprogramada para el {fecha} a las {hora}. Cualquier duda, avísame.',
+    reminder_24h:      'Hola {cliente} ⏰ Te recuerdo tu cita de *{servicio}* mañana {fecha} a las {hora} (hora Miami).',
+    custom:            'Hola {cliente}, ',
+  };
+  const [waTpls, setWaTpls] = useState<Record<string,string>>(() => {
+    const fromDb = initialSettings?.wa_templates || {};
+    return { ...defaultWaTpls, ...fromDb };
+  });
+  const [waPicker, setWaPicker] = useState<{open: boolean; booking: any; event: string}>({open: false, booking: null, event: 'custom'});
+
+  const saveSmtpCfg = async () => {
+    const res = await updateIntegrations({
+      smtp_host:       smtpCfg.host       || null,
+      smtp_port:       Number(smtpCfg.port) || null,
+      smtp_user:       smtpCfg.user       || null,
+      smtp_password:   smtpCfg.password   || null,
+      smtp_from_email: smtpCfg.from_email || null,
+      smtp_from_name:  smtpCfg.from_name  || null,
+      smtp_secure:     !!smtpCfg.secure,
+    });
+    if (res.success) show('Configuración de correo guardada'); else show(res.error || 'Error al guardar');
+  };
+  const saveWaTpls = async () => {
+    const res = await updateWaTemplates(waTpls);
+    if (res.success) show('Plantillas guardadas'); else show(res.error || 'Error al guardar');
+  };
+
+  // Email notification preferences (per event / per recipient)
+  const emailEventLabels: Record<string, string> = {
+    booking_received:    'Reserva recibida',
+    booking_confirmed:   'Reserva confirmada',
+    booking_rejected:    'Reserva rechazada',
+    booking_cancelled:   'Reserva cancelada',
+    booking_rescheduled: 'Reserva reprogramada',
+    payment_link:        'Enlace de pago enviado',
+    reminder_24h:        'Recordatorio 24h antes',
+    invoice:             'Factura enviada',
+  };
+  const emailEventShape: Record<string, ('client'|'admin')[]> = {
+    booking_received:    ['client','admin'],
+    booking_confirmed:   ['client'],
+    booking_rejected:    ['client'],
+    booking_cancelled:   ['client','admin'],
+    booking_rescheduled: ['client'],
+    payment_link:        ['client'],
+    reminder_24h:        ['client'],
+    invoice:             ['client'],
+  };
+  const [emailNotifs, setEmailNotifs] = useState<Record<string,Record<string,boolean>>>(() => {
+    const fromDb = (initialSettings?.email_notifications || {}) as Record<string,Record<string,boolean>>;
+    const out: Record<string,Record<string,boolean>> = {};
+    for (const [ev, recips] of Object.entries(emailEventShape)) {
+      out[ev] = {};
+      for (const r of recips) {
+        out[ev][r] = fromDb[ev]?.[r] ?? true;
+      }
+    }
+    return out;
+  });
+  const toggleEmailNotif = (event: string, recipient: string) => {
+    setEmailNotifs(prev => ({
+      ...prev,
+      [event]: { ...prev[event], [recipient]: !prev[event]?.[recipient] },
+    }));
+  };
+  const saveEmailNotifs = async () => {
+    const res = await updateEmailNotifications(emailNotifs);
+    if (res.success) show('Preferencias de correo guardadas'); else show(res.error || 'Error al guardar');
+  };
+
+  // Render a WA template with a booking's data
+  const buildWaMessageFor = (booking: any, event: string): string => {
+    const tpl = waTpls[event] || waTpls.custom || '';
+    const svcName = booking?.tipo || '';
+    const svc = services.find((s:any)=>s.nombre===svcName);
+    const precio = svc && !svc.is_free ? svc.precio : '';
+    return renderTemplate(tpl, {
+      cliente:  booking?.paciente || '',
+      servicio: svcName,
+      fecha:    booking?.fecha || '',
+      hora:     booking?.hora || '',
+      precio,
+      link:     '',
+      motivo:   booking?.motivo || '',
+    });
+  };
+
+  const openWaFor = (booking: any, event: string) => {
+    const msg = buildWaMessageFor(booking, event);
+    const url = buildWaLink(booking?.telefono, msg);
+    if (!url) {
+      // Fallback: open picker with copy-paste area
+      setWaPicker({open: true, booking, event});
+      show('Teléfono inválido — copia y pega el mensaje');
+      return;
+    }
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
   const [tutorialLinks, setTutorialLinks] = useState(() => {
     if (initialLinks && initialLinks.length > 0) return initialLinks.map(l => ({id:l.id,title:l.title,url:l.url}));
     return [];
@@ -365,6 +627,9 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
   const emptyInvF = {paciente:'',email:'',telefono:'',cedula:'',pais:'',direccion:'',concepto:'',monto:'',estado:'pendiente',metodoPago:'',link:'',bookingId:''};
   const saveInv = async () => {
     if (!invF.paciente || !invF.monto) { show('Paciente y monto son requeridos'); return; }
+    if (!isValidName(invF.paciente)) { show('Nombre del paciente inválido'); return; }
+    if (invF.email && !isValidEmail(invF.email)) { show('Email inválido'); return; }
+    if (invF.telefono && !normalizePhone(invF.telefono)) { show('Teléfono inválido — incluye código de país (+1, +54)'); return; }
     if (!invF.concepto) { show('Selecciona un servicio o concepto'); return; }
     const _selSvc = services.find(s=>s.nombre===invF.concepto);
     if (_selSvc?.is_free) { show('No se puede crear comprobante para un servicio gratuito'); return; }
@@ -449,6 +714,9 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
   /* Reserva ops */
   const saveRes = async () => {
     if (!resF.paciente || !resF.fecha || !resF.hora) return;
+    if (!isValidName(resF.paciente)) { show('Nombre del paciente inválido'); return; }
+    if (resF.email && !isValidEmail(resF.email)) { show('Email inválido'); return; }
+    if (resF.telefono && !normalizePhone(resF.telefono)) { show('Teléfono inválido — incluye código de país (+1, +54)'); return; }
     if (!resF.serviceId) { show('Selecciona un servicio'); return; }
     if (eResId) {
       setReservas(p => p.map(r => r.id === eResId ? {...r,...resF,duracion:Number(resF.duracion)} : r));
@@ -585,7 +853,9 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
     {key:'cuenta',label:'Mi Cuenta',icon:I.user},
     {key:'facturas',label:'Comprobantes',icon:I.invoice},
     {key:'reservas',label:'Calendario',icon:I.calendar},
+    {key:'disponibilidad',label:'Disponibilidad',icon:I.calendar},
     {key:'pagos',label:'Métodos de Pago',icon:I.credit},
+    {key:'integraciones',label:'Integraciones',icon:I.gear},
     {key:'config',label:'Configuración',icon:I.gear},
   ];
 
@@ -668,7 +938,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                     </div>
                     <div><h2 style={{margin:0,fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:20,fontWeight:400}}>{account.nombre}</h2><p style={{margin:0,color:'#849884',fontSize:13,fontWeight:300}}>{account.especialidad}</p></div>
                   </div>
-                  <button onClick={()=>{setEditAcc(true);setAccF({...account});setAccWH({...workingHours})}} style={btnP}>{I.edit} Editar</button>
+                  <button onClick={()=>{setEditAcc(true);setAccF({...account})}} style={btnP}>{I.edit} Editar</button>
                 </div>
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'14px 26px'}}>
                   {[['Email',account.email],['Teléfono',account.telefono],['Dirección',account.direccion],['Cédula',account.cedula]].map(([l,v],i) => (
@@ -676,10 +946,9 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                   ))}
                 </div>
                 <div style={{marginTop:16}}><div style={{fontSize:10,color:'#849884',fontWeight:500,textTransform:'uppercase',letterSpacing:'.5px',marginBottom:6}}>Horario de atención</div>
-                  <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
-                    {[['monday','Lun'],['tuesday','Mar'],['wednesday','Mié'],['thursday','Jue'],['friday','Vie'],['saturday','Sáb'],['sunday','Dom']].map(([k,l])=>(
-                      <span key={k} style={{padding:'4px 10px',borderRadius:16,fontSize:11,background:workingHours[k]?.enabled?'#f0f5f0':'#f8f8f6',color:workingHours[k]?.enabled?'#4a7a4a':'#c8ddc8',border:'1px solid '+(workingHours[k]?.enabled?'#c8ddc8':'#e8e8e8')}}>{l} {workingHours[k]?.enabled ? workingHours[k].start+'–'+workingHours[k].end : 'Cerrado'}</span>
-                    ))}
+                  <div style={{fontSize:13,color:'#4e6050',fontWeight:300}}>
+                    {formatWorkingHours(workingHours) || <span style={{fontStyle:'italic',color:'#849884'}}>Sin horario configurado</span>}
+                    <button onClick={()=>setSection('disponibilidad')} style={{marginLeft:10,border:'none',background:'transparent',color:'#4a7a4a',fontSize:11,cursor:'pointer',textDecoration:'underline'}}>Gestionar en Disponibilidad →</button>
                   </div>
                 </div>
                 <div style={{marginTop:16}}><div style={{fontSize:10,color:'#849884',fontWeight:500,textTransform:'uppercase',letterSpacing:'.5px',marginBottom:2}}>Biografía</div><div style={{fontSize:13,color:'#4e6050',lineHeight:1.6,fontWeight:300}}>{account.bio}</div></div>
@@ -724,37 +993,19 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                   <Field label="Nombre"><input style={inp} value={accF.nombre} onChange={e=>setAccF({...accF,nombre:e.target.value})}/></Field>
                   <Field label="Especialidad"><input style={inp} value={accF.especialidad} onChange={e=>setAccF({...accF,especialidad:e.target.value})}/></Field>
                   <Field label="Email"><input style={inp} value={accF.email} onChange={e=>setAccF({...accF,email:e.target.value})}/></Field>
-                  <Field label="Teléfono"><input style={inp} value={accF.telefono} onChange={e=>setAccF({...accF,telefono:e.target.value.replace(/[a-zA-Z]/g,'')})}/></Field>
+                  <Field label="Teléfono"><input style={inp} value={accF.telefono} onChange={e=>setAccF({...accF,telefono:sanitizePhoneInput(e.target.value)})} maxLength={22} placeholder="+1 000 000 0000"/></Field>
                   <Field label="Cédula"><input style={inp} value={accF.cedula} onChange={e=>setAccF({...accF,cedula:e.target.value})}/></Field>
                 </div>
                 <Field label="Dirección"><input style={inp} value={accF.direccion} onChange={e=>setAccF({...accF,direccion:e.target.value})}/></Field>
                 <Field label="Biografía"><textarea style={{...inp,minHeight:70,resize:'vertical'}} value={accF.bio} onChange={e=>setAccF({...accF,bio:e.target.value})}/></Field>
-                <Field label="Horario de atención">
-                  <div style={{border:'1px solid #c8ddc8',borderRadius:10,overflow:'hidden'}}>
-                    {[['monday','Lunes'],['tuesday','Martes'],['wednesday','Miércoles'],['thursday','Jueves'],['friday','Viernes'],['saturday','Sábado'],['sunday','Domingo']].map(([key,label])=>(
-                      <div key={key} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 12px',borderBottom:'1px solid #e2ede2',background:accWH[key]?.enabled?'transparent':'#f8f8f6'}}>
-                        <button onClick={()=>setAccWH(p=>({...p,[key]:{...p[key],enabled:!p[key]?.enabled}}))} style={{width:34,height:18,borderRadius:9,border:'none',background:accWH[key]?.enabled?'#4a7a4a':'#c8ddc8',cursor:'pointer',position:'relative',transition:'background .3s',flexShrink:0}}><div style={{width:12,height:12,borderRadius:'50%',background:'#fff',position:'absolute',top:3,left:accWH[key]?.enabled?19:3,transition:'left .3s',boxShadow:'0 1px 2px rgba(0,0,0,.15)'}}/></button>
-                        <span style={{width:80,fontSize:13,fontWeight:500,color:accWH[key]?.enabled?'#2a3528':'#849884'}}>{label}</span>
-                        {accWH[key]?.enabled ? (
-                          <div style={{display:'flex',alignItems:'center',gap:6,flex:1}}>
-                            <input type="time" style={{...inp,padding:'5px 8px',fontSize:12,width:100,marginBottom:0}} value={accWH[key]?.start||'09:00'} onChange={e=>setAccWH(p=>({...p,[key]:{...p[key],start:e.target.value}}))}/>
-                            <span style={{fontSize:11,color:'#849884'}}>a</span>
-                            <input type="time" style={{...inp,padding:'5px 8px',fontSize:12,width:100,marginBottom:0}} value={accWH[key]?.end||'18:00'} onChange={e=>setAccWH(p=>({...p,[key]:{...p[key],end:e.target.value}}))}/>
-                          </div>
-                        ) : (
-                          <span style={{fontSize:12,color:'#849884',fontStyle:'italic'}}>Cerrado</span>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </Field>
+                <div style={{background:'#f0f5f0',border:'1px solid #c8ddc8',borderRadius:10,padding:'10px 14px',fontSize:12,color:'#4a7a4a',marginBottom:8}}>
+                  El horario laboral y las excepciones se gestionan ahora en <strong>Disponibilidad</strong>.
+                </div>
                 <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:4}}>
                   <button onClick={()=>setEditAcc(false)} style={btnS}>Cancelar</button>
                   <button onClick={async ()=>{
-                    const horarioText = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'].filter(k=>accWH[k]?.enabled).map(k=>{const labels={monday:'Lun',tuesday:'Mar',wednesday:'Mié',thursday:'Jue',friday:'Vie',saturday:'Sáb',sunday:'Dom'};return labels[k]+' '+accWH[k].start+'-'+accWH[k].end}).join(', ');
-                    const updAcc = {...accF, horario: horarioText};
-                    setAccount(updAcc);setWorkingHours({...accWH});setEditAcc(false);show('Cuenta actualizada');
-                    try{await updateProfile({...updAcc, working_hours: accWH})}catch(e){show('Error al guardar cuenta')}
+                    setAccount({...accF});setEditAcc(false);show('Cuenta actualizada');
+                    try{await updateProfile({...accF, working_hours: workingHours})}catch(e){show('Error al guardar cuenta')}
                   }} style={btnP}>{I.check} Guardar</button>
                 </div>
               </Modal>
@@ -903,10 +1154,10 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                   </select>
                 </Field>
 
-                <Field label="Paciente"><input style={inp} value={invF.paciente} onChange={e=>setInvF({...invF,paciente:e.target.value.replace(/[0-9]/g,'')})} placeholder="Nombre del paciente"/></Field>
+                <Field label="Paciente"><input style={inp} value={invF.paciente} onChange={e=>setInvF({...invF,paciente:sanitizeName(e.target.value)})} maxLength={80} placeholder="Nombre del paciente"/></Field>
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                   <Field label="Email"><input style={inp} type="email" value={invF.email} onChange={e=>setInvF({...invF,email:e.target.value})} placeholder="correo@mail.com"/></Field>
-                  <Field label="WhatsApp / Teléfono"><input style={inp} value={invF.telefono} onChange={e=>setInvF({...invF,telefono:e.target.value.replace(/[a-zA-Z]/g,'')})} placeholder="+54 9 11 0000-0000"/></Field>
+                  <Field label="WhatsApp / Teléfono"><input style={inp} value={invF.telefono} onChange={e=>setInvF({...invF,telefono:sanitizePhoneInput(e.target.value)})} maxLength={22} placeholder="+1 000 000 0000"/></Field>
                 </div>
                 {!invF.bookingId && (
                   <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'0 14px'}}>
@@ -1098,7 +1349,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                     <div style={{...CARD,overflow:'hidden'}}>
                     <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
                       <thead><tr style={{borderBottom:'2px solid '+(dm?'#333':'#e2ede2')}}>
-                        {['Código','Fecha','Hora','Paciente','Tipo','Duración','Estado',''].map(h => (
+                        {['Código','Fecha','Hora','Paciente','Tipo','Duración','Estado','Pago',''].map(h => (
                           <th key={h} style={{padding:'11px 13px',textAlign:'left',fontSize:10,fontWeight:500,color:'#849884',textTransform:'uppercase',letterSpacing:'.5px',whiteSpace:'nowrap'}}>{h}</th>
                         ))}
                       </tr></thead>
@@ -1119,6 +1370,10 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                               <td style={{padding:'11px 13px'}}><span style={{background:tc.bg,color:tc.text,borderLeft:'2px solid '+tc.dot,padding:'2px 8px',borderRadius:4,fontSize:11}}>{ev.tipo}</span></td>
                               <td style={{padding:'11px 13px',color:'#849884'}}>{ev.duracion} min</td>
                               <td style={{padding:'11px 13px'}}><span style={bdg(ev.estado==='confirmada'||ev.estado==='completada'?'green':ev.estado==='cancelada'||ev.estado==='rechazada'?'red':'yellow')}>{ev.estado}</span></td>
+                              <td style={{padding:'11px 13px'}}>{(() => {
+                                const ps = bookingPayState(ev);
+                                return ps ? <PayBadge status={ps}/> : <span style={{fontSize:10,color:'#c8ddc8'}}>—</span>;
+                              })()}</td>
                               <td style={{padding:'11px 13px'}}>
                                 <div style={{display:'flex',gap:6}}>
                                   <button onClick={e=>{e.stopPropagation();setEResId(ev.id);setResF({...ev});setResModal(true)}} style={{border:'none',background:'#f0f5f0',borderRadius:7,width:28,height:28,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#4a7a4a'}}>{I.edit}</button>
@@ -1142,7 +1397,10 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                     <div style={{padding:'16px 16px 10px',borderBottom:'1px solid #e2ede2',display:'flex',justifyContent:'space-between',alignItems:'start'}}>
                       <div>
                         <h3 style={{margin:0,fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:16,fontWeight:400}}>{selRes.paciente}</h3>
-                        <span style={{...bdg(selRes.estado==='confirmada'||selRes.estado==='completada'?'green':selRes.estado==='cancelada'||selRes.estado==='rechazada'?'red':'yellow'),marginTop:5,display:'inline-block'}}>{selRes.estado}</span>
+                        <div style={{marginTop:5,display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
+                          <span style={{...bdg(selRes.estado==='confirmada'||selRes.estado==='completada'?'green':selRes.estado==='cancelada'||selRes.estado==='rechazada'?'red':'yellow'),display:'inline-block'}}>{selRes.estado}</span>
+                          {(() => { const ps = bookingPayState(selRes); return ps ? <PayBadge status={ps}/> : null; })()}
+                        </div>
                       </div>
                       <button onClick={()=>setSelRes(null)} style={{border:'none',background:'#f0f5f0',borderRadius:7,width:28,height:28,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#849884'}}>{I.close}</button>
                     </div>
@@ -1176,6 +1434,29 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                         <button onClick={()=>{setEResId(selRes.id);setResF({...selRes});setResModal(true)}} style={{...btnP,flex:1,justifyContent:'center',fontSize:12,padding:'8px 0'}}>{I.edit} Editar</button>
                         <button onClick={()=>delRes(selRes.id)} style={{border:'none',background:'#FFEBEE',borderRadius:10,width:36,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#C62828'}}>{I.trash}</button>
                       </div>
+                      {/* WhatsApp quick-send */}
+                      <div style={{marginTop:10}}>
+                        <div style={{fontSize:10,color:'#849884',fontWeight:500,textTransform:'uppercase',letterSpacing:'.4px',marginBottom:6,textAlign:'center'}}>Enviar WhatsApp</div>
+                        {(() => {
+                          const phoneOk = !!normalizePhone(selRes.telefono);
+                          return (
+                            <>
+                              {!phoneOk && (
+                                <div style={{fontSize:10,color:'#b08050',background:'#fff8e1',padding:'6px 9px',borderRadius:7,marginBottom:6,border:'1px solid #ffe0b2'}}>
+                                  Formato de teléfono inválido — se abrirá el mensaje para copiar.
+                                </div>
+                              )}
+                              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:5}}>
+                                {WA_TEMPLATE_EVENTS.filter(e=>e!=='custom').map(evt=>(
+                                  <button key={evt} onClick={()=>openWaFor(selRes, evt)} style={{padding:'6px 8px',border:'1.5px solid #c8e6c9',borderRadius:8,background:'#f1f8f1',color:'#2e7d32',fontSize:10,cursor:'pointer',fontFamily:"'DM Sans',sans-serif",fontWeight:500}}>
+                                    {WA_TEMPLATE_LABELS[evt]}
+                                  </button>
+                                ))}
+                              </div>
+                            </>
+                          );
+                        })()}
+                      </div>
                       {selRes.fecha && selRes.hora && (
                         <div style={{marginTop:10}}>
                           <div style={{fontSize:10,color:'#849884',fontWeight:500,textTransform:'uppercase',letterSpacing:'.4px',marginBottom:6,textAlign:'center'}}>Agregar al calendario</div>
@@ -1208,10 +1489,10 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
               )}
 
               <Modal dark={dm} open={resModal} onClose={()=>{setResModal(false);setEResId(null)}} title={eResId?'Editar Cita':'Nueva Cita'} width={520}>
-                <Field label="Paciente"><input style={inp} value={resF.paciente} onChange={e=>setResF({...resF,paciente:e.target.value.replace(/[0-9]/g,'')})} placeholder="Nombre completo"/></Field>
+                <Field label="Paciente"><input style={inp} value={resF.paciente} onChange={e=>setResF({...resF,paciente:sanitizeName(e.target.value)})} maxLength={80} placeholder="Nombre completo"/></Field>
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'0 14px'}}>
                   <Field label="Email"><input style={inp} type="email" value={resF.email} onChange={e=>setResF({...resF,email:e.target.value})} placeholder="correo@mail.com"/></Field>
-                  <Field label="Teléfono"><input style={inp} value={resF.telefono} onChange={e=>setResF({...resF,telefono:e.target.value.replace(/[a-zA-Z]/g,'')})} placeholder="+54 9 11 0000-0000"/></Field>
+                  <Field label="Teléfono"><input style={inp} value={resF.telefono} onChange={e=>setResF({...resF,telefono:sanitizePhoneInput(e.target.value)})} maxLength={22} placeholder="+1 000 000 0000"/></Field>
                   <Field label="Ubicación"><select style={sel} value={resF.pais} onChange={e=>setResF({...resF,pais:e.target.value})}>{UBICACIONES.map(p=><option key={p} value={p}>{p||'— Sin ubicación —'}</option>)}</select></Field>
                 </div>
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'0 14px'}}>
@@ -1249,7 +1530,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                       <div style={{display:'flex',flexDirection:'column',gap:6}}>
                         {links.map(pl => (
                           <div key={pl.id} style={{display:'flex',alignItems:'center',gap:8,background:'#f8faf8',border:'1px solid #e0e8e0',borderRadius:10,padding:'8px 12px'}}>
-                            <span style={{fontSize:11,color:pl.status==='paid'?'#4a7a4a':pl.status==='active'?'#b08050':'#849884',fontWeight:500,textTransform:'uppercase',minWidth:50}}>{pl.status==='paid'?'Pagado':pl.status==='active'?'Activo':pl.status==='expired'?'Expirado':'Cancelado'}</span>
+                            <PayBadge status={pl.status}/>
                             <span style={{fontSize:12,color:'#2a3528',flex:1}}>{pl.provider} · ${pl.total}</span>
                             <button onClick={()=>{navigator.clipboard?.writeText(pl.url);show('Link copiado')}} style={{border:'none',background:'#e8f0e8',borderRadius:6,padding:'4px 8px',fontSize:11,cursor:'pointer',color:'#4a7a4a'}}>Copiar</button>
                             <a href={absUrl(pl.url)} target="_blank" rel="noopener noreferrer" style={{border:'none',background:'#e8f0e8',borderRadius:6,padding:'4px 8px',fontSize:11,cursor:'pointer',color:'#4a7a4a',textDecoration:'none'}}>Abrir</a>
@@ -1315,7 +1596,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                     <div style={{display:'flex',flexDirection:'column',gap:6,marginBottom:14}}>
                       {deleteModal.links.map(pl => (
                         <div key={pl.id} style={{display:'flex',alignItems:'center',gap:8,background:'#f8faf8',border:'1px solid #e0e8e0',borderRadius:10,padding:'8px 12px'}}>
-                          <span style={{fontSize:11,color:pl.status==='paid'?'#4a7a4a':pl.status==='active'?'#b08050':'#849884',fontWeight:500,textTransform:'uppercase'}}>{pl.status==='paid'?'Pagado':pl.status==='active'?'Activo':'Otro'}</span>
+                          <PayBadge status={pl.status}/>
                           <span style={{fontSize:12,color:'#2a3528',flex:1}}>{pl.provider} · ${pl.total}</span>
                         </div>
                       ))}
@@ -1335,6 +1616,204 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                     </div>
                   </>
                 )}
+              </Modal>
+            </div>
+          )}
+
+          {/* DISPONIBILIDAD */}
+          {section === 'disponibilidad' && (
+            <div style={{animation:'slideIn .3s',display:'grid',gap:16}}>
+              <p style={{color:'#849884',margin:'0 0 6px',fontSize:14,fontWeight:300}}>
+                Define tu horario laboral semanal y bloquea días u horas específicas con excepciones.
+              </p>
+
+              {/* Working hours multi-range */}
+              <div style={{...CARD,padding:26}}>
+                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:16,flexWrap:'wrap',gap:10}}>
+                  <h3 style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:17,margin:0,fontWeight:400}}>Horario laboral semanal</h3>
+                  <div style={{display:'flex',gap:8}}>
+                    <button onClick={()=>setWhDraft(JSON.parse(JSON.stringify(workingHours)))} style={btnS}>Restablecer</button>
+                    <button onClick={saveWorkingHours} style={btnP}>{I.check} Guardar</button>
+                  </div>
+                </div>
+                <div style={{border:'1px solid #c8ddc8',borderRadius:10,overflow:'hidden'}}>
+                  {DAY_KEYS.map(key => {
+                    const day = whDraft[key] || {enabled:false,ranges:[]};
+                    const setDay = (upd) => setWhDraft(p => ({...p,[key]:{...p[key],...upd}}));
+                    const updateRange = (idx, field, val) => {
+                      const ranges = [...(day.ranges||[])];
+                      ranges[idx] = {...ranges[idx],[field]:val};
+                      setDay({ranges});
+                    };
+                    const addRange = () => {
+                      if ((day.ranges||[]).length >= 3) return;
+                      const last = day.ranges?.[day.ranges.length-1];
+                      const newRange = last ? {start:last.end,end:'18:00'} : {start:'09:00',end:'13:00'};
+                      setDay({ranges:[...(day.ranges||[]),newRange]});
+                    };
+                    const removeRange = (idx) => setDay({ranges:(day.ranges||[]).filter((_,i)=>i!==idx)});
+                    const toggleEnabled = () => {
+                      if (!day.enabled && (!day.ranges || day.ranges.length === 0)) {
+                        setDay({enabled:true,ranges:[{start:'09:00',end:'18:00'}]});
+                      } else {
+                        setDay({enabled:!day.enabled});
+                      }
+                    };
+                    return (
+                      <div key={key} style={{display:'flex',alignItems:'flex-start',gap:12,padding:'12px 14px',borderBottom:'1px solid #e2ede2',background:day.enabled?'transparent':'#f8f8f6'}}>
+                        <button onClick={toggleEnabled} style={{marginTop:3,width:34,height:18,borderRadius:9,border:'none',background:day.enabled?'#4a7a4a':'#c8ddc8',cursor:'pointer',position:'relative',flexShrink:0}}>
+                          <div style={{width:12,height:12,borderRadius:'50%',background:'#fff',position:'absolute',top:3,left:day.enabled?19:3,transition:'left .3s',boxShadow:'0 1px 2px rgba(0,0,0,.15)'}}/>
+                        </button>
+                        <span style={{width:90,fontSize:13,fontWeight:500,color:day.enabled?'#2a3528':'#849884',marginTop:5}}>{DAY_LABELS_ES[key]}</span>
+                        {day.enabled ? (
+                          <div style={{flex:1,display:'flex',flexDirection:'column',gap:6}}>
+                            {(day.ranges||[]).map((r,idx) => (
+                              <div key={idx} style={{display:'flex',alignItems:'center',gap:6}}>
+                                <input type="time" style={{...inp,padding:'5px 8px',fontSize:12,width:100,marginBottom:0}} value={r.start} onChange={e=>updateRange(idx,'start',e.target.value)}/>
+                                <span style={{fontSize:11,color:'#849884'}}>a</span>
+                                <input type="time" style={{...inp,padding:'5px 8px',fontSize:12,width:100,marginBottom:0}} value={r.end} onChange={e=>updateRange(idx,'end',e.target.value)}/>
+                                <button onClick={()=>removeRange(idx)} style={{border:'none',background:'#FFEBEE',borderRadius:6,width:26,height:26,cursor:'pointer',color:'#C62828',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14}}>×</button>
+                              </div>
+                            ))}
+                            {(day.ranges||[]).length < 3 && (
+                              <button onClick={addRange} style={{alignSelf:'flex-start',border:'1px dashed #c8ddc8',background:'transparent',color:'#4a7a4a',borderRadius:8,padding:'5px 12px',fontSize:11,cursor:'pointer'}}>+ Agregar rango</button>
+                            )}
+                          </div>
+                        ) : (
+                          <span style={{fontSize:12,color:'#849884',fontStyle:'italic',marginTop:5}}>Cerrado</span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                <p style={{fontSize:11,color:'#849884',margin:'10px 0 0',fontStyle:'italic'}}>Máx. 3 rangos por día. Ejemplo: 9:00-12:00 y 14:00-18:00 para un descanso al mediodía.</p>
+              </div>
+
+              {/* Exceptions CRUD */}
+              <div style={{...CARD,padding:26}}>
+                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14,flexWrap:'wrap',gap:10}}>
+                  <div>
+                    <h3 style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:17,margin:0,fontWeight:400}}>Excepciones de disponibilidad</h3>
+                    <p style={{color:'#849884',margin:'4px 0 0',fontSize:12,fontWeight:300}}>Bloquea fechas puntuales, rangos o patrones recurrentes. Invalidan slots en el booking público.</p>
+                  </div>
+                  <button onClick={()=>openExcModal(null)} style={btnP}>{I.plus} Nueva excepción</button>
+                </div>
+                <div style={{display:'grid',gap:8}}>
+                  {exceptions.length === 0 && (
+                    <p style={{color:'#849884',fontSize:13,textAlign:'center',padding:24,fontStyle:'italic'}}>No hay excepciones configuradas.</p>
+                  )}
+                  {exceptions.map(exc => {
+                    const typeLabel = exc.type==='dates'?'Fechas':exc.type==='range'?'Rango':'Recurrente';
+                    const typeColor = exc.type==='dates'?'#5a82b0':exc.type==='range'?'#c4956a':'#8b5a8b';
+                    let summary = '';
+                    if (exc.type==='dates') summary = (exc.dates||[]).slice(0,3).join(', ') + ((exc.dates||[]).length>3?` (+${exc.dates.length-3})`:'');
+                    else if (exc.type==='range') summary = `${exc.start_date} → ${exc.end_date}`;
+                    else {
+                      const names = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+                      summary = (exc.days_of_week||[]).map(d=>names[d]).join(', ') + ` · desde ${exc.start_date}` + (exc.end_date?` hasta ${exc.end_date}`:' (indefinido)');
+                    }
+                    const timeLabel = exc.all_day ? 'Todo el día' : (exc.start_time && exc.end_time ? `${exc.start_time?.slice(0,5)}-${exc.end_time?.slice(0,5)}` : 'Todo el día');
+                    return (
+                      <div key={exc.id} style={{display:'flex',alignItems:'center',gap:12,padding:'12px 14px',background:dm?'#1a1a1a':'#f8faf8',borderRadius:10,border:'1px solid '+(dm?'#333':'#e2ede2')}}>
+                        <span style={{padding:'3px 9px',borderRadius:12,background:typeColor+'22',color:typeColor,fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'.5px'}}>{typeLabel}</span>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:14,fontWeight:500,color:txMain}}>{exc.title}</div>
+                          <div style={{fontSize:11,color:'#849884',marginTop:2}}>{summary} · {timeLabel}</div>
+                          {exc.notes && <div style={{fontSize:11,color:'#849884',fontStyle:'italic',marginTop:2}}>{exc.notes}</div>}
+                        </div>
+                        <button onClick={()=>openExcModal(exc)} style={{border:'none',background:'#e2ede2',borderRadius:7,width:30,height:30,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#4a7a4a'}}>{I.edit}</button>
+                        <button onClick={()=>{if(confirm('¿Eliminar excepción?'))removeException(exc.id)}} style={{border:'none',background:'#FFEBEE',borderRadius:7,width:30,height:30,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#C62828'}}>{I.trash}</button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Exception modal */}
+              <Modal dark={dm} open={excModal} onClose={()=>setExcModal(false)} title={excEditId?'Editar Excepción':'Nueva Excepción'} width={560}>
+                <Field label="Título"><input style={inp} value={excF.title} onChange={e=>setExcF({...excF,title:e.target.value})} placeholder="Ej: Cita médica, Vacaciones, Yoga semanal"/></Field>
+                <Field label="Tipo de excepción">
+                  <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                    {[{v:'dates',l:'Fechas sueltas'},{v:'range',l:'Rango continuo'},{v:'recurring',l:'Recurrente'}].map(o=>(
+                      <button key={o.v} onClick={()=>setExcF({...excF,type:o.v})} style={{padding:'6px 14px',borderRadius:20,border:'1.5px solid',fontSize:12,cursor:'pointer',borderColor:excF.type===o.v?'#4a7a4a':'#c8ddc8',background:excF.type===o.v?'#f0f5f0':'transparent',color:excF.type===o.v?'#4a7a4a':'#849884',fontWeight:excF.type===o.v?500:400}}>{o.l}</button>
+                    ))}
+                  </div>
+                </Field>
+
+                {excF.type === 'dates' && (
+                  <Field label="Fechas (agrega una o varias)">
+                    <div style={{display:'flex',gap:6,alignItems:'center'}}>
+                      <input type="date" style={{...inp,marginBottom:0,flex:1}} value={excF.newDateInput} onChange={e=>setExcF({...excF,newDateInput:e.target.value})}/>
+                      <button onClick={()=>{
+                        if(!excF.newDateInput) return;
+                        if(excF.dates.includes(excF.newDateInput)) { show('Fecha ya agregada'); return; }
+                        setExcF({...excF,dates:[...excF.dates,excF.newDateInput].sort(),newDateInput:''});
+                      }} style={{...btnP,padding:'7px 14px',fontSize:12}}>+ Añadir</button>
+                    </div>
+                    {excF.dates.length > 0 && (
+                      <div style={{display:'flex',flexWrap:'wrap',gap:6,marginTop:8}}>
+                        {excF.dates.map(d=>(
+                          <span key={d} style={{padding:'4px 10px',borderRadius:14,background:'#f0f5f0',border:'1px solid #c8ddc8',fontSize:11,color:'#4a7a4a',display:'flex',alignItems:'center',gap:6}}>
+                            {d}
+                            <button onClick={()=>setExcF({...excF,dates:excF.dates.filter(x=>x!==d)})} style={{border:'none',background:'transparent',color:'#C62828',cursor:'pointer',padding:0,fontSize:14,lineHeight:1}}>×</button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </Field>
+                )}
+
+                {excF.type === 'range' && (
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                    <Field label="Desde"><input type="date" style={inp} value={excF.start_date} onChange={e=>setExcF({...excF,start_date:e.target.value})}/></Field>
+                    <Field label="Hasta"><input type="date" style={inp} value={excF.end_date} onChange={e=>setExcF({...excF,end_date:e.target.value})}/></Field>
+                  </div>
+                )}
+
+                {excF.type === 'recurring' && (
+                  <>
+                    <Field label="Días de la semana">
+                      <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                        {['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'].map((d,idx)=>{
+                          const on = excF.days_of_week.includes(idx);
+                          return (
+                            <button key={idx} onClick={()=>setExcF({...excF,days_of_week: on ? excF.days_of_week.filter(x=>x!==idx) : [...excF.days_of_week,idx].sort()})} style={{width:40,height:36,borderRadius:8,border:'1.5px solid',cursor:'pointer',fontSize:12,borderColor:on?'#4a7a4a':'#c8ddc8',background:on?'#f0f5f0':'transparent',color:on?'#4a7a4a':'#849884',fontWeight:on?600:400}}>{d}</button>
+                          );
+                        })}
+                      </div>
+                    </Field>
+                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                      <Field label="Desde"><input type="date" style={inp} value={excF.start_date} onChange={e=>setExcF({...excF,start_date:e.target.value})}/></Field>
+                      <Field label="Hasta (opcional)"><input type="date" style={inp} value={excF.end_date} onChange={e=>setExcF({...excF,end_date:e.target.value})}/></Field>
+                    </div>
+                  </>
+                )}
+
+                <Field label="Horario del bloqueo">
+                  <label style={{display:'flex',alignItems:'center',gap:8,fontSize:13,cursor:'pointer',marginBottom:8}}>
+                    <input type="checkbox" checked={excF.all_day} onChange={e=>setExcF({...excF,all_day:e.target.checked})}/>
+                    Bloquear todo el día
+                  </label>
+                  {!excF.all_day && (
+                    <div style={{display:'flex',alignItems:'center',gap:8}}>
+                      <input type="time" style={{...inp,width:120,marginBottom:0}} value={excF.start_time} onChange={e=>setExcF({...excF,start_time:e.target.value})}/>
+                      <span style={{fontSize:12,color:'#849884'}}>a</span>
+                      <input type="time" style={{...inp,width:120,marginBottom:0}} value={excF.end_time} onChange={e=>setExcF({...excF,end_time:e.target.value})}/>
+                    </div>
+                  )}
+                </Field>
+
+                <Field label="Notas (opcional)"><textarea style={{...inp,minHeight:60,resize:'vertical'}} value={excF.notes} onChange={e=>setExcF({...excF,notes:e.target.value})} placeholder="Detalles internos — no se muestran al cliente"/></Field>
+
+                <div style={{display:'flex',gap:10,justifyContent:'space-between',marginTop:4}}>
+                  {excEditId ? (
+                    <button onClick={async ()=>{if(confirm('¿Eliminar excepción?')){await removeException(excEditId);setExcModal(false)}}} style={{...btnS,color:'#C62828',borderColor:'#FFCDD2'}}>{I.trash} Eliminar</button>
+                  ) : <div/>}
+                  <div style={{display:'flex',gap:10}}>
+                    <button onClick={()=>setExcModal(false)} style={btnS}>Cancelar</button>
+                    <button onClick={saveException} style={btnP}>{I.check} {excEditId?'Actualizar':'Crear'}</button>
+                  </div>
+                </div>
               </Modal>
             </div>
           )}
@@ -1361,6 +1840,9 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                           <div style={{fontSize:14,fontWeight:500,display:'flex',alignItems:'center',gap:8}}>{m.nombre||m.tipo}
                             <span style={{fontSize:10,padding:'2px 8px',borderRadius:10,background:m.activo?'#f0f5f0':'#FFEBEE',color:m.activo?'#4a7a4a':'#C62828',fontWeight:600}}>{m.activo?'Activo':'Inactivo'}</span>
                             <span style={{fontSize:10,padding:'2px 8px',borderRadius:10,background:'#f0f5f0',color:'#849884'}}>Prioridad {m.prioridad}</span>
+                            {(m.tipo==='Stripe'||m.tipo==='PayPal') && m.claveSecreta && (
+                              <span style={{fontSize:10,padding:'2px 8px',borderRadius:10,background:'#e8f5e9',color:'#2e7d32',fontWeight:600,display:'flex',alignItems:'center',gap:3}} title="API conectada — credenciales configuradas">● API Conectada</span>
+                            )}
                           </div>
                           <div style={{fontSize:12,color:'#849884',marginTop:2}}>{m.titular} · {m.cuentaVisible||m.banco}</div>
                         </div>
@@ -1554,6 +2036,188 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                   <button onClick={saveMet} style={btnP}>{I.check} {eMetId?'Actualizar':'Agregar'}</button>
                 </div>
               </Modal>
+            </div>
+          )}
+
+          {/* INTEGRACIONES */}
+          {section === 'integraciones' && (
+            <div style={{animation:'slideIn .3s',display:'grid',gap:16}}>
+              <p style={{color:'#849884',margin:0,fontSize:14,fontWeight:300}}>Conecta servicios externos y configura las plantillas de mensajes automáticos.</p>
+
+              {/* Cards grid */}
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
+
+                {/* Google Calendar / Meet */}
+                <div style={{...CARD,padding:20}}>
+                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
+                    <div style={{display:'flex',alignItems:'center',gap:10}}>
+                      <div style={{width:38,height:38,borderRadius:10,background:'linear-gradient(135deg,#4285f4,#34a853)',display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:700,fontSize:16}}>G</div>
+                      <div>
+                        <div style={{fontSize:14,fontWeight:500}}>Google Calendar + Meet</div>
+                        <div style={{fontSize:11,color:'#849884'}}>Sincroniza eventos y crea enlaces Meet</div>
+                      </div>
+                    </div>
+                    <span style={{fontSize:10,padding:'3px 9px',borderRadius:10,background:googleStatus.connected?'#e8f5e9':'#fff3e0',color:googleStatus.connected?'#2e7d32':'#b08050',fontWeight:600}}>● {googleStatus.connected?'Conectado':'No conectado'}</span>
+                  </div>
+                  {googleStatus.connected ? (
+                    <>
+                      <div style={{fontSize:12,color:'#849884',marginBottom:12,lineHeight:1.5}}>Cuenta: <strong style={{color:'#4e6050'}}>{googleStatus.email}</strong><br/>Zona horaria: America/New_York (Miami). Los eventos confirmados incluyen enlace Meet automático.</div>
+                      <button onClick={async()=>{
+                        if(!confirm('¿Desconectar Google? Las citas confirmadas seguirán en el calendario pero no se crearán nuevos eventos.')) return;
+                        const r = await fetch('/api/google/disconnect',{method:'POST'});
+                        if(r.ok){ show('Google desconectado'); setTimeout(()=>window.location.reload(),600); }
+                        else { show('Error al desconectar'); }
+                      }} style={{...btnS,width:'100%',justifyContent:'center'}}>Desconectar</button>
+                    </>
+                  ) : (
+                    <>
+                      <div style={{fontSize:12,color:'#849884',marginBottom:12,lineHeight:1.5}}>Conecta tu cuenta Google para crear eventos + Meet automáticamente al confirmar citas. Usa hora de Miami (America/New_York).</div>
+                      <a href="/api/google/connect" style={{...btnP,width:'100%',justifyContent:'center',textDecoration:'none',display:'inline-flex'}}>Conectar con Google</a>
+                    </>
+                  )}
+                </div>
+
+                {/* Email SMTP */}
+                <div style={{...CARD,padding:20}}>
+                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
+                    <div style={{display:'flex',alignItems:'center',gap:10}}>
+                      <div style={{width:38,height:38,borderRadius:10,background:'linear-gradient(135deg,#0B5394,#1976d2)',display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:700,fontSize:14}}>@</div>
+                      <div>
+                        <div style={{fontSize:14,fontWeight:500}}>Correo (SMTP)</div>
+                        <div style={{fontSize:11,color:'#849884'}}>Brevo, Mailgun, SES, Zoho… cualquier SMTP</div>
+                      </div>
+                    </div>
+                    <span style={{fontSize:10,padding:'3px 9px',borderRadius:10,background:smtpCfg.host?'#e8f5e9':'#f5f5f5',color:smtpCfg.host?'#2e7d32':'#849884',fontWeight:600}}>● {smtpCfg.host?'Conectado':'Sin configurar'}</span>
+                  </div>
+                  <Field label="Host"><input style={inp} value={smtpCfg.host} onChange={e=>setSmtpCfg({...smtpCfg,host:e.target.value})} placeholder="smtp-relay.brevo.com"/></Field>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+                    <Field label="Puerto"><input style={inp} type="number" value={smtpCfg.port} onChange={e=>setSmtpCfg({...smtpCfg,port:Number(e.target.value)||587})} placeholder="587"/></Field>
+                    <Field label="TLS directo (465)"><select style={sel} value={smtpCfg.secure?'1':'0'} onChange={e=>setSmtpCfg({...smtpCfg,secure:e.target.value==='1'})}><option value="0">No (STARTTLS)</option><option value="1">Sí (SSL)</option></select></Field>
+                  </div>
+                  <Field label="Usuario"><input style={inp} value={smtpCfg.user} onChange={e=>setSmtpCfg({...smtpCfg,user:e.target.value})} placeholder="login@smtp-brevo.com"/></Field>
+                  <Field label="Contraseña / API Key"><input style={inp} type="password" value={smtpCfg.password} onChange={e=>setSmtpCfg({...smtpCfg,password:e.target.value})} placeholder="••••••••"/></Field>
+                  <Field label="Remitente (email)"><input style={inp} type="email" value={smtpCfg.from_email} onChange={e=>setSmtpCfg({...smtpCfg,from_email:e.target.value})} placeholder="hola@tudominio.com"/></Field>
+                  <Field label="Remitente (nombre)"><input style={inp} value={smtpCfg.from_name} onChange={e=>setSmtpCfg({...smtpCfg,from_name:e.target.value})} placeholder="Lda. Silvana López"/></Field>
+                  <button onClick={saveSmtpCfg} style={{...btnP,width:'100%',justifyContent:'center',marginTop:6}}>{I.check} Guardar</button>
+                </div>
+
+                {/* Preferencias de notificaciones por correo */}
+                <div style={{...CARD,padding:20,gridColumn:'1 / -1'}}>
+                  <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:12}}>
+                    <div style={{width:38,height:38,borderRadius:10,background:'linear-gradient(135deg,#6a8a6a,#4e6050)',display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:700,fontSize:16}}>✉</div>
+                    <div>
+                      <div style={{fontSize:14,fontWeight:500}}>Notificaciones por correo</div>
+                      <div style={{fontSize:11,color:'#849884'}}>Elige qué correos se envían al cliente y a ti</div>
+                    </div>
+                  </div>
+                  <div style={{fontSize:11,color:'#849884',marginBottom:12,padding:'8px 11px',background:'#fafcfa',borderRadius:7,border:'1px dashed #c8ddc8'}}>
+                    Desactivar una casilla omite el envío de ese correo. Los correos de restablecimiento de contraseña siempre se envían.
+                  </div>
+                  <div style={{display:'grid',gap:6}}>
+                    <div style={{display:'grid',gridTemplateColumns:'1fr 90px 90px',fontSize:10,fontWeight:600,color:'#849884',textTransform:'uppercase',letterSpacing:'.4px',padding:'4px 10px'}}>
+                      <div>Evento</div>
+                      <div style={{textAlign:'center'}}>Cliente</div>
+                      <div style={{textAlign:'center'}}>Silvana</div>
+                    </div>
+                    {Object.entries(emailEventShape).map(([ev,recips]) => (
+                      <div key={ev} style={{display:'grid',gridTemplateColumns:'1fr 90px 90px',alignItems:'center',padding:'10px',background:'#fafcfa',borderRadius:8,border:'1px solid #eef3ee'}}>
+                        <div style={{fontSize:12,color:'#4e6050'}}>{emailEventLabels[ev]}</div>
+                        <div style={{textAlign:'center'}}>
+                          {recips.includes('client') ? (
+                            <input type="checkbox" checked={!!emailNotifs[ev]?.client} onChange={()=>toggleEmailNotif(ev,'client')} style={{cursor:'pointer',width:16,height:16}}/>
+                          ) : <span style={{color:'#c8ddc8'}}>—</span>}
+                        </div>
+                        <div style={{textAlign:'center'}}>
+                          {recips.includes('admin') ? (
+                            <input type="checkbox" checked={!!emailNotifs[ev]?.admin} onChange={()=>toggleEmailNotif(ev,'admin')} style={{cursor:'pointer',width:16,height:16}}/>
+                          ) : <span style={{color:'#c8ddc8'}}>—</span>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <button onClick={saveEmailNotifs} style={{...btnP,marginTop:12}}>{I.check} Guardar preferencias</button>
+                </div>
+
+                {/* Stripe */}
+                <div style={{...CARD,padding:20}}>
+                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
+                    <div style={{display:'flex',alignItems:'center',gap:10}}>
+                      <div style={{width:38,height:38,borderRadius:10,background:'linear-gradient(135deg,#635bff,#4a45c0)',display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:700,fontSize:14,fontStyle:'italic'}}>S</div>
+                      <div>
+                        <div style={{fontSize:14,fontWeight:500}}>Stripe</div>
+                        <div style={{fontSize:11,color:'#849884'}}>Enlaces de pago con tarjeta</div>
+                      </div>
+                    </div>
+                    {(() => {
+                      const stripeMet = metodos.find((m:any)=>m.tipo==='Stripe');
+                      const connected = !!(stripeMet?.claveSecreta);
+                      return <span style={{fontSize:10,padding:'3px 9px',borderRadius:10,background:connected?'#e8f5e9':'#f5f5f5',color:connected?'#2e7d32':'#849884',fontWeight:600}}>● {connected?'Conectado':'Sin configurar'}</span>;
+                    })()}
+                  </div>
+                  <div style={{fontSize:12,color:'#849884',marginBottom:12,lineHeight:1.5}}>Las credenciales se gestionan en <strong>Métodos de Pago</strong> al editar el método de tipo Stripe.</div>
+                  <button onClick={()=>setSection('pagos')} style={{...btnS,width:'100%',justifyContent:'center'}}>Ir a Métodos de Pago →</button>
+                </div>
+
+                {/* PayPal */}
+                <div style={{...CARD,padding:20}}>
+                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
+                    <div style={{display:'flex',alignItems:'center',gap:10}}>
+                      <div style={{width:38,height:38,borderRadius:10,background:'linear-gradient(135deg,#0070ba,#003087)',display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:700,fontSize:12,fontStyle:'italic',letterSpacing:'-0.5px'}}>PP</div>
+                      <div>
+                        <div style={{fontSize:14,fontWeight:500}}>PayPal</div>
+                        <div style={{fontSize:11,color:'#849884'}}>Pagos internacionales (+recargo)</div>
+                      </div>
+                    </div>
+                    {(() => {
+                      const ppMet = metodos.find((m:any)=>m.tipo==='PayPal');
+                      const connected = !!(ppMet?.claveSecreta);
+                      return <span style={{fontSize:10,padding:'3px 9px',borderRadius:10,background:connected?'#e8f5e9':'#f5f5f5',color:connected?'#2e7d32':'#849884',fontWeight:600}}>● {connected?'Conectado':'Sin configurar'}</span>;
+                    })()}
+                  </div>
+                  <div style={{fontSize:12,color:'#849884',marginBottom:12,lineHeight:1.5}}>Las credenciales se gestionan en <strong>Métodos de Pago</strong> al editar el método de tipo PayPal.</div>
+                  <button onClick={()=>setSection('pagos')} style={{...btnS,width:'100%',justifyContent:'center'}}>Ir a Métodos de Pago →</button>
+                </div>
+
+                {/* WhatsApp */}
+                <div style={{...CARD,padding:20,gridColumn:'1 / -1'}}>
+                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}}>
+                    <div style={{display:'flex',alignItems:'center',gap:10}}>
+                      <div style={{width:38,height:38,borderRadius:10,background:'linear-gradient(135deg,#25d366,#128c7e)',display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:700,fontSize:18}}>✓</div>
+                      <div>
+                        <div style={{fontSize:14,fontWeight:500}}>WhatsApp (enlaces directos)</div>
+                        <div style={{fontSize:11,color:'#849884'}}>Sin API — usa wa.me con mensajes pre-rellenados</div>
+                      </div>
+                    </div>
+                    <span style={{fontSize:10,padding:'3px 9px',borderRadius:10,background:'#e8f5e9',color:'#2e7d32',fontWeight:600}}>● Listo</span>
+                  </div>
+                  <div style={{fontSize:12,color:'#849884',marginBottom:14,lineHeight:1.5,padding:'10px 12px',background:'#f5f9f5',borderRadius:8,borderLeft:'3px solid #4a7a4a'}}>
+                    Desde el detalle de cada cita podrás abrir WhatsApp (web/desktop/móvil) con el mensaje listo. Si el teléfono no tiene formato válido, te mostraremos el mensaje para copiar/pegar manualmente.
+                  </div>
+
+                  {/* Template editor */}
+                  <div style={{marginTop:6}}>
+                    <div style={{fontSize:13,fontWeight:500,marginBottom:8,color:'#4e6050'}}>Plantillas por evento</div>
+                    <div style={{fontSize:11,color:'#849884',marginBottom:10,padding:'8px 11px',background:'#fafcfa',borderRadius:7,border:'1px dashed #c8ddc8'}}>
+                      Variables disponibles: {WA_TEMPLATE_VARS.map(v => <code key={v.key} style={{background:'#fff',padding:'1px 6px',borderRadius:4,marginRight:4,color:'#4a7a4a',fontSize:10}}>{'{'+v.key+'}'}</code>)}
+                    </div>
+                    <div style={{display:'grid',gap:12}}>
+                      {WA_TEMPLATE_EVENTS.map(evt => (
+                        <div key={evt}>
+                          <div style={{fontSize:11,fontWeight:600,color:'#4e6050',marginBottom:4,textTransform:'uppercase',letterSpacing:'.4px'}}>{WA_TEMPLATE_LABELS[evt]}</div>
+                          <textarea
+                            style={{...inp,minHeight:62,resize:'vertical',fontFamily:'inherit',fontSize:12,lineHeight:1.5}}
+                            value={waTpls[evt] || ''}
+                            onChange={e=>setWaTpls({...waTpls,[evt]:e.target.value})}
+                            placeholder="Mensaje..."
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    <button onClick={saveWaTpls} style={{...btnP,marginTop:12}}>{I.check} Guardar plantillas</button>
+                  </div>
+                </div>
+
+              </div>
             </div>
           )}
 
@@ -1841,6 +2505,32 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
 
         </div>
       </main>
+
+      {/* WhatsApp fallback modal — shown when phone is unformattable */}
+      <Modal dark={dm} open={waPicker.open} onClose={()=>setWaPicker({open:false,booking:null,event:'custom'})} title="Copiar mensaje de WhatsApp" width={520}>
+        {waPicker.booking && (() => {
+          const msg = buildWaMessageFor(waPicker.booking, waPicker.event);
+          return (
+            <div>
+              <div style={{fontSize:12,color:'#b08050',background:'#fff8e1',padding:'10px 12px',borderRadius:8,marginBottom:12,border:'1px solid #ffe0b2',lineHeight:1.5}}>
+                El número <strong>{waPicker.booking.telefono || '(vacío)'}</strong> no tiene formato internacional válido. Copia el mensaje y pégalo manualmente en WhatsApp, o corrige el teléfono en la cita.
+              </div>
+              <Field label={`Plantilla: ${WA_TEMPLATE_LABELS[waPicker.event] || waPicker.event}`}>
+                <select style={sel} value={waPicker.event} onChange={e=>setWaPicker({...waPicker,event:e.target.value})}>
+                  {WA_TEMPLATE_EVENTS.map(evt => <option key={evt} value={evt}>{WA_TEMPLATE_LABELS[evt]}</option>)}
+                </select>
+              </Field>
+              <Field label="Mensaje">
+                <textarea style={{...inp,minHeight:120,resize:'vertical',fontFamily:'inherit',fontSize:13}} value={msg} readOnly onFocus={e=>e.target.select()}/>
+              </Field>
+              <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:10}}>
+                <button onClick={()=>setWaPicker({open:false,booking:null,event:'custom'})} style={btnS}>Cerrar</button>
+                <button onClick={async()=>{try{await navigator.clipboard.writeText(msg);show('Mensaje copiado');}catch{show('No se pudo copiar');}}} style={btnP}>{I.check} Copiar al portapapeles</button>
+              </div>
+            </div>
+          );
+        })()}
+      </Modal>
 
       {toast && (
         <div style={{position:'fixed',bottom:22,left:'50%',transform:'translateX(-50%)',background:'#2a3528',color:'#f0f5f0',padding:'10px 20px',borderRadius:12,fontSize:13,fontWeight:500,boxShadow:'0 6px 24px rgba(42,53,40,.25)',zIndex:2000,display:'flex',alignItems:'center',gap:8,animation:'toastIn .22s',fontFamily:"'DM Sans',sans-serif"}}>

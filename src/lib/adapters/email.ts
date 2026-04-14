@@ -1,20 +1,93 @@
-import { Resend } from 'resend';
+import nodemailer from 'nodemailer';
+import type { Transporter } from 'nodemailer';
+import { createAdminClient } from '@/lib/supabase/admin';
+import type { EmailEventKey, EmailRecipient, EmailNotificationPrefs } from '@/types/database';
 
 /**
- * Email Adapter
- * Uses Resend for transactional emails.
- * All email templates and sending logic centralized here.
+ * Email Adapter (SMTP genérico).
+ *
+ * Proveedor por defecto: Brevo (antes Sendinblue). Cualquier otro proveedor SMTP
+ * funciona igual — solo cambian host/puerto/credenciales.
+ *
+ * Config resolution order (por cada envío):
+ *   1. admin_settings.smtp_* (configurado desde la UI de Integraciones)
+ *   2. SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_PASSWORD / EMAIL_FROM (env fallback)
+ *
+ * Si ni DB ni env están configurados, el envío se omite con un warning en logs
+ * (no rompe los flujos de booking).
+ *
+ * Todas las fechas visibles se formatean en America/New_York (Miami).
  */
 
-let _resend: Resend | null = null;
-function getResend() {
-  if (!_resend) {
-    if (!process.env.RESEND_API_KEY) throw new Error('RESEND_API_KEY is not configured');
-    _resend = new Resend(process.env.RESEND_API_KEY);
-  }
-  return _resend;
+const BASE_TZ = 'America/New_York';
+const LOCALE = 'es-US';
+
+interface ResolvedConfig {
+  host: string;
+  port: number;
+  secure: boolean;
+  user: string;
+  password: string;
+  from: string;
 }
-const FROM = process.env.EMAIL_FROM || 'Silvana López <noreply@silvanalopez.com>';
+
+async function resolveConfig(): Promise<ResolvedConfig | null> {
+  try {
+    const supabase = createAdminClient();
+    const { data } = await supabase
+      .from('admin_settings')
+      .select('smtp_host, smtp_port, smtp_user, smtp_password, smtp_from_email, smtp_from_name, smtp_secure')
+      .limit(1)
+      .single();
+
+    const host = (data?.smtp_host?.trim()) || process.env.SMTP_HOST || '';
+    const user = (data?.smtp_user?.trim()) || process.env.SMTP_USER || '';
+    const password = (data?.smtp_password?.trim()) || process.env.SMTP_PASSWORD || '';
+    if (!host || !user || !password) return null;
+
+    const portRaw = data?.smtp_port ?? Number(process.env.SMTP_PORT) ?? 587;
+    const port = Number(portRaw) || 587;
+    const secure = data?.smtp_secure ?? (port === 465);
+
+    const fromEmail = (data?.smtp_from_email?.trim()) || process.env.EMAIL_FROM || user;
+    const fromName = (data?.smtp_from_name?.trim()) || '';
+    const from = fromName && !fromEmail.includes('<')
+      ? `${fromName} <${fromEmail}>`
+      : fromEmail;
+
+    return { host, port, secure, user, password, from };
+  } catch {
+    const host = process.env.SMTP_HOST || '';
+    const user = process.env.SMTP_USER || '';
+    const password = process.env.SMTP_PASSWORD || '';
+    if (!host || !user || !password) return null;
+    const port = Number(process.env.SMTP_PORT) || 587;
+    return {
+      host,
+      port,
+      secure: port === 465,
+      user,
+      password,
+      from: process.env.EMAIL_FROM || user,
+    };
+  }
+}
+
+let cachedTransporter: Transporter | null = null;
+let cachedKey = '';
+
+function getTransporter(cfg: ResolvedConfig): Transporter {
+  const key = `${cfg.host}:${cfg.port}:${cfg.user}`;
+  if (cachedTransporter && cachedKey === key) return cachedTransporter;
+  cachedTransporter = nodemailer.createTransport({
+    host: cfg.host,
+    port: cfg.port,
+    secure: cfg.secure,
+    auth: { user: cfg.user, pass: cfg.password },
+  });
+  cachedKey = key;
+  return cachedTransporter;
+}
 
 // ─── Types ────────────────────────────────────────────────
 
@@ -25,17 +98,73 @@ interface EmailParams {
 }
 
 async function sendEmail(params: EmailParams): Promise<void> {
-  const { error } = await getResend().emails.send({
-    from: FROM,
-    to: params.to,
-    subject: params.subject,
-    html: params.html,
-  });
-
-  if (error) {
-    console.error('[Email] Failed to send:', error);
-    throw new Error(`Email send failed: ${error.message}`);
+  const cfg = await resolveConfig();
+  if (!cfg) {
+    console.warn('[Email] SMTP no configurado — omitiendo envío a', params.to);
+    return;
   }
+
+  try {
+    const transporter = getTransporter(cfg);
+    await transporter.sendMail({
+      from: cfg.from,
+      to: params.to,
+      subject: params.subject,
+      html: params.html,
+    });
+  } catch (error: unknown) {
+    console.error('[Email] Fallo SMTP:', error);
+    throw new Error(`Email send failed: ${(error as Error).message}`);
+  }
+}
+
+// ─── Notification preferences guard ──────────────────────
+//
+// Silvana controla desde el dashboard (Integraciones > Notificaciones
+// por email) que eventos disparan correo y para que destinatario.
+// Los correos de auth (password_reset) NO pasan por aqui — son criticos
+// y siempre se envian.
+//
+// Defaults si no hay config (por si la fila esta vacia o el JSONB es
+// null): TRUE. Mas vale sobre-notificar que perder una notificacion.
+
+async function isNotificationEnabled(
+  event: EmailEventKey,
+  recipient: EmailRecipient,
+): Promise<boolean> {
+  try {
+    const supabase = createAdminClient();
+    const { data } = await supabase
+      .from('admin_settings')
+      .select('email_notifications')
+      .limit(1)
+      .single();
+
+    const prefs = data?.email_notifications as EmailNotificationPrefs | null;
+    if (!prefs) return true;
+    const eventPrefs = prefs[event];
+    if (!eventPrefs) return true;
+    const value = eventPrefs[recipient];
+    return value !== false;
+  } catch {
+    return true;
+  }
+}
+
+function fmtDate(iso: string, withTime = true): string {
+  const opts: Intl.DateTimeFormatOptions = {
+    timeZone: BASE_TZ,
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  };
+  if (withTime) {
+    opts.hour = '2-digit';
+    opts.minute = '2-digit';
+    opts.hour12 = true;
+  }
+  return new Intl.DateTimeFormat(LOCALE, opts).format(new Date(iso));
 }
 
 // ─── Templates ────────────────────────────────────────────
@@ -70,12 +199,8 @@ export async function sendBookingReceivedEmail(params: {
   preferredDate?: string;
   isFirstSession: boolean;
 }): Promise<void> {
-  const dateStr = params.preferredDate
-    ? new Date(params.preferredDate).toLocaleString('es-AR', {
-        weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
-        hour: '2-digit', minute: '2-digit',
-      })
-    : null;
+  if (!(await isNotificationEnabled('booking_received', 'client'))) return;
+  const dateStr = params.preferredDate ? fmtDate(params.preferredDate) : null;
 
   await sendEmail({
     to: params.clientEmail,
@@ -106,6 +231,7 @@ export async function sendNewBookingNotification(params: {
   isFirstSession: boolean;
   bookingId: string;
 }): Promise<void> {
+  if (!(await isNotificationEnabled('booking_received', 'admin'))) return;
   const adminUrl = process.env.NEXT_PUBLIC_ADMIN_URL;
 
   await sendEmail({
@@ -118,10 +244,10 @@ export async function sendNewBookingNotification(params: {
         <p><strong>Email:</strong> ${params.clientEmail}</p>
         ${params.clientPhone ? `<p><strong>Teléfono:</strong> ${params.clientPhone}</p>` : ''}
         ${params.reason ? `<p><strong>Motivo:</strong> ${params.reason}</p>` : ''}
-        ${params.preferredDate ? `<p><strong>Fecha preferida:</strong> ${new Date(params.preferredDate).toLocaleString('es-AR')}</p>` : ''}
+        ${params.preferredDate ? `<p><strong>Fecha preferida:</strong> ${fmtDate(params.preferredDate)} (hora Miami)</p>` : ''}
         <p><strong>Tipo:</strong> ${params.isFirstSession ? '🟢 Primera cita (gratuita)' : '🔵 Cita de seguimiento'}</p>
       </div>
-      <a href="${adminUrl}/admin/bookings/${params.bookingId}" 
+      <a href="${adminUrl}/admin/dashboard"
          style="display: inline-block; background: ${brandColor}; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; margin-top: 8px;">
         Revisar solicitud
       </a>
@@ -137,15 +263,10 @@ export async function sendBookingConfirmedEmail(params: {
   confirmedDate: string;
   serviceName: string;
   durationMin: number;
+  meetLink?: string | null;
 }): Promise<void> {
-  const dateStr = new Date(params.confirmedDate).toLocaleString('es-AR', {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  if (!(await isNotificationEnabled('booking_confirmed', 'client'))) return;
+  const dateStr = fmtDate(params.confirmedDate);
 
   await sendEmail({
     to: params.clientEmail,
@@ -156,9 +277,17 @@ export async function sendBookingConfirmedEmail(params: {
       <p>Tu sesión ha sido confirmada para:</p>
       <div style="background: ${brandLight}; padding: 20px; border-radius: 8px; margin: 16px 0;">
         <p style="font-size: 18px; color: ${brandColor}; margin: 0;"><strong>${dateStr}</strong></p>
-        <p style="margin: 8px 0 0;">${params.serviceName} · ${params.durationMin} minutos</p>
+        <p style="margin: 8px 0 0;">${params.serviceName} · ${params.durationMin} minutos · hora Miami (FL)</p>
       </div>
-      <p>La sesión se realizará por videollamada. Recibirás el enlace antes de la cita.</p>
+      ${params.meetLink ? `
+      <div style="text-align: center; margin: 20px 0;">
+        <a href="${params.meetLink}"
+           style="display: inline-block; background: ${brandColor}; color: white; padding: 14px 32px; border-radius: 6px; text-decoration: none; font-size: 16px;">
+          Unirse a la videollamada
+        </a>
+        <p style="font-size: 12px; color: #888; margin-top: 8px;">Enlace de Google Meet — guarda este correo para acceder el día de la cita.</p>
+      </div>
+      ` : `<p>La sesión se realizará por videollamada. Recibirás el enlace antes de la cita.</p>`}
       <p style="color: #888; font-style: italic;">Si necesitas reagendar, escríbeme por WhatsApp.</p>
     `),
   });
@@ -171,6 +300,7 @@ export async function sendBookingRejectedEmail(params: {
   clientName: string;
   reason?: string;
 }): Promise<void> {
+  if (!(await isNotificationEnabled('booking_rejected', 'client'))) return;
   await sendEmail({
     to: params.clientEmail,
     subject: 'Sobre tu solicitud de cita — Lda. Silvana López',
@@ -179,7 +309,7 @@ export async function sendBookingRejectedEmail(params: {
       <p>Lamentablemente, no pudimos confirmar tu cita en este momento.</p>
       ${params.reason ? `<p><em>${params.reason}</em></p>` : ''}
       <p>Si deseas, puedes solicitar una nueva cita en otro horario o contactarme por WhatsApp para coordinar.</p>
-      <a href="${process.env.NEXT_PUBLIC_APP_URL}/reservar" 
+      <a href="${process.env.NEXT_PUBLIC_APP_URL}/booking"
          style="display: inline-block; background: ${brandColor}; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; margin-top: 8px;">
         Solicitar nueva cita
       </a>
@@ -198,6 +328,7 @@ export async function sendPaymentLinkEmail(params: {
   paymentUrl: string;
   expiresAt?: string;
 }): Promise<void> {
+  if (!(await isNotificationEnabled('payment_link', 'client'))) return;
   const surchargeNote = params.provider === 'paypal'
     ? `<p style="font-size: 13px; color: #888;">* El monto incluye un recargo del 10% por uso de PayPal.</p>`
     : '';
@@ -213,12 +344,12 @@ export async function sendPaymentLinkEmail(params: {
         ${surchargeNote}
       </div>
       <div style="text-align: center;">
-        <a href="${params.paymentUrl}" 
+        <a href="${params.paymentUrl}"
            style="display: inline-block; background: ${brandColor}; color: white; padding: 14px 32px; border-radius: 6px; text-decoration: none; font-size: 16px;">
           Realizar pago
         </a>
       </div>
-      ${params.expiresAt ? `<p style="font-size: 13px; color: #888; text-align: center; margin-top: 12px;">Este enlace expira el ${new Date(params.expiresAt).toLocaleString('es-AR')}.</p>` : ''}
+      ${params.expiresAt ? `<p style="font-size: 13px; color: #888; text-align: center; margin-top: 12px;">Este enlace expira el ${fmtDate(params.expiresAt)} (hora Miami).</p>` : ''}
     `),
   });
 }
@@ -230,24 +361,30 @@ export async function sendRescheduledEmail(params: {
   clientName: string;
   oldDate: string;
   newDate: string;
+  meetLink?: string | null;
 }): Promise<void> {
-  const oldDateStr = new Date(params.oldDate).toLocaleString('es-AR', {
-    weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit',
-  });
-  const newDateStr = new Date(params.newDate).toLocaleString('es-AR', {
-    weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit',
-  });
+  if (!(await isNotificationEnabled('booking_rescheduled', 'client'))) return;
+  const oldDateStr = fmtDate(params.oldDate);
+  const newDateStr = fmtDate(params.newDate);
 
   await sendEmail({
     to: params.clientEmail,
     subject: 'Tu cita ha sido reagendada — Lda. Silvana López',
     html: wrapTemplate(`
       <p>Hola ${params.clientName},</p>
-      <p>Tu cita ha sido reagendada:</p>
+      <p>Tu cita ha sido reagendada (hora Miami):</p>
       <div style="background: ${brandLight}; padding: 20px; border-radius: 8px; margin: 16px 0;">
         <p style="text-decoration: line-through; color: #999;">${oldDateStr}</p>
         <p style="font-size: 18px; color: ${brandColor}; margin: 8px 0 0;"><strong>${newDateStr}</strong></p>
       </div>
+      ${params.meetLink ? `
+      <div style="text-align: center; margin: 20px 0;">
+        <a href="${params.meetLink}"
+           style="display: inline-block; background: ${brandColor}; color: white; padding: 12px 28px; border-radius: 6px; text-decoration: none;">
+          Unirse a la videollamada
+        </a>
+      </div>
+      ` : ''}
       <p style="color: #888; font-style: italic;">Si necesitas coordinar otro horario, escríbeme por WhatsApp.</p>
     `),
   });
@@ -266,7 +403,7 @@ export async function sendPasswordResetEmail(params: {
       <h3 style="color: ${brandColor};">Recuperar contraseña</h3>
       <p>Se solicitó un cambio de contraseña para tu cuenta del panel de administración.</p>
       <div style="text-align: center; margin: 24px 0;">
-        <a href="${params.resetLink}" 
+        <a href="${params.resetLink}"
            style="display: inline-block; background: ${brandColor}; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none;">
           Cambiar contraseña
         </a>
@@ -287,6 +424,7 @@ export async function sendInvoiceEmail(params: {
   fecha: string;
   paymentMethods?: { nombre: string; instrucciones?: string }[];
 }): Promise<void> {
+  if (!(await isNotificationEnabled('invoice', 'client'))) return;
   const methodsHtml = (params.paymentMethods || []).map(m =>
     `<div style="background: #fff; padding: 10px 14px; border: 1px solid #e2ede2; border-radius: 6px; margin-bottom: 6px;">
       <strong>${m.nombre}</strong>
@@ -305,13 +443,135 @@ export async function sendInvoiceEmail(params: {
         <p><strong>Concepto:</strong> ${params.concepto}</p>
         <p><strong>Monto:</strong> $${params.monto.toFixed(2)} USD</p>
         <p><strong>Estado:</strong> ${params.estado}</p>
-        <p><strong>Fecha:</strong> ${params.fecha}</p>
+        <p><strong>Fecha:</strong> ${fmtDate(params.fecha, false)}</p>
       </div>
       ${params.estado !== 'pagada' && methodsHtml ? `
         <p><strong>Métodos de pago disponibles:</strong></p>
         ${methodsHtml}
       ` : ''}
       <p style="color: #888; font-style: italic;">Si tienes dudas, escríbeme por WhatsApp.</p>
+    `),
+  });
+}
+
+// ─── Cancellation → Client ───────────────────────────────
+
+export async function sendBookingCancelledEmail(params: {
+  clientEmail: string;
+  clientName: string;
+  cancelledDate: string;
+  serviceName: string;
+  reason?: string;
+  cancelledBy: 'client' | 'admin';
+}): Promise<void> {
+  if (!(await isNotificationEnabled('booking_cancelled', 'client'))) return;
+  const dateStr = fmtDate(params.cancelledDate);
+  const isAdminCancel = params.cancelledBy === 'admin';
+
+  await sendEmail({
+    to: params.clientEmail,
+    subject: 'Tu cita ha sido cancelada — Lda. Silvana López',
+    html: wrapTemplate(`
+      <h3 style="color: ${brandColor};">Cita cancelada</h3>
+      <p>Hola ${params.clientName},</p>
+      <p>
+        ${isAdminCancel
+          ? 'Te informamos que tu cita ha sido cancelada.'
+          : 'Hemos registrado la cancelación de tu cita.'}
+      </p>
+      <div style="background: ${brandLight}; padding: 20px; border-radius: 8px; margin: 16px 0;">
+        <p><strong>Servicio:</strong> ${params.serviceName}</p>
+        <p><strong>Fecha cancelada:</strong> <span style="text-decoration: line-through; color: #999;">${dateStr}</span></p>
+      </div>
+      ${params.reason ? `<p><strong>Motivo:</strong> <em>${params.reason}</em></p>` : ''}
+      <p>Si deseas agendar una nueva cita, puedes hacerlo directamente desde la web:</p>
+      <div style="text-align: center; margin: 20px 0;">
+        <a href="${process.env.NEXT_PUBLIC_APP_URL}/booking"
+           style="display: inline-block; background: ${brandColor}; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none;">
+          Solicitar nueva cita
+        </a>
+      </div>
+      <p style="color: #888; font-style: italic;">Cualquier duda, escríbeme por WhatsApp.</p>
+    `),
+  });
+}
+
+// ─── Cancellation → Admin ────────────────────────────────
+
+export async function sendBookingCancelledAdminNotification(params: {
+  adminEmail: string;
+  clientName: string;
+  clientEmail: string;
+  cancelledDate: string;
+  serviceName: string;
+  reason?: string;
+  cancelledBy: 'client' | 'admin';
+}): Promise<void> {
+  if (!(await isNotificationEnabled('booking_cancelled', 'admin'))) return;
+  const dateStr = fmtDate(params.cancelledDate);
+  const byLabel = params.cancelledBy === 'client' ? 'el cliente' : 'administración';
+
+  await sendEmail({
+    to: params.adminEmail,
+    subject: `Cita cancelada — ${params.clientName}`,
+    html: wrapTemplate(`
+      <h3 style="color: ${brandColor};">Cita cancelada</h3>
+      <p>Se ha cancelado una cita programada (cancelada por ${byLabel}).</p>
+      <div style="background: ${brandLight}; padding: 20px; border-radius: 8px; margin: 16px 0;">
+        <p><strong>Cliente:</strong> ${params.clientName}</p>
+        <p><strong>Email:</strong> ${params.clientEmail}</p>
+        <p><strong>Servicio:</strong> ${params.serviceName}</p>
+        <p><strong>Fecha cancelada:</strong> ${dateStr} (hora Miami)</p>
+        ${params.reason ? `<p><strong>Motivo:</strong> <em>${params.reason}</em></p>` : ''}
+      </div>
+      <a href="${process.env.NEXT_PUBLIC_ADMIN_URL}/admin/dashboard"
+         style="display: inline-block; background: ${brandColor}; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; margin-top: 8px;">
+        Ver panel
+      </a>
+    `),
+  });
+}
+
+// ─── Reminder 24h antes → Client ─────────────────────────
+//
+// NOTA: esta plantilla YA ESTÁ LISTA pero NO se dispara automáticamente.
+// Requiere un scheduler (pg_cron en Supabase o cron externo) que
+// seleccione bookings con confirmed_date entre now+23h y now+25h y llame
+// a esta función por cada uno. Ver docs/DEPLOY.md §9 (pendientes) para
+// la tarea de configurar el scheduler post-deploy.
+
+export async function sendReminderEmail(params: {
+  clientEmail: string;
+  clientName: string;
+  confirmedDate: string;
+  serviceName: string;
+  durationMin: number;
+  meetLink?: string | null;
+}): Promise<void> {
+  if (!(await isNotificationEnabled('reminder_24h', 'client'))) return;
+  const dateStr = fmtDate(params.confirmedDate);
+
+  await sendEmail({
+    to: params.clientEmail,
+    subject: 'Recordatorio: tu cita es mañana — Lda. Silvana López',
+    html: wrapTemplate(`
+      <h3 style="color: ${brandColor};">Tu cita es mañana</h3>
+      <p>Hola ${params.clientName},</p>
+      <p>Te recordamos que tienes una sesión agendada para:</p>
+      <div style="background: ${brandLight}; padding: 20px; border-radius: 8px; margin: 16px 0;">
+        <p style="font-size: 18px; color: ${brandColor}; margin: 0;"><strong>${dateStr}</strong></p>
+        <p style="margin: 8px 0 0;">${params.serviceName} · ${params.durationMin} minutos · hora Miami (FL)</p>
+      </div>
+      ${params.meetLink ? `
+      <div style="text-align: center; margin: 20px 0;">
+        <a href="${params.meetLink}"
+           style="display: inline-block; background: ${brandColor}; color: white; padding: 14px 32px; border-radius: 6px; text-decoration: none; font-size: 16px;">
+          Unirse a la videollamada
+        </a>
+        <p style="font-size: 12px; color: #888; margin-top: 8px;">Guarda este enlace para acceder a la sesión mañana.</p>
+      </div>
+      ` : ''}
+      <p style="color: #888; font-style: italic;">Si necesitas reagendar, escríbeme cuanto antes por WhatsApp.</p>
     `),
   });
 }
