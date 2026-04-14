@@ -270,6 +270,8 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
   const [exceptions, setExceptions] = useState(initialExceptions || []);
   const [excModal, setExcModal] = useState(false);
   const [excEditId, setExcEditId] = useState(null);
+  const [savingExc, setSavingExc] = useState(false);
+  const todayISO = new Date().toISOString().slice(0,10);
   const emptyExcForm = {title:'',type:'dates',dates:[],newDateInput:'',start_date:'',end_date:'',start_time:'09:00',end_time:'13:00',all_day:true,days_of_week:[],notes:''};
   const [excF, setExcF] = useState(emptyExcForm);
 
@@ -311,26 +313,67 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
   };
 
   const saveException = async () => {
+    if (savingExc) return;
     if (!excF.title.trim()) { show('Falta el título'); return; }
-    const payload: any = {
-      id: excEditId || undefined,
-      title: excF.title.trim(),
-      type: excF.type,
-      start_date: excF.start_date || null,
-      end_date: excF.end_date || null,
-      start_time: excF.all_day ? null : excF.start_time,
-      end_time: excF.all_day ? null : excF.end_time,
-      all_day: !!excF.all_day,
-      days_of_week: excF.type === 'recurring' ? excF.days_of_week : null,
-      notes: excF.notes || null,
-      dates: excF.type === 'dates' ? excF.dates : undefined,
-    };
-    const res = await upsertAvailabilityException(payload);
-    if (!res.success) { show(res.error || 'Error al guardar excepción'); return; }
-    // Optimistic refresh: refetch via router
-    setExcModal(false);
-    show(excEditId ? 'Excepción actualizada' : 'Excepción creada');
-    router.refresh();
+    // Reglas de fechas: no permitir fechas pasadas al crear (sí al editar una existente)
+    if (!excEditId) {
+      if (excF.type === 'dates') {
+        if (excF.dates.length === 0) { show('Agrega al menos una fecha'); return; }
+        if (excF.dates.some(d => d < todayISO)) { show('No puedes bloquear fechas pasadas'); return; }
+      }
+      if (excF.type === 'range') {
+        if (!excF.start_date || !excF.end_date) { show('Indica desde y hasta'); return; }
+        if (excF.start_date < todayISO) { show('La fecha "desde" no puede ser pasada'); return; }
+        if (excF.end_date < excF.start_date) { show('"Hasta" debe ser ≥ "desde"'); return; }
+      }
+      if (excF.type === 'recurring') {
+        if (!excF.start_date) { show('Indica fecha de inicio'); return; }
+        if (excF.start_date < todayISO) { show('La fecha de inicio no puede ser pasada'); return; }
+        if (excF.end_date && excF.end_date < excF.start_date) { show('"Hasta" debe ser ≥ "desde"'); return; }
+        if (!excF.days_of_week.length) { show('Selecciona al menos un día de la semana'); return; }
+      }
+    }
+    setSavingExc(true);
+    try {
+      const payload: any = {
+        id: excEditId || undefined,
+        title: excF.title.trim(),
+        type: excF.type,
+        start_date: excF.start_date || null,
+        end_date: excF.end_date || null,
+        start_time: excF.all_day ? null : excF.start_time,
+        end_time: excF.all_day ? null : excF.end_time,
+        all_day: !!excF.all_day,
+        days_of_week: excF.type === 'recurring' ? excF.days_of_week : null,
+        notes: excF.notes || null,
+        dates: excF.type === 'dates' ? excF.dates : undefined,
+      };
+      const res = await upsertAvailabilityException(payload);
+      if (!res.success) { show(res.error || 'Error al guardar excepción'); return; }
+      // Update local state so lista se refresca sin recargar
+      const newRow = {
+        id: res.id || excEditId,
+        title: payload.title,
+        type: payload.type,
+        start_date: payload.start_date,
+        end_date: payload.end_date,
+        start_time: payload.start_time,
+        end_time: payload.end_time,
+        all_day: payload.all_day,
+        days_of_week: payload.days_of_week,
+        notes: payload.notes,
+        dates: payload.dates || [],
+      };
+      setExceptions(prev => {
+        const exists = prev.some(e => e.id === newRow.id);
+        return exists ? prev.map(e => e.id === newRow.id ? { ...e, ...newRow } : e) : [...prev, newRow];
+      });
+      setExcModal(false);
+      show(excEditId ? 'Excepción actualizada' : 'Excepción creada');
+      router.refresh();
+    } finally {
+      setSavingExc(false);
+    }
   };
 
   const removeException = async (id) => {
@@ -563,6 +606,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
           pais: b.client?.country || '',
           motivo: b.client?.reason || '',
           preferenciaPago: b.preferred_payment || '',
+          meetLink: b.meet_link || '',
           paymentLinks: (b.payment_links || []).map(pl => ({
             id: pl.id,
             url: pl.url,
@@ -1427,6 +1471,16 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                           </div>
                         ) : null;
                       })()}
+                      {selRes.meetLink && (
+                        <div style={{display:'flex',alignItems:'center',gap:9,marginBottom:10}}>
+                          <span style={{color:'#4a7a4a',display:'flex',flexShrink:0}}>{I.video || I.clock}</span>
+                          <div style={{minWidth:0,flex:1}}>
+                            <div style={{fontSize:10,color:'#849884',fontWeight:500,textTransform:'uppercase',letterSpacing:'.4px'}}>Google Meet</div>
+                            <a href={selRes.meetLink} target="_blank" rel="noopener noreferrer" style={{fontSize:13,color:'#4a7a4a',fontWeight:500,textDecoration:'underline',wordBreak:'break-all'}}>{selRes.meetLink}</a>
+                          </div>
+                          <button onClick={()=>{navigator.clipboard.writeText(selRes.meetLink);show('Enlace copiado')}} style={{border:'1px solid #c8ddc8',background:'#f0f5f0',borderRadius:6,padding:'4px 10px',fontSize:11,color:'#4a7a4a',cursor:'pointer',flexShrink:0}}>Copiar</button>
+                        </div>
+                      )}
                       {selRes.motivo && <div style={{marginTop:8}}><div style={{fontSize:10,color:'#849884',fontWeight:600,textTransform:'uppercase',letterSpacing:'.4px',marginBottom:3}}>Motivo del paciente</div><div style={{padding:'8px 11px',background:dm?'#1a2a1a':'#f5f9f5',borderRadius:7,fontSize:12,color:dm?'#a0b8a0':'#5a7a5a',lineHeight:1.5,borderLeft:'3px solid #8fb08f'}}>{selRes.motivo}</div></div>}
                       {selRes.notas && <div style={{marginTop:8}}><div style={{fontSize:10,color:'#849884',fontWeight:600,textTransform:'uppercase',letterSpacing:'.4px',marginBottom:3}}>Notas internas</div><div style={{padding:'8px 11px',background:dm?'#1a1a1a':'#f0f5f0',borderRadius:7,fontSize:12,color:'#4e6050',fontStyle:'italic',lineHeight:1.5,borderLeft:'3px solid #c8ddc8'}}>{selRes.notas}</div></div>}
                       <div style={{display:'flex',gap:7,marginTop:14}}>
@@ -1733,7 +1787,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                 <Field label="Título"><input style={inp} value={excF.title} onChange={e=>setExcF({...excF,title:e.target.value})} placeholder="Ej: Cita médica, Vacaciones, Yoga semanal"/></Field>
                 <Field label="Tipo de excepción">
                   <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-                    {[{v:'dates',l:'Fechas sueltas'},{v:'range',l:'Rango continuo'},{v:'recurring',l:'Recurrente'}].map(o=>(
+                    {[{v:'dates',l:'Fechas puntuales'},{v:'range',l:'Rango continuo'},{v:'recurring',l:'Recurrente'}].map(o=>(
                       <button key={o.v} onClick={()=>setExcF({...excF,type:o.v})} style={{padding:'6px 14px',borderRadius:20,border:'1.5px solid',fontSize:12,cursor:'pointer',borderColor:excF.type===o.v?'#4a7a4a':'#c8ddc8',background:excF.type===o.v?'#f0f5f0':'transparent',color:excF.type===o.v?'#4a7a4a':'#849884',fontWeight:excF.type===o.v?500:400}}>{o.l}</button>
                     ))}
                   </div>
@@ -1742,9 +1796,10 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                 {excF.type === 'dates' && (
                   <Field label="Fechas (agrega una o varias)">
                     <div style={{display:'flex',gap:6,alignItems:'center'}}>
-                      <input type="date" style={{...inp,marginBottom:0,flex:1}} value={excF.newDateInput} onChange={e=>setExcF({...excF,newDateInput:e.target.value})}/>
+                      <input type="date" min={todayISO} style={{...inp,marginBottom:0,flex:1}} value={excF.newDateInput} onChange={e=>setExcF({...excF,newDateInput:e.target.value})}/>
                       <button onClick={()=>{
                         if(!excF.newDateInput) return;
+                        if(excF.newDateInput < todayISO) { show('No puedes bloquear fechas pasadas'); return; }
                         if(excF.dates.includes(excF.newDateInput)) { show('Fecha ya agregada'); return; }
                         setExcF({...excF,dates:[...excF.dates,excF.newDateInput].sort(),newDateInput:''});
                       }} style={{...btnP,padding:'7px 14px',fontSize:12}}>+ Añadir</button>
@@ -1764,8 +1819,8 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
 
                 {excF.type === 'range' && (
                   <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
-                    <Field label="Desde"><input type="date" style={inp} value={excF.start_date} onChange={e=>setExcF({...excF,start_date:e.target.value})}/></Field>
-                    <Field label="Hasta"><input type="date" style={inp} value={excF.end_date} onChange={e=>setExcF({...excF,end_date:e.target.value})}/></Field>
+                    <Field label="Desde"><input type="date" min={todayISO} style={inp} value={excF.start_date} onChange={e=>setExcF({...excF,start_date:e.target.value})}/></Field>
+                    <Field label="Hasta"><input type="date" min={excF.start_date || todayISO} style={inp} value={excF.end_date} onChange={e=>setExcF({...excF,end_date:e.target.value})}/></Field>
                   </div>
                 )}
 
@@ -1782,8 +1837,8 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                       </div>
                     </Field>
                     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
-                      <Field label="Desde"><input type="date" style={inp} value={excF.start_date} onChange={e=>setExcF({...excF,start_date:e.target.value})}/></Field>
-                      <Field label="Hasta (opcional)"><input type="date" style={inp} value={excF.end_date} onChange={e=>setExcF({...excF,end_date:e.target.value})}/></Field>
+                      <Field label="Desde"><input type="date" min={todayISO} style={inp} value={excF.start_date} onChange={e=>setExcF({...excF,start_date:e.target.value})}/></Field>
+                      <Field label="Hasta (opcional)"><input type="date" min={excF.start_date || todayISO} style={inp} value={excF.end_date} onChange={e=>setExcF({...excF,end_date:e.target.value})}/></Field>
                     </div>
                   </>
                 )}
@@ -1810,7 +1865,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                   ) : <div/>}
                   <div style={{display:'flex',gap:10}}>
                     <button onClick={()=>setExcModal(false)} style={btnS}>Cancelar</button>
-                    <button onClick={saveException} style={btnP}>{I.check} {excEditId?'Actualizar':'Crear'}</button>
+                    <button onClick={saveException} disabled={savingExc} style={{...btnP,opacity:savingExc?0.6:1,cursor:savingExc?'wait':'pointer'}}>{I.check} {savingExc?'Guardando…':(excEditId?'Actualizar':'Crear')}</button>
                   </div>
                 </div>
               </Modal>

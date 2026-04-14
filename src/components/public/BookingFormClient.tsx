@@ -616,7 +616,7 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
                   className="text-[0.88rem] py-3 px-4 border border-green-pale rounded-xl bg-[#fff] text-text-dark outline-none transition-all focus:border-green-deep focus:shadow-[0_0_0_3px_rgba(74,122,74,0.1)]"
                 />
                 {tel.length > 0 && !normalizePhone(tel) && (
-                  <span className="text-[0.68rem] text-red-600">Formato inválido — incluye el código de país (ej. +1, +54).</span>
+                  <span className="text-[0.68rem] text-red-600">Número inválido — debe tener entre 8 y 15 dígitos, incluyendo el código de país (ej. +1, +54).</span>
                 )}
               </div>
             </div>

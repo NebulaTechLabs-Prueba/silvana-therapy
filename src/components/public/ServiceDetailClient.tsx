@@ -11,25 +11,38 @@ const MONTHS_S = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep',
 
 const DEFAULT_SLOTS = ['09:00', '10:00', '11:00', '15:00', '16:00', '17:00'];
 
-type DaySchedule = { start: string; end: string; enabled: boolean };
+type TimeRange = { start: string; end: string };
+type DaySchedule = { enabled: boolean; ranges?: TimeRange[]; start?: string; end?: string };
 type WorkingHoursMap = Record<string, DaySchedule> | null;
 
 const DAY_KEYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
+function getDayRanges(day: DaySchedule | undefined): TimeRange[] {
+  if (!day?.enabled) return [];
+  if (Array.isArray(day.ranges) && day.ranges.length) return day.ranges;
+  if (day.start && day.end) return [{ start: day.start, end: day.end }];
+  return [];
+}
+
 function isDayEnabled(dayOfWeek: number, wh: WorkingHoursMap): boolean {
   if (!wh) return dayOfWeek !== 0 && dayOfWeek !== 6;
-  return wh[DAY_KEYS[dayOfWeek]]?.enabled ?? false;
+  const day = wh[DAY_KEYS[dayOfWeek]];
+  return !!day?.enabled && getDayRanges(day).length > 0;
 }
 
 function getSlotsForDay(dayOfWeek: number, wh: WorkingHoursMap): string[] {
   if (!wh) return DEFAULT_SLOTS;
-  const day = wh[DAY_KEYS[dayOfWeek]];
-  if (!day?.enabled) return [];
-  const [sh] = day.start.split(':').map(Number);
-  const [eh] = day.end.split(':').map(Number);
+  const ranges = getDayRanges(wh[DAY_KEYS[dayOfWeek]]);
+  if (!ranges.length) return [];
   const slots: string[] = [];
-  for (let h = sh; h < eh; h++) {
-    slots.push(`${String(h).padStart(2, '0')}:00`);
+  for (const r of ranges) {
+    if (!r?.start || !r?.end) continue;
+    const [sh] = r.start.split(':').map(Number);
+    const [eh] = r.end.split(':').map(Number);
+    if (Number.isNaN(sh) || Number.isNaN(eh)) continue;
+    for (let h = sh; h < eh; h++) {
+      slots.push(`${String(h).padStart(2, '0')}:00`);
+    }
   }
   return slots;
 }
