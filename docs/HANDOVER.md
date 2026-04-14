@@ -2,127 +2,143 @@
 
 Esta guía cubre todo lo que debe cambiarse al entregar el proyecto a Silvana López, para desvincular las credenciales de desarrollo y dejar el sistema funcionando con las cuentas de ella.
 
-> **Importante:** durante el desarrollo se usaron cuentas provisionales (Resend, Google Cloud, Google Calendar). Si no se cambian, Silvana dependerá del correo del dev para siempre y el dev recibirá eventos/emails de sus pacientes reales.
+> **Importante:** durante el desarrollo se usaron cuentas provisionales (Brevo, Google Cloud, Google Calendar). Si no se cambian, Silvana dependerá del correo del dev para siempre y el dev recibirá eventos/emails de sus pacientes reales.
+
+---
+
+## Contexto de infraestructura (antes de empezar)
+
+- **Hosting**: DigitalOcean Droplet 1GB (~$6/mes). IP `138.197.7.16`.
+- **Dominio**: `silvanalopez.com` registrado en **Wix** (solo como registrador — el sitio Wix no está activo).
+- **DNS**: gestionados desde el panel de Wix. Los registros A ya apuntan al Droplet.
+- **Bloqueo ICANN 60 días**: el dominio fue registrado recientemente en Wix, lo cual activa un candado automático de transferencia impuesto por ICANN hasta el **5 de junio de 2026**. Durante ese período:
+  - ❌ NO se puede mover el dominio a otro registrador (GoDaddy, Namecheap, etc.).
+  - ❌ NO se pueden cambiar los nameservers a un proveedor externo (Cloudflare, etc.).
+  - ✅ SÍ se pueden editar los registros DNS (A, CNAME, TXT, MX) dentro del panel de Wix.
+- **Por qué no Cloudflare**: se evaluó inicialmente delegar DNS a Cloudflare, pero Wix tampoco permite cambiar nameservers sin transferencia, bloqueada por el mismo candado ICANN. Por eso se abandonó esa vía.
+- **Por qué no Resend**: Resend exige verificar el dominio vía registros MX en un subdominio (`send.silvanalopez.com`), cosa que Wix DNS no permite. Por eso se usa Brevo, que funciona con TXT y CNAME estándar (que Wix sí soporta).
 
 ---
 
 ## Orden recomendado
 
-1. **Preparar cuentas de Silvana** (Cloudflare, Resend, Google Cloud) — parte 1 a 3
-2. **Cambiar credenciales en el deploy** — parte 4
-3. **Desconectar credenciales del dev en el panel** — parte 5
-4. **Verificación final** — parte 6
+1. **Preparar cuentas de Silvana** (Brevo, Google Cloud) — parte 1 y 2
+2. **Cambiar credenciales en el deploy** — parte 3
+3. **Desconectar credenciales del dev en el panel** — parte 4
+4. **Verificación final** — parte 5
 
 **Tiempo estimado total:** 45–90 minutos si todo va bien. Si los DNS tardan en propagarse, hasta 24 h para completar todo (pero puede hacerse por partes).
 
 ---
 
-## Parte 1 — Cloudflare (gestión de DNS)
+## Parte 1 — Brevo (emails transaccionales vía SMTP)
 
-**Por qué**: el dominio `silvanalopez.com` está registrado en Wix, pero Wix no permite los registros MX en subdominios que Resend necesita para verificar dominios. Solución: delegar la gestión de DNS a Cloudflare (gratis), sin mover el dominio de Wix. El dominio sigue siendo propiedad de Silvana en Wix; solo cambia quién administra los registros.
+**Por qué Brevo**: plan gratuito de 300 emails/día, SMTP estándar compatible con cualquier cliente (nodemailer), y verificación de dominio usando solo TXT + CNAME — sin exigir registros MX en subdominios (incompatibles con Wix DNS).
 
-### Pasos
+> **Nota**: el código soporta cualquier proveedor SMTP (Mailgun, SES, Postmark, Zoho, etc.). Si Silvana prefiere otro, los pasos son análogos: crear cuenta, verificar dominio, obtener credenciales SMTP, pegarlas en el panel. Brevo es la opción sugerida por su generosidad en plan gratuito y simplicidad.
 
-1. Abrir [https://dash.cloudflare.com/sign-up](https://dash.cloudflare.com/sign-up) y crear una cuenta con el correo de Silvana.
-2. Click en **Add a Site** → escribir `silvanalopez.com` → Continue.
-3. Elegir plan **Free** → Continue.
-4. Cloudflare escanea los DNS actuales de Wix. **Revisar** que los registros importantes aparezcan:
-   - `A` o `CNAME` de `@` (raíz) y `www` apuntando a Wix (mantienen la web funcionando).
-   - Cualquier otro registro que Silvana tenga en Wix (subdominios, etc.).
-5. Continue → Cloudflare muestra **2 nameservers** como:
-   ```
-   xxxxx.ns.cloudflare.com
-   yyyyy.ns.cloudflare.com
-   ```
-   Copiar ambos.
+### 1.1 Crear cuenta en Brevo
 
-### Cambiar nameservers en Wix
-
-1. Login en Wix con la cuenta de Silvana → **Domains**.
-2. Click en `silvanalopez.com` → **Advanced** → **Name Servers** (o "Change nameservers").
-3. Seleccionar **"Use different name servers"** / **"Custom"**.
-4. Reemplazar los nameservers de Wix con los 2 de Cloudflare → **Save**.
-5. Wix confirma el cambio. Propagación: de 5 min a 24 h, normalmente < 1 h.
-6. Cloudflare envía un email **"Your site is now active"** cuando detecta el cambio.
-
-> **Advertencia**: si la web de Silvana estaba en Wix, sigue funcionando porque los registros A/CNAME se copiaron. No se pierde nada.
-
----
-
-## Parte 2 — Resend (emails transaccionales)
-
-### 2.1 Crear cuenta
-
-1. Abrir [https://resend.com/signup](https://resend.com/signup) y registrarse con el correo de Silvana.
+1. Abrir [https://www.brevo.com/](https://www.brevo.com/) → **Sign up free** con el correo de Silvana.
 2. Verificar el email de confirmación.
+3. Completar el perfil inicial (nombre, empresa = "Silvana López Psicóloga", tipo de uso = "Transactional emails").
 
-### 2.2 Verificar el dominio
+### 1.2 Autenticar el dominio `silvanalopez.com`
 
-1. Ir a [https://resend.com/domains](https://resend.com/domains) → **Add Domain**.
-2. Ingresar `silvanalopez.com` → región recomendada **US East (N. Virginia)** por proximidad a Miami → **Add**.
-3. Resend muestra una lista de **registros DNS** (normalmente: 1 TXT SPF + 3 CNAME DKIM + opcional 1 TXT DMARC). Dejar esta pantalla abierta.
+1. En Brevo, click en el ⚙️ (arriba derecha, junto a "Uso y plan") → **Senders, Domains & Dedicated IPs**.
+2. Pestaña **Domains** → **Add a domain** → escribir `silvanalopez.com` → Save.
+3. Brevo muestra un modal con dos opciones: elegir **"Autentica tú mismo el dominio"** (la automática no soporta Wix).
+4. Brevo lista **4 registros DNS** que hay que añadir en Wix:
+   - 1× **TXT** (código Brevo, host vacío — raíz del dominio): valor tipo `brevo-code:xxxx...`
+   - 2× **CNAME** (DKIM): hosts `brevo1._domainkey` y `brevo2._domainkey`, apuntando a `b1.silvanalopez-com.dkim.brevo.com` y `b2.silvanalopez-com.dkim.brevo.com` respectivamente
+   - 1× **TXT** (DMARC): host `_dmarc`, valor `v=DMARC1; p=none; rua=mailto:rua@dmarc.brevo.com` — ⚠️ **debe empezar con `v=DMARC1`, con la `v` al principio**; sin la `v` el registro es inválido.
+5. Dejar esta pestaña de Brevo abierta.
 
-### 2.3 Añadir los DNS en Cloudflare
+### 1.3 Añadir los 4 registros DNS en Wix
 
-1. En otra pestaña, ir a [Cloudflare dashboard](https://dash.cloudflare.com) → click en `silvanalopez.com` → **DNS** → **Records**.
-2. Por cada registro que muestra Resend, click **Add record** y copiarlo exactamente:
-   - **Type**: TXT o CNAME según indique Resend.
-   - **Name**: el valor que da Resend (ej. `resend._domainkey` — Cloudflare completa el resto del dominio solo).
-   - **Content / Target**: el valor largo que da Resend (pegar tal cual, sin espacios extras).
-   - **Proxy status**: **DNS only** (nube **gris**, nunca naranja) para todos los registros de email.
-   - **TTL**: Auto.
-   - Save.
-3. Repetir hasta añadir los 3-4 registros de Resend.
+1. En otra pestaña, login en Wix → **Dominios** → `silvanalopez.com` → **Administrar DNS**.
+2. Desplazarse hasta encontrar las secciones **CNAME (alias)** y **TXT (texto)**.
+3. **CNAME DKIM 1**: **+ Agregar registro** en la sección CNAME:
+   - Host: `brevo1._domainkey`
+   - Valor: `b1.silvanalopez-com.dkim.brevo.com`
+   - Guardar.
+4. **CNAME DKIM 2**: **+ Agregar registro** en la sección CNAME:
+   - Host: `brevo2._domainkey`
+   - Valor: `b2.silvanalopez-com.dkim.brevo.com`
+   - Guardar.
+5. **TXT código Brevo**: **+ Agregar registro** en la sección TXT:
+   - Host: **vacío** (o `@` si Wix no acepta vacío — ambos significan la raíz)
+   - Valor: el `brevo-code:xxxx...` tal cual
+   - Guardar.
+6. **TXT DMARC**: **+ Agregar registro** en la sección TXT:
+   - Host: `_dmarc`
+   - Valor: `v=DMARC1; p=none; rua=mailto:rua@dmarc.brevo.com` (verificar que empieza con `v=`)
+   - Guardar.
 
-### 2.4 Verificar en Resend
+> ⚠️ **NO tocar** los registros A existentes (`silvanalopez.com`, `admin.silvanalopez.com`, `www.silvanalopez.com` → `138.197.7.16`). Esos son los que hacen que la web funcione.
 
-1. Volver a Resend → Domains → `silvanalopez.com` → **Verify DNS Records**.
-2. Esperar 1–10 min. Si da error, esperar otros 10 min y reintentar (DNS pueden tardar en propagarse).
-3. Cuando quede en verde ✅ **Verified**, el dominio está listo.
+### 1.4 Verificar en Brevo
 
-### 2.5 Generar API Key
+1. Volver a la pestaña de Brevo → final de la pantalla → click **"Autenticar este dominio de email"**.
+2. La propagación de DNS desde Wix tarda entre 5 y 30 min. Si falla al primer intento, esperar y reintentar — **no recrear los registros**.
+3. Verificar propagación en paralelo desde [https://dnschecker.org](https://dnschecker.org) buscando `brevo1._domainkey.silvanalopez.com` con tipo CNAME.
+4. Cuando el estado del dominio en Brevo pase a **Autenticado** ✅, continuar.
 
-1. Ir a [https://resend.com/api-keys](https://resend.com/api-keys) → **Create API Key**.
-2. **Name**: `Silvana Therapy Production`.
-3. **Permission**: **Sending access**.
-4. **Domain**: `silvanalopez.com`.
-5. Create → **COPIAR LA CLAVE INMEDIATAMENTE**, solo se muestra una vez.
-6. Guardarla en un sitio seguro (gestor de contraseñas).
+### 1.5 Generar la SMTP Key
 
-### 2.6 Cargar la API Key en el panel
+1. En Brevo, click en el avatar/nombre arriba a la derecha → **SMTP & API**. Atajo: [https://app.brevo.com/settings/keys/smtp](https://app.brevo.com/settings/keys/smtp)
+2. Pestaña **SMTP**. Anotar de esta pantalla:
+   - **SMTP Server**: `smtp-relay.brevo.com`
+   - **Port**: `587`
+   - **Login**: `xxxxxxx@smtp-brevo.com` ← será el **Usuario SMTP**
+3. Click en **"Generate a new SMTP key"**:
+   - Name: `silvana-therapy-prod`
+   - Generate → Brevo muestra la clave completa (tipo `xsmtpsib-...`) en un modal.
+   - ⚠️ **COPIAR LA CLAVE INMEDIATAMENTE** — solo se muestra una vez. Guardarla en el gestor de contraseñas.
+
+### 1.6 Cargar las credenciales SMTP en el panel admin
 
 Opción A — desde el panel admin (recomendado):
 1. Login en el panel admin de Silvana Therapy.
-2. Dashboard → **Integraciones** → **Correo (Resend)**.
-3. Pegar la API Key en el campo correspondiente.
-4. **Remitente (email)**: `noreply@silvanalopez.com` (o el que prefiera).
-5. **Nombre remitente**: `Silvana López`.
-6. Guardar.
+2. Dashboard → **Integraciones** → **Correo (SMTP)**.
+3. Rellenar:
+   - **Host**: `smtp-relay.brevo.com`
+   - **Puerto**: `587`
+   - **TLS directo (465)**: **No (STARTTLS)**
+   - **Usuario**: el login copiado del paso 1.5 (`xxxxxxx@smtp-brevo.com`)
+   - **Contraseña / API Key**: la SMTP key (`xsmtpsib-...`)
+   - **Remitente (email)**: `noreply@silvanalopez.com`
+   - **Remitente (nombre)**: `Silvana López`
+4. Guardar. El badge debe cambiar a "Conectado" (verde).
 
 Opción B — vía variables de entorno del deploy:
 ```
-RESEND_API_KEY=re_xxx
+SMTP_HOST=smtp-relay.brevo.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=xxxxxxx@smtp-brevo.com
+SMTP_PASSWORD=xsmtpsib-...
 EMAIL_FROM=Silvana López <noreply@silvanalopez.com>
 ```
 (El panel lee de la base de datos primero; si está vacío, cae a las env vars.)
 
 ---
 
-## Parte 3 — Google Cloud (OAuth para Calendar + Meet)
+## Parte 2 — Google Cloud (OAuth para Calendar + Meet)
 
-### 3.1 Crear proyecto
+### 2.1 Crear proyecto
 
 1. Abrir [https://console.cloud.google.com](https://console.cloud.google.com) con la cuenta Google de Silvana (la misma del calendario que quiere usar).
 2. Barra superior → selector de proyecto → **New Project**.
 3. **Project name**: `Silvana Calendar` → Create.
 4. Esperar a que se cree y seleccionarlo en la barra superior.
 
-### 3.2 Habilitar Calendar API
+### 2.2 Habilitar Calendar API
 
 1. Menú hamburguesa ☰ → **APIs & Services** → **Library**.
 2. Buscar `Google Calendar API` → click → **Enable**.
 
-### 3.3 Configurar Google Auth Platform
+### 2.3 Configurar Google Auth Platform
 
 1. Menú ☰ → **APIs & Services** → **OAuth consent screen** (o "Google Auth Platform" → Overview → **Get Started**).
 2. **User Type**: **External** → Create.
@@ -146,7 +162,7 @@ EMAIL_FROM=Silvana López <noreply@silvanalopez.com>
    - Como ella es la **owner** del proyecto, puede autorizarse a sí misma sin problema.
 7. Los campos de "Branding" (privacy policy, terms, homepage) pueden quedar **vacíos** mientras esté en modo Testing.
 
-### 3.4 Crear OAuth Client
+### 2.4 Crear OAuth Client
 
 1. Menú ☰ → **APIs & Services** → **Credentials** (o "Google Auth Platform" → **Clients**).
 2. **+ Create Credentials** → **OAuth client ID**.
@@ -160,7 +176,7 @@ EMAIL_FROM=Silvana López <noreply@silvanalopez.com>
 6. Create.
 7. **COPIAR** el **Client ID** y el **Client Secret** del modal. El secret solo se muestra una vez.
 
-### 3.5 Cargar credenciales en el deploy
+### 2.5 Cargar credenciales en el deploy
 
 En las variables de entorno del hosting (Vercel, Netlify, Render, etc.):
 ```
@@ -173,76 +189,81 @@ Redeploy para que los valores nuevos tomen efecto.
 
 ---
 
-## Parte 4 — Desvincular credenciales del dev
+## Parte 3 — Desvincular credenciales del dev
 
-### 4.1 Desconectar Google del dev desde el panel
+### 3.1 Desconectar Google del dev desde el panel
 
 1. Login al panel admin con la cuenta de Silvana.
 2. Dashboard → **Integraciones** → **Google Calendar + Meet**.
 3. Click en **Desconectar**. Esto borra la fila de `google_integrations` (tokens del dev) y revoca el acceso.
 4. El badge cambia a "No conectado".
 
-### 4.2 Conectar la cuenta de Silvana
+### 3.2 Conectar la cuenta de Silvana
 
 1. En la misma sección → **Conectar con Google**.
-2. Login con la cuenta Google de **Silvana** (la misma configurada en el Google Cloud project del paso 3).
+2. Login con la cuenta Google de **Silvana** (la misma configurada en el Google Cloud project del paso 2).
 3. Aceptar los permisos (verá los 3 scopes solicitados).
 4. Vuelve al dashboard con toast "Google conectado" y el badge en verde mostrando su email.
 
-### 4.3 Borrar API Key del dev en Resend
+### 3.3 Reemplazar SMTP key del dev por la de Silvana
 
-Si durante el desarrollo quedó la API Key del dev guardada en `admin_settings.resend_api_key`:
+Durante el desarrollo se usó una cuenta Brevo del dev con su propia SMTP key. Al entregar:
 
-1. Dashboard → Integraciones → Correo (Resend).
-2. Reemplazar el valor por la API Key nueva de Silvana (de la parte 2.5).
-3. Guardar.
+1. Dashboard → **Integraciones** → **Correo (SMTP)**.
+2. Reemplazar los campos **Usuario** y **Contraseña / API Key** por los generados con la cuenta Brevo de Silvana (parte 1.5).
+3. Host, puerto, remitente permanecen iguales si Silvana también usa Brevo.
+4. Guardar.
 
-El dev también debería **revocar su propia API Key de Resend** en [resend.com/api-keys](https://resend.com/api-keys) para que no quede flotando.
+El dev también debería **revocar su propia SMTP key de Brevo** entrando a [https://app.brevo.com/settings/keys/smtp](https://app.brevo.com/settings/keys/smtp) → seleccionar la key del dev → eliminar. Así no queda flotando ninguna credencial viva asociada al proyecto.
 
 ---
 
-## Parte 5 — Resumen de variables de entorno a cambiar
+## Parte 4 — Resumen de variables de entorno a cambiar
 
-Estas son las vars que deben actualizarse en el hosting de producción al entregar. Las demás (Supabase, Stripe, PayPal, etc.) dependen de si Silvana también quiere sus propias cuentas — ver sección "Otras integraciones" abajo.
+Estas son las vars que deben actualizarse en el `.env` del Droplet al entregar. Las demás (Supabase, Stripe, PayPal) dependen de si Silvana también quiere sus propias cuentas — ver sección "Otras integraciones" abajo.
 
 | Variable | Antes (dev) | Después (Silvana) |
 |----------|-------------|-------------------|
 | `GOOGLE_CLIENT_ID` | Cuenta Google Cloud del dev | Cuenta Google Cloud de Silvana |
 | `GOOGLE_CLIENT_SECRET` | idem | idem |
 | `GOOGLE_REDIRECT_URI` | `http://localhost:3000/...` | `https://admin.silvanalopez.com/api/google/callback` |
-| `RESEND_API_KEY` | API key de dev | API key de Silvana (o dejar vacía y usar la del panel) |
-| `EMAIL_FROM` | `onboarding@resend.dev` | `Silvana López <noreply@silvanalopez.com>` |
+| `SMTP_HOST` | `smtp-relay.brevo.com` (dev) | `smtp-relay.brevo.com` (Silvana) |
+| `SMTP_USER` | Login Brevo del dev | Login Brevo de Silvana |
+| `SMTP_PASSWORD` | SMTP key del dev | SMTP key de Silvana |
+| `EMAIL_FROM` | correo provisional del dev | `Silvana López <noreply@silvanalopez.com>` |
 | `NEXT_PUBLIC_APP_URL` | `http://localhost:3000` | `https://silvanalopez.com` |
 | `NEXT_PUBLIC_ADMIN_URL` | `http://localhost:3000/admin` | `https://admin.silvanalopez.com/admin` |
 
 **Env vars que ya NO se usan** (limpiar si aparecen en deploys antiguos):
+- `RESEND_API_KEY` — obsoleta, reemplazada por `SMTP_*`.
 - `GOOGLE_SERVICE_ACCOUNT_KEY_BASE64` — obsoleta, reemplazada por OAuth flow.
 - `GOOGLE_CALENDAR_ID` — obsoleta, ahora se lee de `google_integrations.calendar_id` en DB.
 
 ---
 
-## Parte 6 — Verificación final
+## Parte 5 — Verificación final
 
 Pruebas que deben pasar antes de dar el proyecto por entregado:
 
-### 6.1 Email
+### 5.1 Email
 - [ ] Crear una reserva de prueba desde la web pública con el correo de Silvana como cliente.
 - [ ] Silvana recibe "Hemos recibido tu solicitud" en su bandeja.
-- [ ] Revisar en [resend.com/logs](https://resend.com/logs) que el email salió desde `noreply@silvanalopez.com`.
+- [ ] Revisar en el dashboard de Brevo ([app.brevo.com/statistics](https://app.brevo.com/statistics)) que el email salió desde `noreply@silvanalopez.com`.
 - [ ] Confirmar la reserva desde el admin.
 - [ ] Silvana recibe "Tu cita ha sido confirmada" con botón "Unirse a la videollamada".
 - [ ] Click en el botón abre Google Meet correctamente.
 
-### 6.2 Google Calendar / Meet
+### 5.2 Google Calendar / Meet
 - [ ] El evento confirmado aparece en el calendario personal de Silvana.
 - [ ] El horario está en hora Miami (America/New_York).
 - [ ] El enlace Meet del evento coincide con el del email.
 - [ ] Rechazar una reserva de prueba: el evento no se crea, llega email de rechazo.
 
-### 6.3 Desvinculación del dev
+### 5.3 Desvinculación del dev
 - [ ] En el panel → Integraciones → Google muestra el email de **Silvana**, no el del dev.
+- [ ] En el panel → Integraciones → Correo (SMTP) muestra las credenciales de Silvana.
 - [ ] Ningún email de prueba llegó al correo del dev.
-- [ ] El dev revocó su API Key de Resend y (opcionalmente) eliminó el proyecto Google Cloud temporal.
+- [ ] El dev revocó su SMTP key de Brevo y (opcionalmente) eliminó el proyecto Google Cloud temporal.
 
 ---
 
@@ -272,12 +293,13 @@ Esta migración puede posponerse — el proyecto puede seguir funcionando en el 
 
 Cuando acompañes a Silvana en vivo (por videollamada) para hacer este traspaso, estos son los momentos en los que **ella debe actuar**:
 
-1. **Cloudflare** → crear cuenta (con su correo + contraseña nueva).
-2. **Wix** → cambiar nameservers (ella pone su usuario/contraseña de Wix; tú indicas dónde pegar).
-3. **Resend** → crear cuenta, verificar email, añadir dominio, generar API Key.
-4. **Google Cloud** → login con su cuenta Google, seguir el wizard paso a paso.
-5. **Panel admin** → "Conectar con Google" y autorizarse a sí misma.
+1. **Brevo** → crear cuenta (con su correo + contraseña nueva), verificar email, autenticar dominio y generar SMTP key.
+2. **Wix** → entrar al panel de DNS para pegar los 4 registros que pide Brevo (2 CNAME + 2 TXT). Ella pone su usuario/contraseña de Wix; tú indicas dónde pegar.
+3. **Google Cloud** → login con su cuenta Google, seguir el wizard paso a paso para crear proyecto, habilitar Calendar API, configurar consent screen y generar OAuth Client.
+4. **Panel admin** → pegar credenciales SMTP en "Integraciones → Correo (SMTP)", luego click en "Conectar con Google" y autorizarse a sí misma.
 
-Todo lo demás (pegar env vars, redeploy, verificar logs) lo haces tú.
+Todo lo demás (pegar env vars en el Droplet, redeploy, verificar logs) lo haces tú.
 
 **Tiempo estimado en sesión en vivo con Silvana**: 60–90 min, asumiendo que los DNS propaguen rápido.
+
+> **Recordatorio**: el bloqueo ICANN del dominio en Wix expira el **5 de junio de 2026**. A partir de esa fecha Silvana (o un dev futuro) podría transferir el dominio a un registrador con mejor panel DNS (Cloudflare, Namecheap, Porkbun) si se quiere más flexibilidad. Mientras tanto el setup actual con Brevo + Wix DNS es plenamente funcional.
