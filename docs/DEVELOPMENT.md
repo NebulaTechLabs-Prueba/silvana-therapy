@@ -183,16 +183,23 @@ Comportamientos:
 
 ## 6. Base de datos
 
-Las migraciones viven en `supabase/migrations/` y se aplican manualmente desde el SQL Editor de Supabase. Orden numerado (`001_*`, `002_*`, ...) — aplicar en secuencia.
+El schema vive en un **único baseline**: [`supabase/migrations/001_baseline.sql`](../supabase/migrations/001_baseline.sql). Consolida las 15 migraciones históricas en un solo archivo para simplificar la entrega y evitar el drift entre migraciones viejas y el schema real.
 
-Para setup desde cero en una instancia Supabase nueva:
+### Setup desde cero en una instancia Supabase nueva
 
 1. Crear proyecto Supabase (región US East para cercanía con Miami/NYC).
-2. SQL Editor → ejecutar cada migración en orden.
-3. Authentication → Users → crear usuario admin con Auto Confirm.
+2. SQL Editor → abrir `001_baseline.sql` → **Run**. Crea enums, tablas, índices, funciones, triggers, RLS policies y el singleton de `admin_settings`.
+3. Authentication → Users → crear usuario admin con **Auto Confirm** activo.
 4. Authentication → URL Configuration → añadir `http://localhost:3000/**` y `https://admin.silvanalopez.com/**` a los redirect URLs.
+5. Poblar `services` y `payment_methods` desde el dashboard (el baseline **no** seedea estas tablas — se asume que el catálogo real lo llena el admin).
 
-Seed data de demo para presentación: `supabase/seed_demo_data.sql` (safe to re-run, borra datos demo previos antes de insertar).
+### Futuros cambios de schema
+
+Cualquier modificación posterior al baseline se añade como una migración nueva numerada a partir de `002_*.sql` (ej. `002_add_invoice_pdf_url.sql`). Nunca editar `001_baseline.sql` en instancias ya desplegadas — crear una migración incremental en su lugar.
+
+### Seed data de demo
+
+Para cargar datos de ejemplo (pacientes, reservas, facturas) de cara a una presentación: `supabase/seed_demo_data.sql`. Es idempotente — borra cualquier dato demo previo antes de insertar.
 
 ---
 
