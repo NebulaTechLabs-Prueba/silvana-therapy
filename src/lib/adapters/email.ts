@@ -1,6 +1,7 @@
 import nodemailer from 'nodemailer';
 import type { Transporter } from 'nodemailer';
 import { createAdminClient } from '@/lib/supabase/admin';
+import type { EmailEventKey, EmailRecipient, EmailNotificationPrefs } from '@/types/database';
 
 /**
  * Email Adapter (SMTP genérico).
@@ -117,6 +118,39 @@ async function sendEmail(params: EmailParams): Promise<void> {
   }
 }
 
+// ─── Notification preferences guard ──────────────────────
+//
+// Silvana controla desde el dashboard (Integraciones > Notificaciones
+// por email) que eventos disparan correo y para que destinatario.
+// Los correos de auth (password_reset) NO pasan por aqui — son criticos
+// y siempre se envian.
+//
+// Defaults si no hay config (por si la fila esta vacia o el JSONB es
+// null): TRUE. Mas vale sobre-notificar que perder una notificacion.
+
+async function isNotificationEnabled(
+  event: EmailEventKey,
+  recipient: EmailRecipient,
+): Promise<boolean> {
+  try {
+    const supabase = createAdminClient();
+    const { data } = await supabase
+      .from('admin_settings')
+      .select('email_notifications')
+      .limit(1)
+      .single();
+
+    const prefs = data?.email_notifications as EmailNotificationPrefs | null;
+    if (!prefs) return true;
+    const eventPrefs = prefs[event];
+    if (!eventPrefs) return true;
+    const value = eventPrefs[recipient];
+    return value !== false;
+  } catch {
+    return true;
+  }
+}
+
 function fmtDate(iso: string, withTime = true): string {
   const opts: Intl.DateTimeFormatOptions = {
     timeZone: BASE_TZ,
@@ -165,6 +199,7 @@ export async function sendBookingReceivedEmail(params: {
   preferredDate?: string;
   isFirstSession: boolean;
 }): Promise<void> {
+  if (!(await isNotificationEnabled('booking_received', 'client'))) return;
   const dateStr = params.preferredDate ? fmtDate(params.preferredDate) : null;
 
   await sendEmail({
@@ -196,6 +231,7 @@ export async function sendNewBookingNotification(params: {
   isFirstSession: boolean;
   bookingId: string;
 }): Promise<void> {
+  if (!(await isNotificationEnabled('booking_received', 'admin'))) return;
   const adminUrl = process.env.NEXT_PUBLIC_ADMIN_URL;
 
   await sendEmail({
@@ -229,6 +265,7 @@ export async function sendBookingConfirmedEmail(params: {
   durationMin: number;
   meetLink?: string | null;
 }): Promise<void> {
+  if (!(await isNotificationEnabled('booking_confirmed', 'client'))) return;
   const dateStr = fmtDate(params.confirmedDate);
 
   await sendEmail({
@@ -263,6 +300,7 @@ export async function sendBookingRejectedEmail(params: {
   clientName: string;
   reason?: string;
 }): Promise<void> {
+  if (!(await isNotificationEnabled('booking_rejected', 'client'))) return;
   await sendEmail({
     to: params.clientEmail,
     subject: 'Sobre tu solicitud de cita — Lda. Silvana López',
@@ -290,6 +328,7 @@ export async function sendPaymentLinkEmail(params: {
   paymentUrl: string;
   expiresAt?: string;
 }): Promise<void> {
+  if (!(await isNotificationEnabled('payment_link', 'client'))) return;
   const surchargeNote = params.provider === 'paypal'
     ? `<p style="font-size: 13px; color: #888;">* El monto incluye un recargo del 10% por uso de PayPal.</p>`
     : '';
@@ -324,6 +363,7 @@ export async function sendRescheduledEmail(params: {
   newDate: string;
   meetLink?: string | null;
 }): Promise<void> {
+  if (!(await isNotificationEnabled('booking_rescheduled', 'client'))) return;
   const oldDateStr = fmtDate(params.oldDate);
   const newDateStr = fmtDate(params.newDate);
 
@@ -384,6 +424,7 @@ export async function sendInvoiceEmail(params: {
   fecha: string;
   paymentMethods?: { nombre: string; instrucciones?: string }[];
 }): Promise<void> {
+  if (!(await isNotificationEnabled('invoice', 'client'))) return;
   const methodsHtml = (params.paymentMethods || []).map(m =>
     `<div style="background: #fff; padding: 10px 14px; border: 1px solid #e2ede2; border-radius: 6px; margin-bottom: 6px;">
       <strong>${m.nombre}</strong>
@@ -409,6 +450,128 @@ export async function sendInvoiceEmail(params: {
         ${methodsHtml}
       ` : ''}
       <p style="color: #888; font-style: italic;">Si tienes dudas, escríbeme por WhatsApp.</p>
+    `),
+  });
+}
+
+// ─── Cancellation → Client ───────────────────────────────
+
+export async function sendBookingCancelledEmail(params: {
+  clientEmail: string;
+  clientName: string;
+  cancelledDate: string;
+  serviceName: string;
+  reason?: string;
+  cancelledBy: 'client' | 'admin';
+}): Promise<void> {
+  if (!(await isNotificationEnabled('booking_cancelled', 'client'))) return;
+  const dateStr = fmtDate(params.cancelledDate);
+  const isAdminCancel = params.cancelledBy === 'admin';
+
+  await sendEmail({
+    to: params.clientEmail,
+    subject: 'Tu cita ha sido cancelada — Lda. Silvana López',
+    html: wrapTemplate(`
+      <h3 style="color: ${brandColor};">Cita cancelada</h3>
+      <p>Hola ${params.clientName},</p>
+      <p>
+        ${isAdminCancel
+          ? 'Te informamos que tu cita ha sido cancelada.'
+          : 'Hemos registrado la cancelación de tu cita.'}
+      </p>
+      <div style="background: ${brandLight}; padding: 20px; border-radius: 8px; margin: 16px 0;">
+        <p><strong>Servicio:</strong> ${params.serviceName}</p>
+        <p><strong>Fecha cancelada:</strong> <span style="text-decoration: line-through; color: #999;">${dateStr}</span></p>
+      </div>
+      ${params.reason ? `<p><strong>Motivo:</strong> <em>${params.reason}</em></p>` : ''}
+      <p>Si deseas agendar una nueva cita, puedes hacerlo directamente desde la web:</p>
+      <div style="text-align: center; margin: 20px 0;">
+        <a href="${process.env.NEXT_PUBLIC_APP_URL}/booking"
+           style="display: inline-block; background: ${brandColor}; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none;">
+          Solicitar nueva cita
+        </a>
+      </div>
+      <p style="color: #888; font-style: italic;">Cualquier duda, escríbeme por WhatsApp.</p>
+    `),
+  });
+}
+
+// ─── Cancellation → Admin ────────────────────────────────
+
+export async function sendBookingCancelledAdminNotification(params: {
+  adminEmail: string;
+  clientName: string;
+  clientEmail: string;
+  cancelledDate: string;
+  serviceName: string;
+  reason?: string;
+  cancelledBy: 'client' | 'admin';
+}): Promise<void> {
+  if (!(await isNotificationEnabled('booking_cancelled', 'admin'))) return;
+  const dateStr = fmtDate(params.cancelledDate);
+  const byLabel = params.cancelledBy === 'client' ? 'el cliente' : 'administración';
+
+  await sendEmail({
+    to: params.adminEmail,
+    subject: `Cita cancelada — ${params.clientName}`,
+    html: wrapTemplate(`
+      <h3 style="color: ${brandColor};">Cita cancelada</h3>
+      <p>Se ha cancelado una cita programada (cancelada por ${byLabel}).</p>
+      <div style="background: ${brandLight}; padding: 20px; border-radius: 8px; margin: 16px 0;">
+        <p><strong>Cliente:</strong> ${params.clientName}</p>
+        <p><strong>Email:</strong> ${params.clientEmail}</p>
+        <p><strong>Servicio:</strong> ${params.serviceName}</p>
+        <p><strong>Fecha cancelada:</strong> ${dateStr} (hora Miami)</p>
+        ${params.reason ? `<p><strong>Motivo:</strong> <em>${params.reason}</em></p>` : ''}
+      </div>
+      <a href="${process.env.NEXT_PUBLIC_ADMIN_URL}/admin/dashboard"
+         style="display: inline-block; background: ${brandColor}; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; margin-top: 8px;">
+        Ver panel
+      </a>
+    `),
+  });
+}
+
+// ─── Reminder 24h antes → Client ─────────────────────────
+//
+// NOTA: esta plantilla YA ESTÁ LISTA pero NO se dispara automáticamente.
+// Requiere un scheduler (pg_cron en Supabase o cron externo) que
+// seleccione bookings con confirmed_date entre now+23h y now+25h y llame
+// a esta función por cada uno. Ver docs/DEPLOY.md §9 (pendientes) para
+// la tarea de configurar el scheduler post-deploy.
+
+export async function sendReminderEmail(params: {
+  clientEmail: string;
+  clientName: string;
+  confirmedDate: string;
+  serviceName: string;
+  durationMin: number;
+  meetLink?: string | null;
+}): Promise<void> {
+  if (!(await isNotificationEnabled('reminder_24h', 'client'))) return;
+  const dateStr = fmtDate(params.confirmedDate);
+
+  await sendEmail({
+    to: params.clientEmail,
+    subject: 'Recordatorio: tu cita es mañana — Lda. Silvana López',
+    html: wrapTemplate(`
+      <h3 style="color: ${brandColor};">Tu cita es mañana</h3>
+      <p>Hola ${params.clientName},</p>
+      <p>Te recordamos que tienes una sesión agendada para:</p>
+      <div style="background: ${brandLight}; padding: 20px; border-radius: 8px; margin: 16px 0;">
+        <p style="font-size: 18px; color: ${brandColor}; margin: 0;"><strong>${dateStr}</strong></p>
+        <p style="margin: 8px 0 0;">${params.serviceName} · ${params.durationMin} minutos · hora Miami (FL)</p>
+      </div>
+      ${params.meetLink ? `
+      <div style="text-align: center; margin: 20px 0;">
+        <a href="${params.meetLink}"
+           style="display: inline-block; background: ${brandColor}; color: white; padding: 14px 32px; border-radius: 6px; text-decoration: none; font-size: 16px;">
+          Unirse a la videollamada
+        </a>
+        <p style="font-size: 12px; color: #888; margin-top: 8px;">Guarda este enlace para acceder a la sesión mañana.</p>
+      </div>
+      ` : ''}
+      <p style="color: #888; font-style: italic;">Si necesitas reagendar, escríbeme cuanto antes por WhatsApp.</p>
     `),
   });
 }

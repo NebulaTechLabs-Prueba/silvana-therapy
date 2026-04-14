@@ -204,6 +204,22 @@ CREATE TABLE admin_settings (
   -- Plantillas WhatsApp por evento (variables: {cliente} {servicio} {fecha} {hora} {precio} {link} {motivo})
   wa_templates         JSONB DEFAULT '{}'::jsonb,
 
+  -- Preferencias de notificacion por email.
+  -- Esquema: { <evento>: { "client": bool, "admin": bool } }
+  -- Si un destinatario no aplica a un evento (ej. "booking_confirmed"
+  -- solo tiene sentido para cliente), la clave simplemente no existe.
+  -- Los emails criticos de auth (password_reset) NO son configurables.
+  email_notifications  JSONB DEFAULT '{
+    "booking_received":    {"client": true, "admin": true},
+    "booking_confirmed":   {"client": true},
+    "booking_rejected":    {"client": true},
+    "booking_cancelled":   {"client": true, "admin": true},
+    "booking_rescheduled": {"client": true},
+    "payment_link":        {"client": true},
+    "reminder_24h":        {"client": true},
+    "invoice":             {"client": true}
+  }'::jsonb,
+
   updated_at           TIMESTAMPTZ DEFAULT now(),
 
   CONSTRAINT chk_settings_question_length CHECK (security_question IS NULL OR char_length(security_question) <= 500),
@@ -219,6 +235,7 @@ COMMENT ON COLUMN admin_settings.smtp_host         IS 'Host SMTP (ej. smtp-relay
 COMMENT ON COLUMN admin_settings.smtp_port         IS 'Puerto SMTP (587 STARTTLS, 465 TLS)';
 COMMENT ON COLUMN admin_settings.smtp_secure       IS 'TRUE si el puerto es 465 (TLS directo); FALSE para 587 (STARTTLS)';
 COMMENT ON COLUMN admin_settings.wa_templates      IS 'Plantillas WA por evento. Variables: {cliente} {servicio} {fecha} {hora} {precio} {link} {motivo}';
+COMMENT ON COLUMN admin_settings.email_notifications IS 'Toggles por evento y destinatario. Estructura: { evento: { client: bool, admin: bool } }. Controlado desde Integraciones > Notificaciones por email.';
 
 
 -- ─── 3.4 bookings ────────────────────────────────────────────

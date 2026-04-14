@@ -4,7 +4,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { logoutAction } from "@/lib/actions/auth";
-import { updateProfile, updateAuthEmail, updateAuthPassword, updateNotepad, updateNickname, updateContactInfo, upsertService, deleteService, toggleServiceActive, upsertInvoice, deleteInvoice, sendInvoiceNotification, upsertBooking, deleteBooking, updateBookingStatus, upsertPaymentMethod, deletePaymentMethod, togglePaymentMethodActive, upsertAdminLink, deleteAdminLink, updateSecurityQuestion, linkPaymentLinkToBooking, unlinkPaymentLinkFromBooking, upsertAvailabilityException, deleteAvailabilityException, updateIntegrations, updateWaTemplates } from '@/lib/actions/dashboard';
+import { updateProfile, updateAuthEmail, updateAuthPassword, updateNotepad, updateNickname, updateContactInfo, upsertService, deleteService, toggleServiceActive, upsertInvoice, deleteInvoice, sendInvoiceNotification, upsertBooking, deleteBooking, updateBookingStatus, upsertPaymentMethod, deletePaymentMethod, togglePaymentMethodActive, upsertAdminLink, deleteAdminLink, updateSecurityQuestion, linkPaymentLinkToBooking, unlinkPaymentLinkFromBooking, upsertAvailabilityException, deleteAvailabilityException, updateIntegrations, updateWaTemplates, updateEmailNotifications } from '@/lib/actions/dashboard';
 import { getClientTime } from '@/lib/utils/timezone';
 import { escapeHtml } from '@/lib/utils/escapeHtml';
 import { normalizePhone, buildWaLink } from '@/lib/utils/phone';
@@ -454,6 +454,49 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
   const saveWaTpls = async () => {
     const res = await updateWaTemplates(waTpls);
     if (res.success) show('Plantillas guardadas'); else show(res.error || 'Error al guardar');
+  };
+
+  // Email notification preferences (per event / per recipient)
+  const emailEventLabels: Record<string, string> = {
+    booking_received:    'Reserva recibida',
+    booking_confirmed:   'Reserva confirmada',
+    booking_rejected:    'Reserva rechazada',
+    booking_cancelled:   'Reserva cancelada',
+    booking_rescheduled: 'Reserva reprogramada',
+    payment_link:        'Enlace de pago enviado',
+    reminder_24h:        'Recordatorio 24h antes',
+    invoice:             'Factura enviada',
+  };
+  const emailEventShape: Record<string, ('client'|'admin')[]> = {
+    booking_received:    ['client','admin'],
+    booking_confirmed:   ['client'],
+    booking_rejected:    ['client'],
+    booking_cancelled:   ['client','admin'],
+    booking_rescheduled: ['client'],
+    payment_link:        ['client'],
+    reminder_24h:        ['client'],
+    invoice:             ['client'],
+  };
+  const [emailNotifs, setEmailNotifs] = useState<Record<string,Record<string,boolean>>>(() => {
+    const fromDb = (initialSettings?.email_notifications || {}) as Record<string,Record<string,boolean>>;
+    const out: Record<string,Record<string,boolean>> = {};
+    for (const [ev, recips] of Object.entries(emailEventShape)) {
+      out[ev] = {};
+      for (const r of recips) {
+        out[ev][r] = fromDb[ev]?.[r] ?? true;
+      }
+    }
+    return out;
+  });
+  const toggleEmailNotif = (event: string, recipient: string) => {
+    setEmailNotifs(prev => ({
+      ...prev,
+      [event]: { ...prev[event], [recipient]: !prev[event]?.[recipient] },
+    }));
+  };
+  const saveEmailNotifs = async () => {
+    const res = await updateEmailNotifications(emailNotifs);
+    if (res.success) show('Preferencias de correo guardadas'); else show(res.error || 'Error al guardar');
   };
 
   // Render a WA template with a booking's data
@@ -2056,6 +2099,43 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                   <Field label="Remitente (email)"><input style={inp} type="email" value={smtpCfg.from_email} onChange={e=>setSmtpCfg({...smtpCfg,from_email:e.target.value})} placeholder="hola@tudominio.com"/></Field>
                   <Field label="Remitente (nombre)"><input style={inp} value={smtpCfg.from_name} onChange={e=>setSmtpCfg({...smtpCfg,from_name:e.target.value})} placeholder="Lda. Silvana López"/></Field>
                   <button onClick={saveSmtpCfg} style={{...btnP,width:'100%',justifyContent:'center',marginTop:6}}>{I.check} Guardar</button>
+                </div>
+
+                {/* Preferencias de notificaciones por correo */}
+                <div style={{...CARD,padding:20,gridColumn:'1 / -1'}}>
+                  <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:12}}>
+                    <div style={{width:38,height:38,borderRadius:10,background:'linear-gradient(135deg,#6a8a6a,#4e6050)',display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:700,fontSize:16}}>✉</div>
+                    <div>
+                      <div style={{fontSize:14,fontWeight:500}}>Notificaciones por correo</div>
+                      <div style={{fontSize:11,color:'#849884'}}>Elige qué correos se envían al cliente y a ti</div>
+                    </div>
+                  </div>
+                  <div style={{fontSize:11,color:'#849884',marginBottom:12,padding:'8px 11px',background:'#fafcfa',borderRadius:7,border:'1px dashed #c8ddc8'}}>
+                    Desactivar una casilla omite el envío de ese correo. Los correos de restablecimiento de contraseña siempre se envían.
+                  </div>
+                  <div style={{display:'grid',gap:6}}>
+                    <div style={{display:'grid',gridTemplateColumns:'1fr 90px 90px',fontSize:10,fontWeight:600,color:'#849884',textTransform:'uppercase',letterSpacing:'.4px',padding:'4px 10px'}}>
+                      <div>Evento</div>
+                      <div style={{textAlign:'center'}}>Cliente</div>
+                      <div style={{textAlign:'center'}}>Silvana</div>
+                    </div>
+                    {Object.entries(emailEventShape).map(([ev,recips]) => (
+                      <div key={ev} style={{display:'grid',gridTemplateColumns:'1fr 90px 90px',alignItems:'center',padding:'10px',background:'#fafcfa',borderRadius:8,border:'1px solid #eef3ee'}}>
+                        <div style={{fontSize:12,color:'#4e6050'}}>{emailEventLabels[ev]}</div>
+                        <div style={{textAlign:'center'}}>
+                          {recips.includes('client') ? (
+                            <input type="checkbox" checked={!!emailNotifs[ev]?.client} onChange={()=>toggleEmailNotif(ev,'client')} style={{cursor:'pointer',width:16,height:16}}/>
+                          ) : <span style={{color:'#c8ddc8'}}>—</span>}
+                        </div>
+                        <div style={{textAlign:'center'}}>
+                          {recips.includes('admin') ? (
+                            <input type="checkbox" checked={!!emailNotifs[ev]?.admin} onChange={()=>toggleEmailNotif(ev,'admin')} style={{cursor:'pointer',width:16,height:16}}/>
+                          ) : <span style={{color:'#c8ddc8'}}>—</span>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <button onClick={saveEmailNotifs} style={{...btnP,marginTop:12}}>{I.check} Guardar preferencias</button>
                 </div>
 
                 {/* Stripe */}

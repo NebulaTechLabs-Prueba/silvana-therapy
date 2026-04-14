@@ -131,8 +131,25 @@ export interface AdminSettings {
   smtp_from_name: string | null;
   smtp_secure: boolean | null;
   wa_templates: Record<string, string> | null;
+  email_notifications: EmailNotificationPrefs | null;
   updated_at: string;
 }
+
+export type EmailEventKey =
+  | 'booking_received'
+  | 'booking_confirmed'
+  | 'booking_rejected'
+  | 'booking_cancelled'
+  | 'booking_rescheduled'
+  | 'payment_link'
+  | 'reminder_24h'
+  | 'invoice';
+
+export type EmailRecipient = 'client' | 'admin';
+
+export type EmailNotificationPrefs = Partial<
+  Record<EmailEventKey, Partial<Record<EmailRecipient, boolean>>>
+>;
 
 export interface WorkingHours {
   monday: DaySchedule;
