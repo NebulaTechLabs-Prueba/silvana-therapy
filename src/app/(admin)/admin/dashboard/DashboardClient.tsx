@@ -2145,7 +2145,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                   </div>
                   <Field label="Host"><input style={inp} value={smtpCfg.host} onChange={e=>setSmtpCfg({...smtpCfg,host:e.target.value})} placeholder="smtp-relay.brevo.com"/></Field>
                   <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
-                    <Field label="Puerto"><input style={inp} type="number" value={smtpCfg.port} onChange={e=>setSmtpCfg({...smtpCfg,port:Number(e.target.value)||587})} placeholder="587"/></Field>
+                    <Field label="Puerto"><input style={inp} type="number" value={smtpCfg.port ?? ''} onChange={e=>{const v=e.target.value;setSmtpCfg({...smtpCfg,port: v===''? '' : Number(v)})}} placeholder="587 · 2525 · 465"/></Field>
                     <Field label="TLS directo (465)"><select style={sel} value={smtpCfg.secure?'1':'0'} onChange={e=>setSmtpCfg({...smtpCfg,secure:e.target.value==='1'})}><option value="0">No (STARTTLS)</option><option value="1">Sí (SSL)</option></select></Field>
                   </div>
                   <Field label="Usuario"><input style={inp} value={smtpCfg.user} onChange={e=>setSmtpCfg({...smtpCfg,user:e.target.value})} placeholder="login@smtp-brevo.com"/></Field>
@@ -2192,7 +2192,8 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                   <button onClick={saveEmailNotifs} style={{...btnP,marginTop:12}}>{I.check} Guardar preferencias</button>
                 </div>
 
-                {/* Stripe */}
+                {/* Stripe — oculto temporalmente (lanzamiento sin pagos con tarjeta) */}
+                {false && (
                 <div style={{...CARD,padding:20}}>
                   <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
                     <div style={{display:'flex',alignItems:'center',gap:10}}>
@@ -2211,8 +2212,10 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                   <div style={{fontSize:12,color:'#849884',marginBottom:12,lineHeight:1.5}}>Las credenciales se gestionan en <strong>Métodos de Pago</strong> al editar el método de tipo Stripe.</div>
                   <button onClick={()=>setSection('pagos')} style={{...btnS,width:'100%',justifyContent:'center'}}>Ir a Métodos de Pago →</button>
                 </div>
+                )}
 
-                {/* PayPal */}
+                {/* PayPal — oculto temporalmente (lanzamiento sin pagos con tarjeta) */}
+                {false && (
                 <div style={{...CARD,padding:20}}>
                   <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
                     <div style={{display:'flex',alignItems:'center',gap:10}}>
@@ -2231,6 +2234,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                   <div style={{fontSize:12,color:'#849884',marginBottom:12,lineHeight:1.5}}>Las credenciales se gestionan en <strong>Métodos de Pago</strong> al editar el método de tipo PayPal.</div>
                   <button onClick={()=>setSection('pagos')} style={{...btnS,width:'100%',justifyContent:'center'}}>Ir a Métodos de Pago →</button>
                 </div>
+                )}
 
                 {/* WhatsApp */}
                 <div style={{...CARD,padding:20,gridColumn:'1 / -1'}}>
