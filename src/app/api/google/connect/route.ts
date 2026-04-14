@@ -6,7 +6,8 @@ import { buildAuthUrl } from '@/lib/adapters/google-auth';
 export async function GET() {
   const supabase = await createServerSupabaseClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.redirect(new URL('/login', process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'));
+  const adminBase = process.env.NEXT_PUBLIC_ADMIN_URL || 'http://localhost:3000';
+  if (!user) return NextResponse.redirect(new URL('/login', adminBase));
 
   const state = randomBytes(16).toString('hex');
   const url = buildAuthUrl(state);
