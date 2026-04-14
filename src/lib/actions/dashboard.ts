@@ -789,6 +789,47 @@ export async function updateWaTemplates(templates: Record<string, string>) {
   return { success: true };
 }
 
+// Eventos y destinatarios permitidos para email_notifications.
+// Cualquier clave fuera de esta lista se descarta silenciosamente.
+const EMAIL_EVENT_SHAPE: Record<string, readonly ('client' | 'admin')[]> = {
+  booking_received:    ['client', 'admin'],
+  booking_confirmed:   ['client'],
+  booking_rejected:    ['client'],
+  booking_cancelled:   ['client', 'admin'],
+  booking_rescheduled: ['client'],
+  payment_link:        ['client'],
+  reminder_24h:        ['client'],
+  invoice:             ['client'],
+};
+
+export async function updateEmailNotifications(
+  prefs: Record<string, Record<string, boolean>>,
+) {
+  if (!prefs || typeof prefs !== 'object') {
+    return { success: false, error: 'Preferencias inválidas' };
+  }
+  const clean: Record<string, Record<string, boolean>> = {};
+  for (const [event, recipients] of Object.entries(EMAIL_EVENT_SHAPE)) {
+    const incoming = prefs[event];
+    if (!incoming || typeof incoming !== 'object') continue;
+    const eventPrefs: Record<string, boolean> = {};
+    for (const recipient of recipients) {
+      if (typeof incoming[recipient] === 'boolean') {
+        eventPrefs[recipient] = incoming[recipient];
+      }
+    }
+    if (Object.keys(eventPrefs).length > 0) clean[event] = eventPrefs;
+  }
+  const supabase = await getSupabase();
+  const { error } = await supabase
+    .from('admin_settings')
+    .update({ email_notifications: clean })
+    .not('id', 'is', null);
+  if (error) return { success: false, error: error.message };
+  revalidatePath(DASH);
+  return { success: true };
+}
+
 export async function deleteAvailabilityException(id: string) {
   const supabase = await getSupabase();
   const { error } = await supabase.from('availability_exceptions').delete().eq('id', id);
