@@ -4,7 +4,8 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { revalidatePath } from 'next/cache';
 import { getClientTime } from '@/lib/utils/timezone';
-import { sendInvoiceEmail } from '@/lib/adapters/email';
+import { sendInvoiceEmail, sendBookingConfirmedEmail, sendBookingCancelledEmail } from '@/lib/adapters/email';
+import { createCalendarEvent, updateCalendarEvent, deleteCalendarEvent } from '@/lib/adapters/google-calendar';
 import {
   updateProfileSchema,
   upsertServiceSchema,
@@ -452,33 +453,144 @@ export async function upsertBooking(raw: {
     }
   }
 
+  // Capture previous state for sync decisions on update
+  let prevStatus: string | null = null;
+  let prevEventId: string | null = null;
+  let prevDate: string | null = null;
   if (data.id) {
+    const { data: prev } = await supabase
+      .from('bookings')
+      .select('status, google_event_id, preferred_date, confirmed_date')
+      .eq('id', data.id)
+      .single();
+    prevStatus = prev?.status ?? null;
+    prevEventId = prev?.google_event_id ?? null;
+    prevDate = prev?.confirmed_date ?? prev?.preferred_date ?? null;
+  }
+
+  let bookingId: string | undefined = data.id;
+  if (data.id) {
+    const updatePayload: Record<string, unknown> = {
+      service_id: serviceId,
+      preferred_date: preferredDate,
+      status: bookingStatus,
+      admin_notes: data.notas || null,
+      client_local_time: clientLocalTime,
+    };
+    if (bookingStatus === 'confirmed') updatePayload.confirmed_date = preferredDate;
     const { error } = await supabase
       .from('bookings')
-      .update({
-        service_id: serviceId,
-        preferred_date: preferredDate,
-        status: bookingStatus,
-        admin_notes: data.notas || null,
-        client_local_time: clientLocalTime,
-      })
+      .update(updatePayload)
       .eq('id', data.id);
     if (error) return { success: false, error: error.message };
   } else {
     const idempotencyKey = `dash-${clientId.slice(0,8)}-${data.fecha}-${data.hora}-${Date.now()}`;
-    const { error } = await supabase
+    const insertPayload: Record<string, unknown> = {
+      client_id: clientId,
+      service_id: serviceId,
+      preferred_date: preferredDate,
+      status: bookingStatus,
+      admin_notes: data.notas || null,
+      client_local_time: clientLocalTime,
+      idempotency_key: idempotencyKey,
+    };
+    if (bookingStatus === 'confirmed') insertPayload.confirmed_date = preferredDate;
+    const { data: inserted, error } = await supabase
       .from('bookings')
-      .insert({
-        client_id: clientId,
-        service_id: serviceId,
-        preferred_date: preferredDate,
-        status: bookingStatus,
-        admin_notes: data.notas || null,
-        client_local_time: clientLocalTime,
-        idempotency_key: idempotencyKey,
-      });
+      .insert(insertPayload)
+      .select('id')
+      .single();
     if (error) return { success: false, error: error.message };
+    bookingId = inserted?.id;
   }
+
+  // ── Google Calendar & email sync ───────────────────────────
+  // Runs only on status transitions. Failures are logged but don't block the save.
+  try {
+    const wasConfirmed = prevStatus === 'confirmed';
+    const isConfirmed = bookingStatus === 'confirmed';
+    const isCancelled = bookingStatus === 'cancelled' || bookingStatus === 'rejected';
+    const dateChanged = wasConfirmed && isConfirmed && prevDate && prevDate !== preferredDate;
+
+    if (bookingId && (isConfirmed || (isCancelled && prevEventId))) {
+      // Fetch minimal data for sync
+      const { data: full } = await supabase
+        .from('bookings')
+        .select('id, google_event_id, service:services(name, duration_min), client:clients(full_name, email, phone, reason)')
+        .eq('id', bookingId)
+        .single();
+      const svc = (full?.service as { name?: string; duration_min?: number } | null) || null;
+      const cli = (full?.client as { full_name?: string; email?: string; phone?: string; reason?: string } | null) || null;
+
+      if (isConfirmed && cli?.email && svc?.duration_min) {
+        try {
+          if (!wasConfirmed || !full?.google_event_id) {
+            // Create new calendar event
+            const res = await createCalendarEvent({
+              title: `Terapia — ${cli.full_name || 'Paciente'}`,
+              description: `Email: ${cli.email}\nTeléfono: ${cli.phone || 'N/A'}\nMotivo: ${cli.reason || 'N/A'}\n\nNotas: ${data.notas || 'Sin notas'}`,
+              startTime: preferredDate,
+              durationMinutes: svc.duration_min,
+              clientEmail: cli.email,
+              clientName: cli.full_name || 'Paciente',
+            });
+            await supabase
+              .from('bookings')
+              .update({ google_event_id: res.eventId, meet_link: res.meetLink })
+              .eq('id', bookingId);
+            try {
+              await sendBookingConfirmedEmail({
+                clientEmail: cli.email,
+                clientName: cli.full_name || 'Paciente',
+                confirmedDate: preferredDate,
+                serviceName: svc.name || 'Sesión',
+                durationMin: svc.duration_min,
+                meetLink: res.meetLink,
+              });
+            } catch (emailErr) {
+              console.error('[Dashboard] Confirmation email failed:', emailErr);
+            }
+          } else if (dateChanged && full.google_event_id) {
+            // Move existing event
+            await updateCalendarEvent(full.google_event_id, {
+              startTime: preferredDate,
+              durationMinutes: svc.duration_min,
+            });
+          }
+        } catch (calErr) {
+          console.error('[Dashboard] Google Calendar sync failed:', calErr);
+        }
+      }
+
+      if (isCancelled && full?.google_event_id) {
+        try {
+          await deleteCalendarEvent(full.google_event_id);
+          await supabase
+            .from('bookings')
+            .update({ google_event_id: null, meet_link: null })
+            .eq('id', bookingId);
+        } catch (calErr) {
+          console.error('[Dashboard] Calendar delete failed:', calErr);
+        }
+        if (cli?.email) {
+          try {
+            await sendBookingCancelledEmail({
+              clientEmail: cli.email,
+              clientName: cli.full_name || 'Paciente',
+              cancelledDate: preferredDate,
+              serviceName: svc?.name || 'Sesión',
+              cancelledBy: 'admin',
+            });
+          } catch (emailErr) {
+            console.error('[Dashboard] Cancellation email failed:', emailErr);
+          }
+        }
+      }
+    }
+  } catch (syncErr) {
+    console.error('[Dashboard] Booking sync wrapper failed:', syncErr);
+  }
+
   revalidatePath(DASH);
   return { success: true };
 }
