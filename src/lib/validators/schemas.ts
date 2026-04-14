@@ -120,12 +120,13 @@ export const updateProfileSchema = z.object({
   email: z.string().email().max(320),
   telefono: z.string().max(30),
   direccion: z.string().max(300),
-  horario: z.string().max(100),
   bio: z.string().max(2000),
   working_hours: z.record(z.object({
-    start: z.string().regex(/^\d{2}:\d{2}$/),
-    end: z.string().regex(/^\d{2}:\d{2}$/),
     enabled: z.boolean(),
+    ranges: z.array(z.object({
+      start: z.string().regex(/^\d{2}:\d{2}$/),
+      end: z.string().regex(/^\d{2}:\d{2}$/),
+    })).max(3),
   })).optional(),
 });
 

@@ -49,45 +49,39 @@ export async function createBooking(dto: CreateBookingDTO): Promise<Booking> {
     clientId = newClient.id;
   }
 
-  // 2. Check for time conflicts before creating booking
+  // 2. Check for time conflicts via unified RPC (bookings + exceptions + working_hours + google events)
   if (dto.preferred_date) {
-    const reqDate = dto.preferred_date.slice(0, 10); // "YYYY-MM-DD"
-    const reqTime = dto.preferred_date.slice(11, 16); // "HH:MM" — string parse, no Date TZ issues
-    const [rh, rm] = reqTime.split(':').map(Number);
-    const reqStart = rh * 60 + rm;
+    const reqDate = dto.preferred_date.slice(0, 10);
+    const reqTime = dto.preferred_date.slice(11, 16);
 
-    // Get the requested service duration
     const { data: reqSvc } = await supabase
       .from('services')
       .select('duration_min')
       .eq('id', dto.service_id)
       .single();
     const reqDuration = reqSvc?.duration_min || 60;
-    const reqEnd = reqStart + reqDuration;
 
-    // Fetch all active bookings on the same date
-    // Use the same date string for range query to avoid TZ mismatches
-    const { data: sameDayBookings } = await supabase
-      .from('bookings')
-      .select('preferred_date, service:services(duration_min)')
-      .not('status', 'in', '("cancelled","rejected")')
-      .gte('preferred_date', reqDate + 'T00:00:00')
-      .lt('preferred_date', reqDate + 'T23:59:59');
+    const { data: conflicts, error: rpcErr } = await supabase.rpc('check_slot_conflicts', {
+      p_date: reqDate,
+      p_time: reqTime,
+      p_duration: reqDuration,
+      p_exclude_id: null,
+    });
 
-    if (sameDayBookings && sameDayBookings.length > 0) {
-      for (const existing of sameDayBookings) {
-        // Extract time from string directly — avoids Date object timezone conversion
-        const exTimeStr = String(existing.preferred_date || '');
-        const exTimePart = exTimeStr.includes('T') ? exTimeStr.split('T')[1].slice(0, 5) : '';
-        if (!exTimePart) continue;
-        const [eh, em] = exTimePart.split(':').map(Number);
-        const exStart = eh * 60 + em;
-        const exDur = (existing.service as any)?.duration_min || 60;
-        const exEnd = exStart + exDur;
-        if (reqStart < exEnd && reqEnd > exStart) {
-          throw new Error('Este horario ya está reservado. Por favor selecciona otro.');
-        }
-      }
+    if (rpcErr) {
+      console.error('[BookingService] check_slot_conflicts failed:', rpcErr);
+      throw new Error('No se pudo validar el horario. Intenta nuevamente.');
+    }
+
+    if (conflicts && conflicts.length > 0) {
+      const first = conflicts[0] as { source: string; label: string };
+      const msgMap: Record<string, string> = {
+        booking:          'Este horario ya está reservado. Por favor selecciona otro.',
+        exception:        'Ese horario no está disponible (bloqueado por la profesional).',
+        google_event:     'Ese horario ya tiene un evento en el calendario.',
+        working_hours:    'Ese horario está fuera del horario de atención.',
+      };
+      throw new Error(msgMap[first.source] || `Horario no disponible: ${first.label}`);
     }
   }
 
@@ -200,8 +194,9 @@ async function confirmBooking(booking: BookingWithClient): Promise<Booking> {
   if (error) throw new Error(`Failed to confirm: ${error.message}`);
 
   // 2. Create Google Calendar event
+  let meetLink: string | null = null;
   try {
-    const { eventId } = await createCalendarEvent({
+    const res = await createCalendarEvent({
       title: `Terapia — ${booking.client.full_name}`,
       description: `Email: ${booking.client.email}\nTeléfono: ${booking.client.phone || 'N/A'}\nMotivo: ${booking.client.reason || 'N/A'}\n\nNotas: ${booking.admin_notes || 'Sin notas'}`,
       startTime: booking.confirmed_date!,
@@ -209,13 +204,13 @@ async function confirmBooking(booking: BookingWithClient): Promise<Booking> {
       clientEmail: booking.client.email,
       clientName: booking.client.full_name,
     });
+    meetLink = res.meetLink;
 
     await supabase
       .from('bookings')
-      .update({ google_event_id: eventId })
+      .update({ google_event_id: res.eventId, meet_link: res.meetLink })
       .eq('id', booking.id);
   } catch (calError) {
-    // Calendar failure shouldn't block confirmation
     console.error('[BookingService] Google Calendar failed:', calError);
   }
 
@@ -227,6 +222,7 @@ async function confirmBooking(booking: BookingWithClient): Promise<Booking> {
       confirmedDate: booking.confirmed_date!,
       serviceName: booking.service.name,
       durationMin: booking.service.duration_min,
+      meetLink,
     });
   } catch (emailError) {
     console.error('[BookingService] Confirmation email failed:', emailError);
@@ -417,8 +413,6 @@ export async function createPaymentLink(dto: CreatePaymentLinkDTO) {
     .from('bookings')
     .update({
       status: 'payment_pending',
-      agreed_price: dto.amount,
-      payment_provider: dto.provider,
     })
     .eq('id', dto.booking_id);
 
@@ -468,7 +462,7 @@ export async function handlePaymentConfirmed(params: {
     booking_id: params.bookingId,
     provider: params.provider,
     provider_tx_id: params.providerTxId,
-    amount: booking.agreed_price || params.amount,
+    amount: params.amount,
     surcharge_pct: surchargePercent,
     total: params.amount,
     currency: params.currency,
