@@ -290,9 +290,12 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
       const defaultServiceId = internal?.id || services[0]?.id || '';
       const mapped = (res.events || []).map(e => ({
         ...e,
-        selected: !e.alreadyImported,
+        // Pre-select only events that look like real bookings (have an attendee).
+        // All-day or personal events without an attendee must be opted in manually
+        // to avoid importing them as bogus "clients".
+        selected: !e.alreadyImported && !!e.attendeeEmail,
         serviceId: defaultServiceId,
-        clientName: e.attendeeName || e.title || '',
+        clientName: e.attendeeName || '',
         clientEmail: e.attendeeEmail || '',
         status: 'confirmed' as const,
       }));

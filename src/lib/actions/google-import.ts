@@ -59,8 +59,15 @@ export async function scanGoogleEvents(
     }
 
     const scanned: ScannedEvent[] = events.map((ev) => {
-      const start = ev.start?.dateTime || ev.start?.date || '';
-      const end = ev.end?.dateTime || ev.end?.date || '';
+      const isAllDay = !ev.start?.dateTime && !!ev.start?.date;
+      const rawStart = ev.start?.dateTime || ev.start?.date || '';
+      const rawEnd = ev.end?.dateTime || ev.end?.date || '';
+      // All-day events arrive as "YYYY-MM-DD" with no time/zone. Parsing these
+      // as midnight UTC causes the day to shift in any non-UTC viewer. Pin them
+      // to noon UTC of the same day so the date is stable and the booking
+      // shows as a midday slot (Silvana can edit it after importing).
+      const start = isAllDay ? `${rawStart}T12:00:00Z` : rawStart;
+      const end = isAllDay && rawEnd ? `${rawEnd}T12:00:00Z` : rawEnd;
       let durationMin = 50;
       if (start && end) {
         const ms = new Date(end).getTime() - new Date(start).getTime();
