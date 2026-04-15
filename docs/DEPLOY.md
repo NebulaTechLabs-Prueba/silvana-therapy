@@ -11,14 +11,18 @@ Deploy al Droplet de DigitalOcean (Ubuntu 24.04, 1 GB RAM). Para desarrollo loca
 | Hosting | DigitalOcean Droplet `SilvanaLopez` |
 | IP pública | `138.197.7.16` |
 | SO | Ubuntu 24.04.3 LTS |
-| RAM | 1 GB (+ swap) |
+| RAM | 1 GB nominal, ~458 MiB útiles (+ 2 GB swap) |
 | Acceso | Consola web DigitalOcean como `root` |
 | Path del proyecto | `/opt/silvana-therapy` |
 | Process manager | `pm2` (proceso `silvana`, fork mode, puerto 3000) |
 | Runtime Next.js | **standalone output** (`.next/standalone/server.js`) |
 | Env vars | `/opt/silvana-therapy/.env.local` |
 
-> ⚠️ **Memoria**: el build de Next en 1 GB se queda sin RAM si no se limita V8. Siempre se compila con `NODE_OPTIONS="--max-old-space-size=1024"`.
+> ⚠️ **Memoria**: el droplet tiene ~458 MiB de RAM útil (no 1 GB pleno). El build de Next se queda sin RAM si no hay swap suficiente y si V8 no está limitado. Reglas:
+> - Mantener al menos **2 GB de swap** activos (`free -h` debe mostrarlo).
+> - Compilar siempre con `NODE_OPTIONS="--max-old-space-size=1536"`.
+> - **Parar pm2 antes de buildear** (`pm2 stop silvana`) para que los ~150 MiB del proceso Node no compitan con el build. Arrancarlo de vuelta después con `pm2 restart silvana`.
+> - Si el build muere igual, reiniciar el droplet antes de reintentar — la memoria suele estar fragmentada tras intentos fallidos.
 
 ---
 
@@ -44,7 +48,7 @@ Flujo normal cuando hay merge a `main` y toca desplegar:
 cd /opt/silvana-therapy
 git status                                    # árbol limpio
 git pull origin main
-NODE_OPTIONS="--max-old-space-size=1024" npm run build
+NODE_OPTIONS="--max-old-space-size=1536" npm run build
 cp -r public .next/standalone/ 2>/dev/null
 cp -r .next/static .next/standalone/.next/
 pm2 restart silvana
@@ -106,6 +110,26 @@ PAYPAL_MODE=live                              # solo cuando el cliente vaya a pr
 ```
 
 > Tras editar `.env.local` hay que **rebuildear** — las `NEXT_PUBLIC_*` se inlinean en compile time. `pm2 restart` sin rebuild no las recoge.
+
+### Ritual correcto para recargar env vars (no-públicas)
+
+Next.js standalone no relee `.env.local` en runtime, y pm2 hereda el entorno **solo al arrancar**. Un `pm2 restart silvana` a secas NO recoge cambios. Flujo:
+
+```bash
+cd /opt/silvana-therapy
+nano .env.local
+set -a && source .env.local && set +a      # carga el archivo al shell actual
+pm2 restart silvana --update-env            # pm2 re-lee del shell
+pm2 logs silvana --lines 30
+```
+
+- `set -a` exporta automáticamente cada asignación; `--update-env` obliga a pm2 a re-leer.
+- Si `source` falla con error de sintaxis, **detente y corrige antes de restartear**: el source se aborta a mitad del archivo y las vars posteriores quedan sin cargar.
+- Caso observado: `EMAIL_FROM=Silvana López <noreply@silvanalopez.com>` sin comillas rompe el source (`<` es redirección en bash). Solución: siempre envolver con `"..."` → `EMAIL_FROM="Silvana López <noreply@silvanalopez.com>"`.
+
+### Precedencia DB > env para SMTP
+
+El código del panel lee la config SMTP de `admin_settings` primero y solo cae a las env vars si la tabla está vacía. Consecuencia: si la fila en DB tiene credenciales, editar `SMTP_*` en `.env.local` **no tiene efecto visible** hasta que se vacíe la fila. Al hacer el swap a Silvana, decidir una sola fuente de verdad (normalmente el panel) y no mezclar.
 
 ---
 
@@ -183,7 +207,7 @@ git stash drop                                  # si no hacía falta
 Olvido del `NODE_OPTIONS`. Repetir con el prefijo exacto:
 
 ```bash
-NODE_OPTIONS="--max-old-space-size=1024" npm run build
+NODE_OPTIONS="--max-old-space-size=1536" npm run build
 ```
 
 Si aun así falla, revisar swap: `free -h` — debería haber 1–2 GB de swap. Si no hay, crear uno de 2 GB:
@@ -227,7 +251,7 @@ Si un deploy rompe producción y hay que volver al commit anterior:
 cd /opt/silvana-therapy
 git log --oneline -5                            # identificar el commit bueno
 git checkout <sha-anterior>
-NODE_OPTIONS="--max-old-space-size=1024" npm run build
+NODE_OPTIONS="--max-old-space-size=1536" npm run build
 cp -r public .next/standalone/ 2>/dev/null
 cp -r .next/static .next/standalone/.next/
 pm2 restart silvana
