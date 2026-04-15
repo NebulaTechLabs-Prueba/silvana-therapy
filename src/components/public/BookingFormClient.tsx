@@ -308,10 +308,15 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
 
       if (!res.ok) {
         const errData = await res.json().catch(() => null);
-        if (res.status === 409 && errData?.error?.includes('reservado')) {
-          setSubmitError(errData.error + ' Regresa al paso 1 y elige otro horario.');
+        const apiMsg: string = errData?.error || '';
+        if (res.status === 409 && apiMsg.includes('reservado')) {
+          setSubmitError(apiMsg + ' Regresa al paso 1 y elige otro horario.');
           setStep(1);
           setSelTime(null);
+          return;
+        }
+        if (apiMsg) {
+          setSubmitError(apiMsg);
           return;
         }
         throw new Error('Booking failed');

@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json(
-      { error: 'Error al crear la reserva. Intenta nuevamente.' },
+      { error: msg || 'Error al crear la reserva. Intenta nuevamente.' },
       { status: 500 }
     );
   }

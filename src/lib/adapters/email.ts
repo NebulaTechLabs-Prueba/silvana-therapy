@@ -198,6 +198,7 @@ export async function sendBookingReceivedEmail(params: {
   serviceName: string;
   preferredDate?: string;
   isFirstSession: boolean;
+  isFree?: boolean;
 }): Promise<void> {
   if (!(await isNotificationEnabled('booking_received', 'client'))) return;
   const dateStr = params.preferredDate ? fmtDate(params.preferredDate) : null;
@@ -208,7 +209,7 @@ export async function sendBookingReceivedEmail(params: {
     html: wrapTemplate(`
       <h3 style="color: ${brandColor};">¡Solicitud recibida!</h3>
       <p>Hola ${params.clientName},</p>
-      <p>Tu solicitud de cita ha sido recibida exitosamente. ${params.isFirstSession ? 'Al ser tu primera consulta, es completamente gratuita.' : ''}</p>
+      <p>Tu solicitud de cita ha sido recibida exitosamente.${params.isFree ? ' Este servicio es completamente gratuito.' : ''}</p>
       <div style="background: ${brandLight}; padding: 20px; border-radius: 8px; margin: 16px 0;">
         <p><strong>Servicio:</strong> ${params.serviceName}</p>
         ${dateStr ? `<p><strong>Fecha solicitada:</strong> ${dateStr} (hora Miami, FL)</p>` : ''}
@@ -229,6 +230,7 @@ export async function sendNewBookingNotification(params: {
   reason?: string;
   preferredDate?: string;
   isFirstSession: boolean;
+  isFree?: boolean;
   bookingId: string;
 }): Promise<void> {
   if (!(await isNotificationEnabled('booking_received', 'admin'))) return;
@@ -245,7 +247,7 @@ export async function sendNewBookingNotification(params: {
         ${params.clientPhone ? `<p><strong>Teléfono:</strong> ${params.clientPhone}</p>` : ''}
         ${params.reason ? `<p><strong>Motivo:</strong> ${params.reason}</p>` : ''}
         ${params.preferredDate ? `<p><strong>Fecha preferida:</strong> ${fmtDate(params.preferredDate)} (hora Miami)</p>` : ''}
-        <p><strong>Tipo:</strong> ${params.isFirstSession ? '🟢 Primera cita (gratuita)' : '🔵 Cita de seguimiento'}</p>
+        <p><strong>Tipo:</strong> ${params.isFree ? '🟢 Sesión gratuita' : '🔵 Sesión pagada'}</p>
       </div>
       <a href="${adminUrl}/admin/dashboard"
          style="display: inline-block; background: ${brandColor}; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; margin-top: 8px;">
