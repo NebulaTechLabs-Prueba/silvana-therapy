@@ -478,6 +478,7 @@ export async function upsertBooking(raw: {
       client_local_time: clientLocalTime,
     };
     if (bookingStatus === 'confirmed') updatePayload.confirmed_date = preferredDate;
+    if (prevDate && prevDate !== preferredDate) updatePayload.reminder_sent_at = null;
     const { error } = await supabase
       .from('bookings')
       .update(updatePayload)
@@ -852,6 +853,8 @@ export async function upsertAvailabilityException(input: ExceptionInput) {
   }
 
   revalidatePath(DASH);
+  revalidatePath('/booking');
+  revalidatePath('/services', 'layout');
   return { success: true, id: excId };
 }
 
@@ -947,6 +950,8 @@ export async function deleteAvailabilityException(id: string) {
   const { error } = await supabase.from('availability_exceptions').delete().eq('id', id);
   if (error) return { success: false, error: error.message };
   revalidatePath(DASH);
+  revalidatePath('/booking');
+  revalidatePath('/services', 'layout');
   return { success: true };
 }
 

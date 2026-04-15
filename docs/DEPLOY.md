@@ -119,6 +119,45 @@ No se aplican desde el Droplet. Flujo:
 
 Se hace en este orden (DB primero, código después) para evitar errores 500 por columnas que el código espera y la DB todavía no tiene.
 
+### Migraciones existentes
+
+| Archivo | Propósito |
+|---|---|
+| `001_baseline.sql` | Schema base consolidado (enums, tablas, RLS, triggers, seed de `admin_settings`) |
+| `002_imported_service.sql` | Añade columna `services.is_internal` y seed del servicio "Importado de Google Calendar" (placeholder para eventos importados desde Google Calendar cuyo servicio original se desconoce; oculto en `/services` y `/booking`) |
+
+---
+
+## 6-bis. Cron: recordatorios 24h
+
+El endpoint [`/api/cron/reminders`](../src/app/api/cron/reminders/route.ts) envía recordatorios por correo a las reservas confirmadas cuya `confirmed_date` cae en `[now+23h, now+25h]` y que aún no tienen `reminder_sent_at`. Marca cada envío como procesado para evitar duplicados.
+
+**Protección:** requiere header `Authorization: Bearer $CRON_SECRET`. Si la env var no está, el endpoint responde 500.
+
+**Setup inicial:**
+
+1. Generar un secreto aleatorio:
+   ```bash
+   openssl rand -base64 32
+   ```
+2. Añadirlo a `/opt/silvana-therapy/.env.local`:
+   ```
+   CRON_SECRET=<secreto-generado>
+   ```
+3. `pm2 restart silvana` para que Next.js lo recoja.
+4. Configurar crontab del droplet:
+   ```bash
+   crontab -e
+   ```
+   Añadir (reemplazar `<SECRETO>` por el valor real):
+   ```
+   */30 * * * * curl -sS -H "Authorization: Bearer <SECRETO>" https://admin.silvanalopez.com/api/cron/reminders > /var/log/silvana-reminders.log 2>&1
+   ```
+   Cada 30 min es suficiente para la ventana de 2h del endpoint (no corre el riesgo de saltar un recordatorio).
+5. Verificar el primer disparo en `/var/log/silvana-reminders.log` y en `pm2 logs silvana`.
+
+**Apagar temporalmente:** comentar la línea del crontab (`#` al principio). No hace falta tocar la app.
+
 ---
 
 ## 7. Troubleshooting

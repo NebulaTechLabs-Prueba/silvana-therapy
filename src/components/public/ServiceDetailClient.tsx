@@ -15,49 +15,99 @@ type TimeRange = { start: string; end: string };
 type DaySchedule = { enabled: boolean; ranges?: TimeRange[]; start?: string; end?: string };
 type WorkingHoursMap = Record<string, DaySchedule> | null;
 
+type ExceptionRow = {
+  type: 'dates' | 'range' | 'recurring';
+  the_date: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  start_time: string | null;
+  end_time: string | null;
+  all_day: boolean;
+  days_of_week: number[] | null;
+};
+
 const DAY_KEYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
 function getDayRanges(day: DaySchedule | undefined): TimeRange[] {
   if (!day?.enabled) return [];
-  if (Array.isArray(day.ranges) && day.ranges.length) return day.ranges;
+  if (Array.isArray(day.ranges) && day.ranges.length) return day.ranges.filter(r => r?.start && r?.end);
   if (day.start && day.end) return [{ start: day.start, end: day.end }];
   return [];
 }
 
 function isDayEnabled(dayOfWeek: number, wh: WorkingHoursMap): boolean {
   if (!wh) return dayOfWeek !== 0 && dayOfWeek !== 6;
-  const day = wh[DAY_KEYS[dayOfWeek]];
-  return !!day?.enabled && getDayRanges(day).length > 0;
+  return getDayRanges(wh[DAY_KEYS[dayOfWeek]]).length > 0;
 }
 
-function getSlotsForDay(dayOfWeek: number, wh: WorkingHoursMap): string[] {
-  if (!wh) return DEFAULT_SLOTS;
-  const ranges = getDayRanges(wh[DAY_KEYS[dayOfWeek]]);
+function isDateFullyBlocked(iso: string, exceptions: ExceptionRow[]): boolean {
+  const dow = new Date(iso + 'T12:00:00').getDay();
+  for (const e of exceptions) {
+    if (!e.all_day) continue;
+    if (e.type === 'dates' && e.the_date === iso) return true;
+    if (e.type === 'range' && e.start_date && e.end_date && iso >= e.start_date && iso <= e.end_date) return true;
+    if (e.type === 'recurring' && e.days_of_week?.includes(dow)) {
+      if (e.start_date && iso < e.start_date) continue;
+      if (e.end_date && iso > e.end_date) continue;
+      return true;
+    }
+  }
+  return false;
+}
+
+function getBlockedRangesForDate(iso: string, exceptions: ExceptionRow[]): TimeRange[] {
+  const dow = new Date(iso + 'T12:00:00').getDay();
+  const blocks: TimeRange[] = [];
+  for (const e of exceptions) {
+    const applies =
+      (e.type === 'dates' && e.the_date === iso) ||
+      (e.type === 'range' && e.start_date && e.end_date && iso >= e.start_date && iso <= e.end_date) ||
+      (e.type === 'recurring' && e.days_of_week?.includes(dow) &&
+        (!e.start_date || iso >= e.start_date) && (!e.end_date || iso <= e.end_date));
+    if (!applies) continue;
+    if (e.all_day || !e.start_time || !e.end_time) {
+      blocks.push({ start: '00:00', end: '23:59' });
+    } else {
+      blocks.push({ start: e.start_time.slice(0, 5), end: e.end_time.slice(0, 5) });
+    }
+  }
+  return blocks;
+}
+
+function getSlotsForDay(iso: string | null, dayOfWeek: number, wh: WorkingHoursMap, exceptions: ExceptionRow[]): string[] {
+  const ranges = wh ? getDayRanges(wh[DAY_KEYS[dayOfWeek]]) : [{ start: '09:00', end: '18:00' }];
   if (!ranges.length) return [];
+  const blocked = iso ? getBlockedRangesForDate(iso, exceptions) : [];
   const slots: string[] = [];
   for (const r of ranges) {
-    if (!r?.start || !r?.end) continue;
     const [sh] = r.start.split(':').map(Number);
     const [eh] = r.end.split(':').map(Number);
     if (Number.isNaN(sh) || Number.isNaN(eh)) continue;
     for (let h = sh; h < eh; h++) {
-      slots.push(`${String(h).padStart(2, '0')}:00`);
+      const slot = `${String(h).padStart(2, '0')}:00`;
+      const inBlock = blocked.some(b => slot >= b.start && slot < b.end);
+      if (!inBlock) slots.push(slot);
     }
   }
   return slots;
 }
 
-function getNextAvailableDays(count: number, wh: WorkingHoursMap): { label: string; iso: string }[] {
+function getNextAvailableDays(count: number, wh: WorkingHoursMap, exceptions: ExceptionRow[]): { label: string; iso: string }[] {
   const dates: { label: string; iso: string }[] = [];
   const d = new Date();
   d.setDate(d.getDate() + 1);
-  while (dates.length < count) {
+  let guard = 0;
+  while (dates.length < count && guard++ < 180) {
     const dow = d.getDay();
-    if (isDayEnabled(dow, wh)) {
-      dates.push({
-        label: `${DAYS[dow]} ${d.getDate()} ${MONTHS_S[d.getMonth()]}`,
-        iso: d.toISOString().slice(0, 10),
-      });
+    const iso = d.toISOString().slice(0, 10);
+    if (isDayEnabled(dow, wh) && !isDateFullyBlocked(iso, exceptions)) {
+      const slots = getSlotsForDay(iso, dow, wh, exceptions);
+      if (slots.length > 0) {
+        dates.push({
+          label: `${DAYS[dow]} ${d.getDate()} ${MONTHS_S[d.getMonth()]}`,
+          iso,
+        });
+      }
     }
     d.setDate(d.getDate() + 1);
   }
@@ -68,10 +118,11 @@ interface Props {
   service: Service;
   workingHours?: WorkingHoursMap;
   activePaymentMethods?: string[];
+  exceptions?: ExceptionRow[];
 }
 
-export default function ServiceDetailClient({ service, workingHours = null, activePaymentMethods = [] }: Props) {
-  const dates = useMemo(() => getNextAvailableDays(5, workingHours), [workingHours]);
+export default function ServiceDetailClient({ service, workingHours = null, activePaymentMethods = [], exceptions = [] }: Props) {
+  const dates = useMemo(() => getNextAvailableDays(5, workingHours, exceptions), [workingHours, exceptions]);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
   const router = useRouter();
@@ -188,7 +239,7 @@ export default function ServiceDetailClient({ service, workingHours = null, acti
             Horarios
           </p>
           <div className="flex flex-wrap gap-2">
-            {(selectedDate ? getSlotsForDay(new Date(selectedDate + 'T12:00:00').getDay(), workingHours) : DEFAULT_SLOTS).map((t) => (
+            {(selectedDate ? getSlotsForDay(selectedDate, new Date(selectedDate + 'T12:00:00').getDay(), workingHours, exceptions) : DEFAULT_SLOTS).map((t) => (
               <button
                 key={t}
                 onClick={() => setSelectedTime(t)}
