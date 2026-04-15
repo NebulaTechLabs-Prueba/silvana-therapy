@@ -1779,6 +1779,61 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                   </>
                 )}
               </Modal>
+
+              {/* GOOGLE CALENDAR IMPORT MODAL */}
+              <Modal dark={dm} open={gcImpModal} onClose={()=>setGcImpModal(false)} title="Importar de Google Calendar" width={880}>
+                <p style={{fontSize:12,color:'#849884',margin:'0 0 14px'}}>Lista eventos del rango y permite importarlos como reservas. Los eventos ya importados se muestran como referencia y no se vuelven a insertar.</p>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr auto',gap:10,alignItems:'end',marginBottom:14}}>
+                  <Field label="Desde"><input style={inp} type="date" value={gcImpFrom} onChange={e=>setGcImpFrom(e.target.value)}/></Field>
+                  <Field label="Hasta"><input style={inp} type="date" value={gcImpTo} onChange={e=>setGcImpTo(e.target.value)}/></Field>
+                  <button onClick={gcImpScan} disabled={gcImpLoading} style={{...btnP,opacity:gcImpLoading?.6:1,marginBottom:10}}>{gcImpLoading?'Escaneando…':'Escanear'}</button>
+                </div>
+
+                {gcImpError && <div style={{background:'#FFEBEE',color:'#C62828',padding:'10px 14px',borderRadius:8,fontSize:12,marginBottom:12}}>{gcImpError}</div>}
+
+                {gcImpEvents.length > 0 && (
+                  <div style={{maxHeight:'55vh',overflowY:'auto',border:'1px solid '+(dm?'#2a2a2a':'#e2ede2'),borderRadius:10}}>
+                    {gcImpEvents.map((ev,idx) => {
+                      const dt = ev.startIso ? new Date(ev.startIso) : null;
+                      const dstr = dt ? dt.toLocaleString('es-ES',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '—';
+                      return (
+                        <div key={ev.eventId} style={{padding:'12px 14px',borderBottom:idx<gcImpEvents.length-1?'1px solid '+(dm?'#2a2a2a':'#e2ede2'):'none',background:ev.alreadyImported?(dm?'#1e1e1e':'#f5f5f5'):(dm?'#161616':'#fff'),opacity:ev.alreadyImported?.7:1}}>
+                          <div style={{display:'flex',alignItems:'flex-start',gap:10,marginBottom:8}}>
+                            <input type="checkbox" checked={ev.selected} disabled={ev.alreadyImported} onChange={e=>{const v=e.target.checked;setGcImpEvents(p=>p.map((x,i)=>i===idx?{...x,selected:v}:x))}} style={{marginTop:4}}/>
+                            <div style={{flex:1,minWidth:0}}>
+                              <div style={{fontSize:13,fontWeight:500,color:dm?'#e8e8e8':'#2a3528'}}>{ev.title}{ev.alreadyImported && <span style={{fontSize:10,marginLeft:8,padding:'2px 7px',background:'#e8f5e9',color:'#2e7d32',borderRadius:8}}>Ya importado</span>}</div>
+                              <div style={{fontSize:11,color:'#849884',marginTop:2}}>{dstr} · {ev.durationMin} min{ev.attendeeEmail?' · '+ev.attendeeEmail:''}</div>
+                            </div>
+                          </div>
+                          {!ev.alreadyImported && ev.selected && (
+                            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 160px 130px',gap:8,marginLeft:26}}>
+                              <input style={{...inp,marginBottom:0}} placeholder="Nombre cliente" value={ev.clientName} onChange={e=>{const v=e.target.value;setGcImpEvents(p=>p.map((x,i)=>i===idx?{...x,clientName:v}:x))}}/>
+                              <input style={{...inp,marginBottom:0}} placeholder="Email cliente" value={ev.clientEmail} onChange={e=>{const v=e.target.value;setGcImpEvents(p=>p.map((x,i)=>i===idx?{...x,clientEmail:v}:x))}}/>
+                              <select style={{...sel,marginBottom:0}} value={ev.serviceId} onChange={e=>{const v=e.target.value;setGcImpEvents(p=>p.map((x,i)=>i===idx?{...x,serviceId:v}:x))}}>
+                                {services.map((s:any) => <option key={s.id} value={s.id}>{s.nombre || s.name}</option>)}
+                              </select>
+                              <select style={{...sel,marginBottom:0}} value={ev.status} onChange={e=>{const v=e.target.value as 'pending'|'confirmed';setGcImpEvents(p=>p.map((x,i)=>i===idx?{...x,status:v}:x))}}>
+                                <option value="confirmed">Confirmada</option>
+                                <option value="pending">Pendiente</option>
+                              </select>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:16}}>
+                  <div style={{fontSize:11,color:'#849884'}}>
+                    {gcImpEvents.length>0 && <>{gcImpEvents.filter(e=>e.selected && !e.alreadyImported).length} seleccionado(s) · {gcImpEvents.filter(e=>e.alreadyImported).length} ya importado(s)</>}
+                  </div>
+                  <div style={{display:'flex',gap:10}}>
+                    <button onClick={()=>setGcImpModal(false)} style={btnS}>Cerrar</button>
+                    <button onClick={gcImpCommit} disabled={gcImpLoading || gcImpEvents.filter(e=>e.selected && !e.alreadyImported).length===0} style={{...btnP,opacity:gcImpLoading?.6:1}}>{I.check} Importar seleccionados</button>
+                  </div>
+                </div>
+              </Modal>
             </div>
           )}
 
@@ -1979,60 +2034,6 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                 </div>
               </Modal>
 
-              {/* GOOGLE CALENDAR IMPORT MODAL */}
-              <Modal dark={dm} open={gcImpModal} onClose={()=>setGcImpModal(false)} title="Importar de Google Calendar" width={880}>
-                <p style={{fontSize:12,color:'#849884',margin:'0 0 14px'}}>Lista eventos del rango y permite importarlos como reservas. Los eventos ya importados se muestran como referencia y no se vuelven a insertar.</p>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr auto',gap:10,alignItems:'end',marginBottom:14}}>
-                  <Field label="Desde"><input style={inp} type="date" value={gcImpFrom} onChange={e=>setGcImpFrom(e.target.value)}/></Field>
-                  <Field label="Hasta"><input style={inp} type="date" value={gcImpTo} onChange={e=>setGcImpTo(e.target.value)}/></Field>
-                  <button onClick={gcImpScan} disabled={gcImpLoading} style={{...btnP,opacity:gcImpLoading?.6:1,marginBottom:10}}>{gcImpLoading?'Escaneando…':'Escanear'}</button>
-                </div>
-
-                {gcImpError && <div style={{background:'#FFEBEE',color:'#C62828',padding:'10px 14px',borderRadius:8,fontSize:12,marginBottom:12}}>{gcImpError}</div>}
-
-                {gcImpEvents.length > 0 && (
-                  <div style={{maxHeight:'55vh',overflowY:'auto',border:'1px solid '+(dm?'#2a2a2a':'#e2ede2'),borderRadius:10}}>
-                    {gcImpEvents.map((ev,idx) => {
-                      const dt = ev.startIso ? new Date(ev.startIso) : null;
-                      const dstr = dt ? dt.toLocaleString('es-ES',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '—';
-                      return (
-                        <div key={ev.eventId} style={{padding:'12px 14px',borderBottom:idx<gcImpEvents.length-1?'1px solid '+(dm?'#2a2a2a':'#e2ede2'):'none',background:ev.alreadyImported?(dm?'#1e1e1e':'#f5f5f5'):(dm?'#161616':'#fff'),opacity:ev.alreadyImported?.7:1}}>
-                          <div style={{display:'flex',alignItems:'flex-start',gap:10,marginBottom:8}}>
-                            <input type="checkbox" checked={ev.selected} disabled={ev.alreadyImported} onChange={e=>{const v=e.target.checked;setGcImpEvents(p=>p.map((x,i)=>i===idx?{...x,selected:v}:x))}} style={{marginTop:4}}/>
-                            <div style={{flex:1,minWidth:0}}>
-                              <div style={{fontSize:13,fontWeight:500,color:dm?'#e8e8e8':'#2a3528'}}>{ev.title}{ev.alreadyImported && <span style={{fontSize:10,marginLeft:8,padding:'2px 7px',background:'#e8f5e9',color:'#2e7d32',borderRadius:8}}>Ya importado</span>}</div>
-                              <div style={{fontSize:11,color:'#849884',marginTop:2}}>{dstr} · {ev.durationMin} min{ev.attendeeEmail?' · '+ev.attendeeEmail:''}</div>
-                            </div>
-                          </div>
-                          {!ev.alreadyImported && ev.selected && (
-                            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 160px 130px',gap:8,marginLeft:26}}>
-                              <input style={{...inp,marginBottom:0}} placeholder="Nombre cliente" value={ev.clientName} onChange={e=>{const v=e.target.value;setGcImpEvents(p=>p.map((x,i)=>i===idx?{...x,clientName:v}:x))}}/>
-                              <input style={{...inp,marginBottom:0}} placeholder="Email cliente" value={ev.clientEmail} onChange={e=>{const v=e.target.value;setGcImpEvents(p=>p.map((x,i)=>i===idx?{...x,clientEmail:v}:x))}}/>
-                              <select style={{...sel,marginBottom:0}} value={ev.serviceId} onChange={e=>{const v=e.target.value;setGcImpEvents(p=>p.map((x,i)=>i===idx?{...x,serviceId:v}:x))}}>
-                                {services.map((s:any) => <option key={s.id} value={s.id}>{s.nombre || s.name}</option>)}
-                              </select>
-                              <select style={{...sel,marginBottom:0}} value={ev.status} onChange={e=>{const v=e.target.value as 'pending'|'confirmed';setGcImpEvents(p=>p.map((x,i)=>i===idx?{...x,status:v}:x))}}>
-                                <option value="confirmed">Confirmada</option>
-                                <option value="pending">Pendiente</option>
-                              </select>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-
-                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:16}}>
-                  <div style={{fontSize:11,color:'#849884'}}>
-                    {gcImpEvents.length>0 && <>{gcImpEvents.filter(e=>e.selected && !e.alreadyImported).length} seleccionado(s) · {gcImpEvents.filter(e=>e.alreadyImported).length} ya importado(s)</>}
-                  </div>
-                  <div style={{display:'flex',gap:10}}>
-                    <button onClick={()=>setGcImpModal(false)} style={btnS}>Cerrar</button>
-                    <button onClick={gcImpCommit} disabled={gcImpLoading || gcImpEvents.filter(e=>e.selected && !e.alreadyImported).length===0} style={{...btnP,opacity:gcImpLoading?.6:1}}>{I.check} Importar seleccionados</button>
-                  </div>
-                </div>
-              </Modal>
             </div>
           )}
 
