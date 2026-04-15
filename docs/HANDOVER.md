@@ -118,9 +118,12 @@ SMTP_PORT=587
 SMTP_SECURE=false
 SMTP_USER=xxxxxxx@smtp-brevo.com
 SMTP_PASSWORD=xsmtpsib-...
-EMAIL_FROM=Silvana López <noreply@silvanalopez.com>
+EMAIL_FROM="Silvana López <noreply@silvanalopez.com>"
 ```
-(El panel lee de la base de datos primero; si está vacío, cae a las env vars.)
+
+> **Precedencia DB > env**: el panel lee de `admin_settings` primero y solo cae a las env vars si la tabla está vacía. Lo que Silvana guarde en el panel **gana** sobre `.env.local`. Consecuencia: tras usar la Opción A, editar env vars SMTP en el droplet no tiene efecto visible hasta que se vacíe la fila en DB. Si vas por Opción B, asegúrate de que el panel esté sin credenciales guardadas.
+
+> ⚠️ **Comillas obligatorias en `EMAIL_FROM`**: el valor contiene `<` y `>`, que bash interpreta como redirecciones al hacer `source .env.local`. Sin comillas, el source aborta a mitad del archivo y las variables posteriores (`GOOGLE_*`, `CRON_SECRET`, …) quedan sin cargar. Siempre envolver con `"..."`.
 
 ---
 
@@ -230,9 +233,26 @@ Estas son las vars que deben actualizarse en el `.env` del Droplet al entregar. 
 | `SMTP_HOST` | `smtp-relay.brevo.com` (dev) | `smtp-relay.brevo.com` (Silvana) |
 | `SMTP_USER` | Login Brevo del dev | Login Brevo de Silvana |
 | `SMTP_PASSWORD` | SMTP key del dev | SMTP key de Silvana |
-| `EMAIL_FROM` | correo provisional del dev | `Silvana López <noreply@silvanalopez.com>` |
+| `EMAIL_FROM` | correo provisional del dev | `"Silvana López <noreply@silvanalopez.com>"` (con comillas) |
 | `NEXT_PUBLIC_APP_URL` | `http://localhost:3000` | `https://silvanalopez.com` |
 | `NEXT_PUBLIC_ADMIN_URL` | `http://localhost:3000/admin` | `https://admin.silvanalopez.com/admin` |
+
+### Ritual para aplicar cambios de env en el Droplet
+
+Next.js standalone **no** relee `.env.local` en runtime, y pm2 hereda el entorno **solo al arrancar el proceso**. Un `pm2 restart silvana` a secas NO recoge cambios en `.env.local`. Flujo correcto tras editar el archivo:
+
+```bash
+cd /opt/silvana-therapy
+nano .env.local                       # editar lo que haga falta
+set -a && source .env.local && set +a # cargar al shell actual
+pm2 restart silvana --update-env      # pm2 re-lee del shell
+pm2 logs silvana --lines 30           # verificar arranque
+```
+
+- `set -a` marca cada var asignada como exportada automáticamente.
+- `--update-env` fuerza a pm2 a tomar el entorno actual en lugar del cacheado.
+- Si `source` se queja con un error de sintaxis en alguna línea, **detente y corrige** — el source se aborta y las vars posteriores no se cargan (esto fue la causa raíz de CRON_SECRET vacío tras una edición reciente — ver nota sobre `EMAIL_FROM` en parte 1.6).
+- Para cambios en `NEXT_PUBLIC_*` hay que **rebuildear** además, porque esas vars se inlinean en compile time.
 
 **Env vars que ya NO se usan** (limpiar si aparecen en deploys antiguos):
 - `RESEND_API_KEY` — obsoleta, reemplazada por `SMTP_*`.
