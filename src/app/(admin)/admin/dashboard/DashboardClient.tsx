@@ -5,6 +5,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { logoutAction } from "@/lib/actions/auth";
 import { updateProfile, updateAuthEmail, updateAuthPassword, updateNotepad, updateNickname, updateContactInfo, upsertService, deleteService, toggleServiceActive, upsertInvoice, deleteInvoice, sendInvoiceNotification, upsertBooking, deleteBooking, updateBookingStatus, upsertPaymentMethod, deletePaymentMethod, togglePaymentMethodActive, upsertAdminLink, deleteAdminLink, updateSecurityQuestion, linkPaymentLinkToBooking, unlinkPaymentLinkFromBooking, upsertAvailabilityException, deleteAvailabilityException, updateIntegrations, updateWaTemplates, updateEmailNotifications } from '@/lib/actions/dashboard';
+import { scanGoogleEvents, importGoogleEvents, type ScannedEvent } from '@/lib/actions/google-import';
 import { getClientTime } from '@/lib/utils/timezone';
 import { escapeHtml } from '@/lib/utils/escapeHtml';
 import { normalizePhone, buildWaLink } from '@/lib/utils/phone';
@@ -57,6 +58,8 @@ const I = {
   mail: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>,
   msg: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>,
   lock: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>,
+  clockNav: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>,
+  plug: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 2v6"/><path d="M15 2v6"/><path d="M6 8h12v4a6 6 0 0 1-12 0z"/><path d="M12 18v4"/></svg>,
   globe: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>,
 };
 
@@ -267,11 +270,75 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
 
   // Disponibilidad section state
   const [whDraft, setWhDraft] = useState(JSON.parse(JSON.stringify(workingHours)));
+  const todayISO = new Date().toISOString().slice(0,10);
   const [exceptions, setExceptions] = useState(initialExceptions || []);
+
+  /* Google Calendar import */
+  const [gcImpModal, setGcImpModal] = useState(false);
+  const [gcImpLoading, setGcImpLoading] = useState(false);
+  const [gcImpEvents, setGcImpEvents] = useState<(ScannedEvent & {selected:boolean; serviceId:string; clientName:string; clientEmail:string; status:'pending'|'confirmed'})[]>([]);
+  const [gcImpFrom, setGcImpFrom] = useState(() => { const d=new Date(); d.setDate(d.getDate()-30); return d.toISOString().slice(0,10); });
+  const [gcImpTo, setGcImpTo] = useState(() => { const d=new Date(); d.setDate(d.getDate()+60); return d.toISOString().slice(0,10); });
+  const [gcImpError, setGcImpError] = useState('');
+
+  const gcImpDefaultServiceId = useMemo(() => {
+    const internal = services.find((s:any) => s.nombre === 'Importado de Google Calendar');
+    return internal?.id || services[0]?.id || '';
+  }, [services]);
+
+  const gcImpScan = async () => {
+    setGcImpLoading(true); setGcImpError('');
+    try {
+      const res = await scanGoogleEvents(new Date(gcImpFrom).toISOString(), new Date(gcImpTo+'T23:59:59').toISOString());
+      if (!res.success) { setGcImpError(res.error || 'Error al escanear'); setGcImpEvents([]); return; }
+      const mapped = (res.events || []).map(e => ({
+        ...e,
+        selected: !e.alreadyImported,
+        serviceId: gcImpDefaultServiceId,
+        clientName: e.attendeeName || e.title || '',
+        clientEmail: e.attendeeEmail || '',
+        status: 'confirmed' as const,
+      }));
+      setGcImpEvents(mapped);
+    } catch (e) {
+      setGcImpError((e as Error).message || 'Error al escanear');
+    } finally {
+      setGcImpLoading(false);
+    }
+  };
+
+  const gcImpCommit = async () => {
+    const selected = gcImpEvents.filter(e => e.selected && !e.alreadyImported);
+    if (selected.length === 0) { show('No hay eventos seleccionados'); return; }
+    const missing = selected.filter(e => !e.clientName.trim() || !e.clientEmail.trim() || !e.serviceId);
+    if (missing.length > 0) { setGcImpError(`${missing.length} evento(s) sin nombre/email/servicio`); return; }
+    setGcImpLoading(true); setGcImpError('');
+    try {
+      const items = selected.map(e => ({
+        eventId: e.eventId,
+        title: e.title,
+        description: e.description || undefined,
+        startIso: e.startIso,
+        durationMin: e.durationMin,
+        clientName: e.clientName,
+        clientEmail: e.clientEmail,
+        serviceId: e.serviceId,
+        status: e.status,
+      }));
+      const res = await importGoogleEvents(items);
+      show(`Importados: ${res.imported} · Saltados: ${res.skipped}`);
+      if (res.errors.length > 0) setGcImpError(res.errors.slice(0,3).join(' · '));
+      if (res.imported > 0) { setGcImpModal(false); router.refresh(); }
+    } catch (e) {
+      setGcImpError((e as Error).message || 'Error al importar');
+    } finally {
+      setGcImpLoading(false);
+    }
+  };
+
   const [excModal, setExcModal] = useState(false);
   const [excEditId, setExcEditId] = useState(null);
   const [savingExc, setSavingExc] = useState(false);
-  const todayISO = new Date().toISOString().slice(0,10);
   const emptyExcForm = {title:'',type:'dates',dates:[],newDateInput:'',start_date:'',end_date:'',start_time:'09:00',end_time:'13:00',all_day:true,days_of_week:[],notes:''};
   const [excF, setExcF] = useState(emptyExcForm);
 
@@ -507,7 +574,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
     booking_rescheduled: 'Reserva reprogramada',
     payment_link:        'Enlace de pago enviado',
     reminder_24h:        'Recordatorio 24h antes',
-    invoice:             'Factura enviada',
+    invoice:             'Comprobante de pago enviado',
   };
   const emailEventShape: Record<string, ('client'|'admin')[]> = {
     booking_received:    ['client','admin'],
@@ -568,6 +635,26 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
       return;
     }
     window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
+  // Manual email resend via mailto: — opens admin's default mail client
+  // (Gmail web / Outlook / etc) with subject + plain-text body prefilled.
+  // Use case: automatic email bounced because client typed wrong address;
+  // Silvana corrects it and wants to resend manually.
+  const MAIL_SUBJECTS: Record<string,string> = {
+    booking_received:  'Recibimos tu solicitud de cita',
+    booking_confirmed: 'Tu cita está confirmada',
+    payment_link:      'Enlace de pago para tu sesión',
+    reschedule:        'Tu cita fue reprogramada',
+    reminder_24h:      'Recordatorio: tu cita es mañana',
+    custom:            'Lda. Silvana López — Psicoterapia',
+  };
+  const openMailFor = (booking: any, event: string) => {
+    if (!booking?.email) { show('El cliente no tiene email registrado'); return; }
+    const body = buildWaMessageFor(booking, event);
+    const subject = MAIL_SUBJECTS[event] || 'Lda. Silvana López — Psicoterapia';
+    const url = `mailto:${booking.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    window.location.href = url;
   };
   const [tutorialLinks, setTutorialLinks] = useState(() => {
     if (initialLinks && initialLinks.length > 0) return initialLinks.map(l => ({id:l.id,title:l.title,url:l.url}));
@@ -761,6 +848,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
     if (resF.email && !isValidEmail(resF.email)) { show('Email inválido'); return; }
     if (resF.telefono && !normalizePhone(resF.telefono)) { show('Teléfono inválido — incluye código de país (+1, +54)'); return; }
     if (!resF.serviceId) { show('Selecciona un servicio'); return; }
+    if (!eResId && resF.fecha < todayISO) { show('No se pueden crear citas con fecha pasada'); return; }
     if (eResId) {
       setReservas(p => p.map(r => r.id === eResId ? {...r,...resF,duracion:Number(resF.duracion)} : r));
       show('Cita actualizada');
@@ -803,7 +891,13 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
     if (editingId) { setMetodos(p=>p.map(m=>m.id===editingId?{...m,...metF}:m)); show('Método actualizado'); }
     else { const nid=Math.max(0,...metodos.map(m=>m.id))+1; setMetodos(p=>[...p,{...metF,id:nid,activo:true,prioridad:p.length+1}]); show('Método agregado'); }
     setMetModal(false); setEMetId(null); setMetF({tipo:'Transferencia',nombre:'',banco:'',titular:'',cuentaVisible:'',cuentaCompleta:'',moneda:'USD',tiempoConfirm:'24 horas',instrucciones:'',notasInternas:'',correoProveedor:'',comision:'',estadoConexion:'conectado',monedasAceptadas:'USD',pagosRecurrentes:false,tipoCuenta:'Personal',tiempoAcredit:'Instantáneo',politicaReembolso:'',clavePublica:'',claveSecreta:'',idComercio:'',prioridad:1,recargoPct:0,color:''});
-    try { const {id:_,...payload} = metF; const res = await upsertPaymentMethod({...payload, id: editingId || undefined}); if(res&&!res.success) show(res.error||'Error al guardar método'); else router.refresh(); } catch(e) { show('Error al guardar método'); }
+    try {
+      const {id:_,...payload} = metF;
+      const validEditId = typeof editingId === 'string' && /^[0-9a-f-]{36}$/i.test(editingId) ? editingId : undefined;
+      const res = await upsertPaymentMethod({...payload, id: validEditId});
+      if(res && !res.success) { console.error('[PaymentMethod] save failed:', res.error); show(res.error || 'Error al guardar método'); }
+      else router.refresh();
+    } catch(e) { console.error('[PaymentMethod] save exception:', e); show('Error al guardar método: '+((e as Error).message||'desconocido')); }
   };
 
   /* Calendar */
@@ -896,9 +990,9 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
     {key:'cuenta',label:'Mi Cuenta',icon:I.user},
     {key:'facturas',label:'Comprobantes',icon:I.invoice},
     {key:'reservas',label:'Calendario',icon:I.calendar},
-    {key:'disponibilidad',label:'Disponibilidad',icon:I.calendar},
+    {key:'disponibilidad',label:'Disponibilidad',icon:I.clockNav},
     {key:'pagos',label:'Métodos de Pago',icon:I.credit},
-    {key:'integraciones',label:'Integraciones',icon:I.gear},
+    {key:'integraciones',label:'Integraciones',icon:I.plug},
     {key:'config',label:'Configuración',icon:I.gear},
   ];
 
@@ -1299,6 +1393,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                       <button key={v} onClick={()=>setCalView(v)} style={{padding:'6px 14px',borderRadius:8,border:'1.5px solid',fontSize:12,fontWeight:500,cursor:'pointer',fontFamily:"'DM Sans',sans-serif",borderColor:calView===v?'#4a7a4a':'#c8ddc8',background:calView===v?'#f0f5f0':'#fdfcfa',color:calView===v?'#4a7a4a':'#4e6050'}}>{v === 'week' ? 'Semana' : v === 'month' ? 'Mes' : 'Lista'}</button>
                     ))}
                     <button onClick={exportGCal} style={{...btnS,fontSize:11,padding:'5px 10px'}} title="Agregar citas visibles a Google Calendar">{I.calendar} Google</button>
+                    <button onClick={()=>{setGcImpModal(true);setGcImpError('');setGcImpEvents([])}} style={{...btnS,fontSize:11,padding:'5px 10px'}} title="Importar eventos desde Google Calendar al sistema">↓ Importar</button>
                     <button onClick={exportIcs} style={{...btnS,fontSize:11,padding:'5px 10px'}} title="Descargar citas visibles como archivo .ics">{I.download} .ics</button>
                     <button onClick={()=>{setEResId(null);setResF({paciente:'',email:'',telefono:'',fecha:'',hora:'',duracion:60,tipo:'',serviceId:'',notas:'',estado:'pendiente',pais:''});setResModal(true)}} style={{...btnP,fontSize:12,padding:'6px 13px',marginLeft:4}}>{I.plus} Cita</button>
                   </div>
@@ -1510,6 +1605,23 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                           );
                         })()}
                       </div>
+                      {/* Email manual resend — abre mailto: con plantilla */}
+                      <div style={{marginTop:10}}>
+                        <div style={{fontSize:10,color:'#849884',fontWeight:500,textTransform:'uppercase',letterSpacing:'.4px',marginBottom:6,textAlign:'center'}}>Reenviar correo</div>
+                        {!selRes.email ? (
+                          <div style={{fontSize:10,color:'#b08050',background:'#fff8e1',padding:'6px 9px',borderRadius:7,border:'1px solid #ffe0b2'}}>
+                            El cliente no tiene email registrado.
+                          </div>
+                        ) : (
+                          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:5}}>
+                            {WA_TEMPLATE_EVENTS.filter(e=>e!=='custom').map(evt=>(
+                              <button key={evt} onClick={()=>openMailFor(selRes, evt)} style={{padding:'6px 8px',border:'1.5px solid #c8dcea',borderRadius:8,background:'#eef4fb',color:'#1c5a99',fontSize:10,cursor:'pointer',fontFamily:"'DM Sans',sans-serif",fontWeight:500}}>
+                                {WA_TEMPLATE_LABELS[evt]}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                       {selRes.fecha && selRes.hora && (
                         <div style={{marginTop:10}}>
                           <div style={{fontSize:10,color:'#849884',fontWeight:500,textTransform:'uppercase',letterSpacing:'.4px',marginBottom:6,textAlign:'center'}}>Agregar al calendario</div>
@@ -1549,7 +1661,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                   <Field label="Ubicación"><select style={sel} value={resF.pais} onChange={e=>setResF({...resF,pais:e.target.value})}>{UBICACIONES.map(p=><option key={p} value={p}>{p||'— Sin ubicación —'}</option>)}</select></Field>
                 </div>
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'0 14px'}}>
-                  <Field label="Fecha"><input style={inp} type="date" value={resF.fecha} onChange={e=>setResF({...resF,fecha:e.target.value})}/></Field>
+                  <Field label="Fecha"><input style={inp} type="date" min={eResId?undefined:todayISO} value={resF.fecha} onChange={e=>setResF({...resF,fecha:e.target.value})}/></Field>
                   <Field label="Hora"><select style={sel} value={resF.hora} onChange={e=>setResF({...resF,hora:e.target.value})}><option value="">—</option>{HORAS.map(h=><option key={h}>{h}</option>)}</select></Field>
                   <Field label="Duración"><input style={{...inp,background:'#f0f5f0',cursor:'default'}} value={`${resF.duracion} min`} readOnly title="La duración se establece desde el servicio"/></Field>
                 </div>
@@ -1869,6 +1981,61 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                   </div>
                 </div>
               </Modal>
+
+              {/* GOOGLE CALENDAR IMPORT MODAL */}
+              <Modal dark={dm} open={gcImpModal} onClose={()=>setGcImpModal(false)} title="Importar de Google Calendar" width={880}>
+                <p style={{fontSize:12,color:'#849884',margin:'0 0 14px'}}>Lista eventos del rango y permite importarlos como reservas. Los eventos ya importados se muestran como referencia y no se vuelven a insertar.</p>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr auto',gap:10,alignItems:'end',marginBottom:14}}>
+                  <Field label="Desde"><input style={inp} type="date" value={gcImpFrom} onChange={e=>setGcImpFrom(e.target.value)}/></Field>
+                  <Field label="Hasta"><input style={inp} type="date" value={gcImpTo} onChange={e=>setGcImpTo(e.target.value)}/></Field>
+                  <button onClick={gcImpScan} disabled={gcImpLoading} style={{...btnP,opacity:gcImpLoading?.6:1,marginBottom:10}}>{gcImpLoading?'Escaneando…':'Escanear'}</button>
+                </div>
+
+                {gcImpError && <div style={{background:'#FFEBEE',color:'#C62828',padding:'10px 14px',borderRadius:8,fontSize:12,marginBottom:12}}>{gcImpError}</div>}
+
+                {gcImpEvents.length > 0 && (
+                  <div style={{maxHeight:'55vh',overflowY:'auto',border:'1px solid '+(dm?'#2a2a2a':'#e2ede2'),borderRadius:10}}>
+                    {gcImpEvents.map((ev,idx) => {
+                      const dt = ev.startIso ? new Date(ev.startIso) : null;
+                      const dstr = dt ? dt.toLocaleString('es-ES',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '—';
+                      return (
+                        <div key={ev.eventId} style={{padding:'12px 14px',borderBottom:idx<gcImpEvents.length-1?'1px solid '+(dm?'#2a2a2a':'#e2ede2'):'none',background:ev.alreadyImported?(dm?'#1e1e1e':'#f5f5f5'):(dm?'#161616':'#fff'),opacity:ev.alreadyImported?.7:1}}>
+                          <div style={{display:'flex',alignItems:'flex-start',gap:10,marginBottom:8}}>
+                            <input type="checkbox" checked={ev.selected} disabled={ev.alreadyImported} onChange={e=>{const v=e.target.checked;setGcImpEvents(p=>p.map((x,i)=>i===idx?{...x,selected:v}:x))}} style={{marginTop:4}}/>
+                            <div style={{flex:1,minWidth:0}}>
+                              <div style={{fontSize:13,fontWeight:500,color:dm?'#e8e8e8':'#2a3528'}}>{ev.title}{ev.alreadyImported && <span style={{fontSize:10,marginLeft:8,padding:'2px 7px',background:'#e8f5e9',color:'#2e7d32',borderRadius:8}}>Ya importado</span>}</div>
+                              <div style={{fontSize:11,color:'#849884',marginTop:2}}>{dstr} · {ev.durationMin} min{ev.attendeeEmail?' · '+ev.attendeeEmail:''}</div>
+                            </div>
+                          </div>
+                          {!ev.alreadyImported && ev.selected && (
+                            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 160px 130px',gap:8,marginLeft:26}}>
+                              <input style={{...inp,marginBottom:0}} placeholder="Nombre cliente" value={ev.clientName} onChange={e=>{const v=e.target.value;setGcImpEvents(p=>p.map((x,i)=>i===idx?{...x,clientName:v}:x))}}/>
+                              <input style={{...inp,marginBottom:0}} placeholder="Email cliente" value={ev.clientEmail} onChange={e=>{const v=e.target.value;setGcImpEvents(p=>p.map((x,i)=>i===idx?{...x,clientEmail:v}:x))}}/>
+                              <select style={{...sel,marginBottom:0}} value={ev.serviceId} onChange={e=>{const v=e.target.value;setGcImpEvents(p=>p.map((x,i)=>i===idx?{...x,serviceId:v}:x))}}>
+                                {services.map((s:any) => <option key={s.id} value={s.id}>{s.nombre || s.name}</option>)}
+                              </select>
+                              <select style={{...sel,marginBottom:0}} value={ev.status} onChange={e=>{const v=e.target.value as 'pending'|'confirmed';setGcImpEvents(p=>p.map((x,i)=>i===idx?{...x,status:v}:x))}}>
+                                <option value="confirmed">Confirmada</option>
+                                <option value="pending">Pendiente</option>
+                              </select>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:16}}>
+                  <div style={{fontSize:11,color:'#849884'}}>
+                    {gcImpEvents.length>0 && <>{gcImpEvents.filter(e=>e.selected && !e.alreadyImported).length} seleccionado(s) · {gcImpEvents.filter(e=>e.alreadyImported).length} ya importado(s)</>}
+                  </div>
+                  <div style={{display:'flex',gap:10}}>
+                    <button onClick={()=>setGcImpModal(false)} style={btnS}>Cerrar</button>
+                    <button onClick={gcImpCommit} disabled={gcImpLoading || gcImpEvents.filter(e=>e.selected && !e.alreadyImported).length===0} style={{...btnP,opacity:gcImpLoading?.6:1}}>{I.check} Importar seleccionados</button>
+                  </div>
+                </div>
+              </Modal>
             </div>
           )}
 
@@ -1894,7 +2061,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                           <div style={{fontSize:14,fontWeight:500,display:'flex',alignItems:'center',gap:8}}>{m.nombre||m.tipo}
                             <span style={{fontSize:10,padding:'2px 8px',borderRadius:10,background:m.activo?'#f0f5f0':'#FFEBEE',color:m.activo?'#4a7a4a':'#C62828',fontWeight:600}}>{m.activo?'Activo':'Inactivo'}</span>
                             <span style={{fontSize:10,padding:'2px 8px',borderRadius:10,background:'#f0f5f0',color:'#849884'}}>Prioridad {m.prioridad}</span>
-                            {(m.tipo==='Stripe'||m.tipo==='PayPal') && m.claveSecreta && (
+                            {false && (m.tipo==='Stripe'||m.tipo==='PayPal') && m.claveSecreta && (
                               <span style={{fontSize:10,padding:'2px 8px',borderRadius:10,background:'#e8f5e9',color:'#2e7d32',fontWeight:600,display:'flex',alignItems:'center',gap:3}} title="API conectada — credenciales configuradas">● API Conectada</span>
                             )}
                           </div>
@@ -1906,7 +2073,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                           <div style={{width:16,height:16,borderRadius:'50%',background:'#fff',position:'absolute',top:3,left:m.activo?23:3,transition:'left .3s',boxShadow:'0 1px 3px rgba(0,0,0,.15)'}}/>
                         </button>
                         <button onClick={e=>{e.stopPropagation();setEMetId(m.id);setMetF({...m});setMetModal(true)}} style={{border:'none',background:'#f0f5f0',borderRadius:7,width:32,height:32,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#4e6050'}}>{I.edit}</button>
-                        <button onClick={async e=>{e.stopPropagation();setMetodos(p=>p.filter(x=>x.id!==m.id));show('Eliminado');try{await deletePaymentMethod(m.id)}catch(er){show('Error al eliminar')}}} style={{border:'none',background:'#FFEBEE',borderRadius:7,width:32,height:32,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#C62828'}}>{I.trash}</button>
+                        <button onClick={async e=>{e.stopPropagation();if(!window.confirm('¿Eliminar este método de pago?'))return;const prev=metodos;setMetodos(p=>p.filter(x=>x.id!==m.id));try{const r=await deletePaymentMethod(m.id);if(r&&!r.success){setMetodos(prev);show(r.error||'Error al eliminar');}else{show('Eliminado');router.refresh();}}catch(er){console.error(er);setMetodos(prev);show('Error al eliminar: '+((er as Error).message||''));}}} style={{border:'none',background:'#FFEBEE',borderRadius:7,width:32,height:32,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#C62828'}}>{I.trash}</button>
                         <span style={{color:'#849884',transform:isOpen?'rotate(90deg)':'rotate(0)',transition:'transform .2s'}}>{I.chevR}</span>
                       </div>
                     </div>

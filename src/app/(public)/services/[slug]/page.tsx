@@ -16,6 +16,7 @@ export async function generateMetadata({ params }: Props) {
     .select('name')
     .eq('slug', slug)
     .eq('active', true)
+    .eq('is_internal', false)
     .single();
 
   return {
@@ -27,10 +28,16 @@ export default async function ServiceDetailPage({ params }: Props) {
   const { slug } = await params;
   const supabase = await createServerSupabaseClient();
 
-  const [serviceRes, settingsRes, payMethodsRes] = await Promise.all([
-    supabase.from('services').select('*').eq('slug', slug).eq('active', true).single(),
+  const today = new Date();
+  const to = new Date(today); to.setDate(to.getDate() + 60);
+  const fromISO = today.toISOString().slice(0,10);
+  const toISO = to.toISOString().slice(0,10);
+
+  const [serviceRes, settingsRes, payMethodsRes, exceptionsRes] = await Promise.all([
+    supabase.from('services').select('*').eq('slug', slug).eq('active', true).eq('is_internal', false).single(),
     supabase.rpc('get_public_contact').single(),
     supabase.from('payment_methods').select('nombre').eq('activo', true).order('prioridad'),
+    supabase.rpc('get_active_exceptions', { from_date: fromISO, to_date: toISO }),
   ]);
 
   const service = serviceRes.data;
@@ -48,7 +55,7 @@ export default async function ServiceDetailPage({ params }: Props) {
           {service.name}
         </h1>
       </div>
-      <ServiceDetailClient service={service} workingHours={settingsRes.data?.working_hours ?? null} activePaymentMethods={(payMethodsRes.data ?? []).map((m: { nombre: string }) => m.nombre)} />
+      <ServiceDetailClient service={service} workingHours={settingsRes.data?.working_hours ?? null} activePaymentMethods={(payMethodsRes.data ?? []).map((m: { nombre: string }) => m.nombre)} exceptions={exceptionsRes.data ?? []} />
       <Footer />
     </>
   );
