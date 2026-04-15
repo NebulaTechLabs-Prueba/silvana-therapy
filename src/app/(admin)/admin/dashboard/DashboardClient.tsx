@@ -281,20 +281,17 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
   const [gcImpTo, setGcImpTo] = useState(() => { const d=new Date(); d.setDate(d.getDate()+60); return d.toISOString().slice(0,10); });
   const [gcImpError, setGcImpError] = useState('');
 
-  const gcImpDefaultServiceId = useMemo(() => {
-    const internal = services.find((s:any) => s.nombre === 'Importado de Google Calendar');
-    return internal?.id || services[0]?.id || '';
-  }, [services]);
-
   const gcImpScan = async () => {
     setGcImpLoading(true); setGcImpError('');
     try {
       const res = await scanGoogleEvents(new Date(gcImpFrom).toISOString(), new Date(gcImpTo+'T23:59:59').toISOString());
       if (!res.success) { setGcImpError(res.error || 'Error al escanear'); setGcImpEvents([]); return; }
+      const internal = services.find((s:any) => s.nombre === 'Importado de Google Calendar');
+      const defaultServiceId = internal?.id || services[0]?.id || '';
       const mapped = (res.events || []).map(e => ({
         ...e,
         selected: !e.alreadyImported,
-        serviceId: gcImpDefaultServiceId,
+        serviceId: defaultServiceId,
         clientName: e.attendeeName || e.title || '',
         clientEmail: e.attendeeEmail || '',
         status: 'confirmed' as const,
