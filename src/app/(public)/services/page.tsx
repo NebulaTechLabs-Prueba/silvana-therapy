@@ -16,6 +16,7 @@ export default async function ServicesPage() {
     .from('services')
     .select('*')
     .eq('active', true)
+    .eq('is_internal', false)
     .order('sort_order');
 
   const list: Service[] = services ?? [];
