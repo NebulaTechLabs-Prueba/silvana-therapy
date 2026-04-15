@@ -92,7 +92,22 @@ Pasos para obtener las credenciales: ver [HANDOVER.md § Parte 2](HANDOVER.md) (
 
 Tras configurar, entrar al panel admin → Integraciones → **Conectar con Google** para autorizar la cuenta y persistir los tokens en la tabla `google_integrations`.
 
-### 3.5 Stripe / PayPal
+### 3.5 Cron (recordatorios 24h)
+
+El endpoint `/api/cron/reminders` envía recordatorios por correo 24h antes de la cita (ver [DEPLOY.md § 6-bis](DEPLOY.md)). En desarrollo no hace falta configurar el crontab, pero sí es necesario el secreto si quieres probar el endpoint manualmente:
+
+```
+CRON_SECRET=cualquier-string-aleatorio
+```
+
+Para disparar el endpoint en local:
+```bash
+curl -H "Authorization: Bearer cualquier-string-aleatorio" http://localhost:3000/api/cron/reminders
+```
+
+Si `CRON_SECRET` no está, el endpoint responde 500 (no se desactiva silenciosamente para evitar que un despliegue sin el secreto deje de enviar recordatorios sin aviso).
+
+### 3.6 Stripe / PayPal
 
 Opcionales para arrancar. El app carga sin ellos; solo falla al intentar generar enlaces de pago. Usar keys de test durante desarrollo:
 
@@ -189,13 +204,20 @@ El schema vive en un **único baseline**: [`supabase/migrations/001_baseline.sql
 
 1. Crear proyecto Supabase (región US East para cercanía con Miami/NYC).
 2. SQL Editor → abrir `001_baseline.sql` → **Run**. Crea enums, tablas, índices, funciones, triggers, RLS policies y el singleton de `admin_settings`.
-3. Authentication → Users → crear usuario admin con **Auto Confirm** activo.
-4. Authentication → URL Configuration → añadir `http://localhost:3000/**` y `https://admin.silvanalopez.com/**` a los redirect URLs.
-5. Poblar `services` y `payment_methods` desde el dashboard (el baseline **no** seedea estas tablas — se asume que el catálogo real lo llena el admin).
+3. SQL Editor → ejecutar cada migración incremental en orden numérico (`002_*.sql`, `003_*.sql`, …). Ver [tabla de migraciones abajo](#migraciones-incrementales).
+4. Authentication → Users → crear usuario admin con **Auto Confirm** activo.
+5. Authentication → URL Configuration → añadir `http://localhost:3000/**` y `https://admin.silvanalopez.com/**` a los redirect URLs.
+6. Poblar `services` y `payment_methods` desde el dashboard (el baseline **no** seedea estas tablas — se asume que el catálogo real lo llena el admin).
+
+### Migraciones incrementales
+
+| Archivo | Propósito |
+|---|---|
+| `002_imported_service.sql` | Añade `services.is_internal` (bool) para marcar servicios que no deben aparecer en páginas públicas, y semilla el servicio "Importado de Google Calendar" usado como placeholder por el import de eventos desde Google Calendar cuando el servicio original se desconoce. |
 
 ### Futuros cambios de schema
 
-Cualquier modificación posterior al baseline se añade como una migración nueva numerada a partir de `002_*.sql` (ej. `002_add_invoice_pdf_url.sql`). Nunca editar `001_baseline.sql` en instancias ya desplegadas — crear una migración incremental en su lugar.
+Cualquier modificación posterior al baseline se añade como una migración nueva numerada a partir de `003_*.sql`. Nunca editar `001_baseline.sql` ni migraciones ya aplicadas en instancias desplegadas — crear una migración incremental en su lugar y documentarla en la tabla de arriba.
 
 ### Seed data de demo
 

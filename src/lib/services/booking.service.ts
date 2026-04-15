@@ -128,6 +128,7 @@ export async function createBooking(dto: CreateBookingDTO): Promise<Booking> {
         reason: dto.reason,
         preferredDate: dto.preferred_date,
         isFirstSession: booking.is_first_session,
+        isFree: booking.service?.is_free === true,
         bookingId: booking.id,
       });
     } catch (emailError) {
@@ -144,6 +145,7 @@ export async function createBooking(dto: CreateBookingDTO): Promise<Booking> {
       serviceName: booking.service?.name || 'Consulta',
       preferredDate: dto.preferred_date,
       isFirstSession: booking.is_first_session,
+      isFree: booking.service?.is_free === true,
     });
   } catch (emailError) {
     console.error('[BookingService] Client email failed:', emailError);
