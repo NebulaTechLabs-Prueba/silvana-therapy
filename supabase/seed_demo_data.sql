@@ -6,12 +6,23 @@
 -- ============================================================
 
 -- ─── CLEANUP previous demo data ─────────────────────────────
+-- Tras la migración 005 (email opcional), los clientes pueden no tener
+-- email. Por eso el cleanup de clients ahora borra por id (fijo en el
+-- seed) en vez de por email. Las invoices sí siguen con email porque
+-- todas las de demo se generan con email obligatorio.
 DELETE FROM payment_links WHERE booking_id IN (SELECT id FROM bookings WHERE idempotency_key LIKE 'demo-%');
 DELETE FROM payment_links WHERE url LIKE '%pay.example.com%';
 DELETE FROM invoices WHERE email IN ('maria.gonzalez@gmail.com','carlos.ramirez@outlook.com','ana.martinez@yahoo.com','laura.fernandez@hotmail.com','pedro.silva@gmail.com');
 DELETE FROM bookings WHERE idempotency_key LIKE 'demo-%';
-DELETE FROM clients WHERE email IN ('maria.gonzalez@gmail.com','carlos.ramirez@outlook.com','ana.martinez@yahoo.com','laura.fernandez@hotmail.com','pedro.silva@gmail.com');
-DELETE FROM payment_methods WHERE nombre IN ('Zelle — Bank of America','PayPal — Silvana López','Transferencia Bancaria — Argentina','Stripe — Tarjeta de crédito/débito');
+DELETE FROM clients WHERE id IN (
+  'aa100000-0000-0000-0000-000000000001',
+  'aa100000-0000-0000-0000-000000000002',
+  'aa100000-0000-0000-0000-000000000003',
+  'aa100000-0000-0000-0000-000000000004',
+  'aa100000-0000-0000-0000-000000000005',
+  'aa100000-0000-0000-0000-000000000006'
+);
+DELETE FROM payment_methods WHERE nombre IN ('Zelle — Bank of America','PayPal — Transferencia internacional','Transferencia Bancaria — Argentina','Stripe — Tarjeta de crédito/débito');
 DELETE FROM services WHERE slug IN ('demo-consulta-gratis','demo-terapia-individual','demo-terapia-pareja','demo-seguimiento');
 
 -- ============================================================
@@ -69,29 +80,29 @@ INSERT INTO payment_methods (
 ) VALUES
 (
   'Zelle', 'Zelle — Bank of America',
-  'Bank of America', 'Silvana López', '**** 7832', '021000322-4587832190',
+  'Bank of America', 'Titular Demo', '**** 7832', '021000322-4587832190',
   'USD', '1 hora',
   'Enviar Zelle al correo indicado. Adjuntar captura de pantalla como comprobante.',
   'Cuenta principal para pagos en USD desde USA',
-  'lopez.silvana.psi@gmail.com', '0%', 'conectado', 'USD',
+  'demo@example.com', '0%', 'conectado', 'USD',
   false, 'Personal', 'Instantáneo',
   'Reembolso dentro de las primeras 24h previo a la cita.',
   true, 1, 0, '#1565C0'
 ),
 (
-  'PayPal', 'PayPal — Silvana López',
-  'PayPal', 'Silvana López', 'lopez.silvana.psi@gmail.com', NULL,
+  'PayPal', 'PayPal — Transferencia internacional',
+  'PayPal', 'Titular Demo', 'demo@example.com', NULL,
   'USD', 'Instantáneo',
   'Se aplicará un recargo del 10% por comisiones de PayPal. Recibirás el enlace de pago por email.',
   'Recargo del 10% configurado automáticamente',
-  'lopez.silvana.psi@gmail.com', '5.4% + $0.30', 'conectado', 'USD,EUR,GBP,ARS,MXN',
+  'demo@example.com', '5.4% + $0.30', 'conectado', 'USD,EUR,GBP,ARS,MXN',
   false, 'Business', 'Instantáneo',
   'Reembolso hasta 24h antes de la cita, menos comisión de PayPal.',
   true, 2, 10, '#FF9800'
 ),
 (
   'Transferencia', 'Transferencia Bancaria — Argentina',
-  'Banco Nación', 'Silvana López', 'CBU **** 4920', '0110045830004501249200',
+  'Banco Nación', 'Titular Demo', 'CBU **** 4920', '0110045830004501249200',
   'ARS', '24 horas',
   'Transferir al CBU indicado. Enviar comprobante por WhatsApp.',
   'Para pacientes en Argentina — pesos argentinos',
@@ -102,11 +113,11 @@ INSERT INTO payment_methods (
 ),
 (
   'Tarjeta', 'Stripe — Tarjeta de crédito/débito',
-  'Stripe', 'Silvana López', NULL, NULL,
+  'Stripe', 'Titular Demo', NULL, NULL,
   'USD', 'Instantáneo',
   'Pago seguro con tarjeta de crédito o débito. Visa, Mastercard, Amex aceptadas.',
   'Procesador principal para pagos con tarjeta',
-  'lopez.silvana.psi@gmail.com', '2.9% + $0.30', 'conectado', 'USD,EUR,GBP,MXN,ARS',
+  'demo@example.com', '2.9% + $0.30', 'conectado', 'USD,EUR,GBP,MXN,ARS',
   true, 'Business', 'Instantáneo',
   'Reembolso completo hasta 24h antes de la cita.',
   true, 4, 0, '#635BFF'
@@ -116,12 +127,15 @@ INSERT INTO payment_methods (
 -- 3. CLIENTS (5)
 -- ============================================================
 
+-- Cliente 6 ilustra el flujo WhatsApp-only habilitado por la migración 005:
+-- email puede ser NULL siempre que phone esté presente (chk_clients_contact_present).
 INSERT INTO clients (id, full_name, email, phone, country, reason) VALUES
   ('aa100000-0000-0000-0000-000000000001', 'María González', 'maria.gonzalez@gmail.com', '+1 305 555 1234', 'Florida', 'Ansiedad y estrés laboral. Busco herramientas para manejar situaciones de presión en el trabajo.'),
   ('aa100000-0000-0000-0000-000000000002', 'Carlos Ramírez', 'carlos.ramirez@outlook.com', '+54 9 11 4567 8901', 'Otro', 'Problemas de pareja y comunicación. Quiero mejorar la relación con mi esposa.'),
   ('aa100000-0000-0000-0000-000000000003', 'Ana Martínez', 'ana.martinez@yahoo.com', '+52 55 1234 5678', 'Otro', 'Duelo por pérdida de un familiar cercano.'),
   ('aa100000-0000-0000-0000-000000000004', 'Laura Fernández', 'laura.fernandez@hotmail.com', '+58 412 555 6789', 'Otro', 'Primera consulta. Quiero explorar cómo la terapia puede ayudarme con mi autoestima.'),
-  ('aa100000-0000-0000-0000-000000000005', 'Pedro Silva', 'pedro.silva@gmail.com', '+1 786 555 4321', 'Florida', 'Seguimiento de proceso terapéutico. Manejo de ansiedad social.');
+  ('aa100000-0000-0000-0000-000000000005', 'Pedro Silva', 'pedro.silva@gmail.com', '+1 786 555 4321', 'Florida', 'Seguimiento de proceso terapéutico. Manejo de ansiedad social.'),
+  ('aa100000-0000-0000-0000-000000000006', 'Juan Pérez', NULL, '+54 9 261 555 9876', 'Otro', 'Primer contacto por WhatsApp. Aún no compartió correo.');
 
 -- ============================================================
 -- 4. BOOKINGS (5) — 3 in April 2026, 2 in other months
@@ -139,7 +153,7 @@ INSERT INTO bookings (id, client_id, service_id, status, preferred_date, agreed_
 VALUES ('bb100000-0000-0000-0000-000000000002', 'aa100000-0000-0000-0000-000000000002', 'cc100000-0000-0000-0000-000000000003', 'pending',
   '2026-04-22T15:00:00-04:00', 60.00, true,
   'Primera consulta de pareja. Viene con su esposa.',
-  'demo-carlos-20260422-1500', '16:00', 'PayPal — Silvana López');
+  'demo-carlos-20260422-1500', '16:00', 'PayPal — Transferencia internacional');
 
 -- Booking 3: April — Cancelled (Ana, free consultation)
 INSERT INTO bookings (id, client_id, service_id, status, preferred_date, agreed_price, is_first_session, rejection_reason, idempotency_key, client_local_time)
@@ -161,6 +175,17 @@ VALUES ('bb100000-0000-0000-0000-000000000005', 'aa100000-0000-0000-0000-0000000
   '2026-06-03T14:00:00-04:00', '2026-06-03T14:00:00-04:00', 40.00, false,
   'Sesión de seguimiento #8. Progreso notable en habilidades sociales.',
   'demo-pedro-20260603-1400', '14:00', 'Stripe — Tarjeta de crédito/débito');
+
+-- Booking 6: May — Pending (Juan, WhatsApp-only — caso migración 005).
+-- Sin correo: las notificaciones automáticas por email no se envían
+-- (el adapter no-op si el destinatario está vacío); la coordinación va
+-- por WhatsApp. Los botones "Reenviar correo" del detalle se ven
+-- deshabilitados con aviso de usar WhatsApp como canal.
+INSERT INTO bookings (id, client_id, service_id, status, preferred_date, agreed_price, is_first_session, admin_notes, idempotency_key, client_local_time)
+VALUES ('bb100000-0000-0000-0000-000000000006', 'aa100000-0000-0000-0000-000000000006', 'cc100000-0000-0000-0000-000000000001', 'pending',
+  '2026-05-12T11:00:00-04:00', NULL, true,
+  'Coordinación por WhatsApp. Sin correo registrado.',
+  'demo-juan-20260512-1100', '12:00');
 
 -- ============================================================
 -- 5. INVOICES (7) — Various statuses

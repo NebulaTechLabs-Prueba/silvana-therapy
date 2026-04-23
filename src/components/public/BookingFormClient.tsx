@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { getClientTime } from '@/lib/utils/timezone';
+import { getClientTime, convertTime, tzShortLabel, BASE_TZ, LOCATION_OPTIONS, getClientTimeFallback } from '@/lib/utils/timezone';
 import { sanitizeName, sanitizePhoneInput, isValidName, isValidEmail } from '@/lib/utils/sanitize';
 import { normalizePhone } from '@/lib/utils/phone';
 
@@ -58,7 +58,12 @@ function isDayEnabled(dayOfWeek: number, wh: WorkingHoursMap | null): boolean {
   return schedule[key]?.enabled ?? false;
 }
 
-const US_STATES = ['Alabama','Alaska','Arizona','Arkansas','California','Colorado','Connecticut','Delaware','Florida','Georgia','Guam','Hawaii','Idaho','Illinois','Indiana','Iowa','Kansas','Kentucky','Louisiana','Maine','Maryland','Massachusetts','Michigan','Minnesota','Mississippi','Missouri','Montana','Nebraska','Nevada','New Hampshire','New Jersey','New Mexico','New York','North Carolina','North Dakota','Ohio','Oklahoma','Oregon','Pennsylvania','Puerto Rico','Rhode Island','South Carolina','South Dakota','Tennessee','Texas','U.S. Virgin Islands','Utah','Vermont','Virginia','Washington','Washington D.C.','West Virginia','Wisconsin','Wyoming','Otro'];
+// Las opciones del dropdown vienen del catálogo centralizado en
+// timezone.ts. Se agrupan en <optgroup> para que clientes de LATAM y
+// España encuentren su país rápido sin perderse entre los 50+ estados
+// US. 'Otro' como fallback final.
+const LOCATION_COUNTRIES = LOCATION_OPTIONS.countries;
+const LOCATION_US_STATES = LOCATION_OPTIONS.usStates;
 
 type PaymentMethodInfo = { nombre: string; recargoPct: number };
 type BookedSlot = { date: string; time: string; duration: number };
@@ -152,10 +157,26 @@ interface Props {
   activePaymentMethods?: PaymentMethodInfo[];
   bookedSlots?: BookedSlot[];
   activeExceptions?: ActiveException[];
+  /**
+   * TZ IANA a mostrar al visitante en etiquetas y botones de slot.
+   * Los slots se generan siempre en BASE_TZ (Miami) — esta preferencia
+   * solo controla la ETIQUETA y la hora visible. El valor que se envía
+   * al backend sigue siendo Miami wall-clock.
+   */
+  formTz?: string;
 }
 
 /* ─── Component ─── */
-export default function BookingFormClient({ serviceId: propServiceId, serviceName: propServiceName, serviceDuration: propServiceDuration, workingHours = null, isFree = true, activePaymentMethods = [], bookedSlots = [], activeExceptions = [] }: Props) {
+export default function BookingFormClient({ serviceId: propServiceId, serviceName: propServiceName, serviceDuration: propServiceDuration, workingHours = null, isFree = true, activePaymentMethods = [], bookedSlots = [], activeExceptions = [], formTz = BASE_TZ }: Props) {
+  // Helper: convierte un slot Miami (HH:MM) a la TZ del formulario (para mostrar).
+  // Si formTz === BASE_TZ, retorna el mismo valor sin convertir.
+  const toFormTz = useCallback((date: string | null | undefined, miamiTime: string): string => {
+    if (!formTz || formTz === BASE_TZ) return miamiTime;
+    if (!date) return miamiTime;
+    return convertTime(date, miamiTime, BASE_TZ, formTz);
+  }, [formTz]);
+  const formTzLabel = tzShortLabel(formTz || BASE_TZ);
+  const formTzIsBase = !formTz || formTz === BASE_TZ;
   const router = useRouter();
   const [step, setStep] = useState(1);
 
@@ -260,7 +281,17 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
   }
 
   /* ─── Validation ─── */
-  const formValid = isValidName(nombre) && isValidName(apellido) && isValidEmail(email) && !!normalizePhone(tel);
+  // Contact policy: email y teléfono son opcionales individualmente pero
+  // al menos uno debe estar completo y válido. Coherente con
+  // chk_clients_contact_present en DB.
+  const emailTouched = email.trim().length > 0;
+  const telTouched = tel.trim().length > 0;
+  const emailValid = emailTouched && isValidEmail(email);
+  const telValid = telTouched && !!normalizePhone(tel);
+  const contactProvided = emailValid || telValid;
+  const emailLooksValid = !emailTouched || emailValid;
+  const telLooksValid = !telTouched || telValid;
+  const formValid = isValidName(nombre) && isValidName(apellido) && contactProvided && emailLooksValid && telLooksValid;
 
   /* ─── Format helpers ─── */
   function formatDate(iso: string) {
@@ -294,7 +325,7 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           full_name: `${nombre.trim()} ${apellido.trim()}`,
-          email: email.trim(),
+          email: email.trim() || undefined,
           phone: tel.trim() || undefined,
           country: pais || undefined,
           reason: motivo.trim() || undefined,
@@ -400,10 +431,14 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
           <SumRow label="Duración" value={`${svcDuration} min`} />
           <SumRow label="Modalidad" value="Online" />
           {selDate && <SumRow label="Fecha" value={formatDate(selDate)} />}
-          {selTime && <SumRow label="Hora Miami" value={`${selTime} hs`} />}
+          {selTime && <SumRow label={`Hora ${formTzLabel}`} value={`${toFormTz(selDate, selTime)} hs`} />}
           {selTime && pais && pais !== 'Florida' && pais !== 'Otro' && selDate && (() => {
             const localT = getClientTime(selDate, selTime, pais);
             return localT ? <SumRow label={`Hora ${pais}`} value={`${localT} hs`} /> : null;
+          })()}
+          {selTime && pais === 'Otro' && selDate && (() => {
+            const fb = getClientTimeFallback(selDate, selTime);
+            return fb ? <SumRow label={`Hora ${fb.label}`} value={`${fb.time} hs`} /> : null;
           })()}
           {hasSur && (
             <>
@@ -503,7 +538,9 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
             </p>
             {selDate && (
               <p className="text-[0.68rem] text-text-light mb-3 italic">
-                Horarios en hora Miami, FL (Este de EE.UU.)
+                {formTzIsBase
+                  ? 'Horarios en hora Miami, FL (Este de EE.UU.)'
+                  : `Horarios en hora ${formTzLabel}`}
               </p>
             )}
             {selDate && (() => {
@@ -518,6 +555,10 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
                 <div className="grid grid-cols-4 max-md:grid-cols-3 max-sm:grid-cols-2 gap-2 mb-6">
                   {allSlots.map(t => {
                     const available = availableSlots.includes(t);
+                    // Internamente seguimos trabajando con el slot Miami (t).
+                    // El label que ve el visitante se convierte a formTz si
+                    // Silvana lo configuró distinto.
+                    const displayLabel = toFormTz(selDate, t);
                     return (
                       <button
                         key={t}
@@ -531,7 +572,7 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
                               : 'bg-transparent border-green-soft text-text-mid hover:bg-green-pale hover:border-green-deep hover:text-green-deep cursor-pointer'
                         }`}
                       >
-                        {t}
+                        {displayLabel}
                       </button>
                     );
                   })}
@@ -592,10 +633,13 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
               </div>
             </div>
 
+            <div className="mb-2 text-[0.72rem] text-text-light italic">
+              Proporciona al menos uno: correo o WhatsApp. Usaremos el que esté disponible para contactarte.
+            </div>
             <div className="grid grid-cols-2 max-sm:grid-cols-1 gap-5 mb-5">
               <div className="flex flex-col gap-1.5">
                 <label className="text-[0.65rem] tracking-[0.12em] uppercase text-text-light font-medium">
-                  Email *
+                  Email
                 </label>
                 <input
                   type="email"
@@ -604,13 +648,16 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
                   placeholder="tu@email.com"
                   className="text-[0.88rem] py-3 px-4 border border-green-pale rounded-xl bg-[#fff] text-text-dark outline-none transition-all focus:border-green-deep focus:shadow-[0_0_0_3px_rgba(74,122,74,0.1)]"
                 />
-                <span className="text-[0.72rem] text-text-light">
-                  Recibirás la confirmación aquí
-                </span>
+                {emailTouched && !emailValid && (
+                  <span className="text-[0.68rem] text-red-600">Correo inválido.</span>
+                )}
+                {!emailTouched && !telValid && (
+                  <span className="text-[0.72rem] text-text-light">Recibirás la confirmación aquí.</span>
+                )}
               </div>
               <div className="flex flex-col gap-1.5">
                 <label className="text-[0.65rem] tracking-[0.12em] uppercase text-text-light font-medium">
-                  WhatsApp *
+                  WhatsApp
                 </label>
                 <input
                   type="tel"
@@ -620,11 +667,16 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
                   maxLength={22}
                   className="text-[0.88rem] py-3 px-4 border border-green-pale rounded-xl bg-[#fff] text-text-dark outline-none transition-all focus:border-green-deep focus:shadow-[0_0_0_3px_rgba(74,122,74,0.1)]"
                 />
-                {tel.length > 0 && !normalizePhone(tel) && (
+                {telTouched && !telValid && (
                   <span className="text-[0.68rem] text-red-600">Número inválido — debe tener entre 8 y 15 dígitos, incluyendo el código de país (ej. +1, +54).</span>
                 )}
               </div>
             </div>
+            {!contactProvided && (emailTouched || telTouched) && (
+              <div className="-mt-3 mb-4 text-[0.72rem] text-red-600">
+                Completa correctamente al menos uno de los dos (correo o WhatsApp) para poder coordinar la cita.
+              </div>
+            )}
 
             <div className="flex flex-col gap-1.5 mb-5">
               <label className="text-[0.65rem] tracking-[0.12em] uppercase text-text-light font-medium">
@@ -635,22 +687,47 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
                 onChange={e => setPais(e.target.value)}
                 className="text-[0.88rem] py-3 px-4 border border-green-pale rounded-xl bg-[#fff] text-text-dark outline-none transition-all focus:border-green-deep focus:shadow-[0_0_0_3px_rgba(74,122,74,0.1)] cursor-pointer"
               >
-                <option value="">Selecciona tu estado</option>
-                {US_STATES.map(c => <option key={c} value={c}>{c}</option>)}
+                <option value="">Selecciona tu país o estado</option>
+                <optgroup label="Países">
+                  {LOCATION_COUNTRIES.map(c => <option key={c} value={c}>{c}</option>)}
+                </optgroup>
+                <optgroup label="Estados de Estados Unidos">
+                  {LOCATION_US_STATES.map(s => <option key={s} value={s}>{s}</option>)}
+                </optgroup>
+                <option value="Otro">Otro / no listado</option>
               </select>
               {selTime && pais && (() => {
+                const formDisplay = toFormTz(selDate, selTime);
                 const localT = pais !== 'Florida' && pais !== 'Otro' && selDate
                   ? getClientTime(selDate, selTime, pais)
                   : null;
-                return localT ? (
-                  <span className="text-[0.72rem] text-green-deep">
-                    {selTime} hs hora Miami — {localT} hs hora {pais}
-                  </span>
-                ) : selTime && pais === 'Florida' ? (
-                  <span className="text-[0.72rem] text-text-light">
-                    {selTime} hs hora Miami (misma zona horaria)
-                  </span>
-                ) : null;
+                // Si el visitante picó "Otro" usamos fallback del browser
+                // (→ su hora local) o UTC. Así no lo dejamos sin referencia.
+                const fallback = pais === 'Otro' && selDate && selTime
+                  ? getClientTimeFallback(selDate, selTime)
+                  : null;
+                if (localT) {
+                  return (
+                    <span className="text-[0.72rem] text-green-deep">
+                      {formDisplay} hs hora {formTzLabel} — {localT} hs hora {pais}
+                    </span>
+                  );
+                }
+                if (pais === 'Florida') {
+                  return (
+                    <span className="text-[0.72rem] text-text-light">
+                      {formDisplay} hs hora {formTzLabel}{formTzIsBase ? ' (misma zona horaria)' : ''}
+                    </span>
+                  );
+                }
+                if (fallback) {
+                  return (
+                    <span className="text-[0.72rem] text-green-deep">
+                      {formDisplay} hs hora {formTzLabel} — {fallback.time} hs {fallback.label}
+                    </span>
+                  );
+                }
+                return null;
               })()}
             </div>
 
@@ -749,12 +826,17 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
               <ReviewRow label="Servicio" value={svcName} />
               {selDate && <ReviewRow label="Fecha" value={formatDateFull(selDate)} />}
               {selTime && (() => {
+                const formDisplay = toFormTz(selDate, selTime);
                 const localT = pais && pais !== 'Florida' && pais !== 'Otro' && selDate
                   ? getClientTime(selDate, selTime, pais)
                   : null;
+                const fb = pais === 'Otro' && selDate
+                  ? getClientTimeFallback(selDate, selTime)
+                  : null;
                 return (<>
-                  <ReviewRow label="Hora Miami" value={`${selTime} hs`} />
+                  <ReviewRow label={`Hora ${formTzLabel}`} value={`${formDisplay} hs`} />
                   {localT && <ReviewRow label={`Hora ${pais}`} value={`${localT} hs`} />}
+                  {fb && <ReviewRow label={`Hora ${fb.label}`} value={`${fb.time} hs`} />}
                 </>);
               })()}
               <ReviewRow label="Duración" value={`${svcDuration} min`} />
@@ -781,8 +863,8 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
                 Tus datos
               </p>
               <ReviewRow label="Nombre" value={`${nombre} ${apellido}`} />
-              <ReviewRow label="Email" value={email} />
-              <ReviewRow label="WhatsApp" value={tel} />
+              {email && <ReviewRow label="Email" value={email} />}
+              {tel && <ReviewRow label="WhatsApp" value={tel} />}
               {pais && <ReviewRow label="Ubicación" value={pais} />}
               {metodoPago && <ReviewRow label="Método de pago" value={metodoPago} />}
             </div>

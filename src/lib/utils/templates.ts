@@ -40,6 +40,7 @@ export const WA_TEMPLATE_VARS = [
   { key: 'servicio', desc: 'Nombre del servicio' },
   { key: 'fecha',    desc: 'Fecha (ej. 15/04/2026)' },
   { key: 'hora',     desc: 'Hora (ej. 14:30)' },
+  { key: 'zona',     desc: 'Zona horaria configurada para correos (ej. Miami, Argentina)' },
   { key: 'precio',   desc: 'Precio en USD' },
   { key: 'link',     desc: 'Enlace de pago / Meet' },
   { key: 'motivo',   desc: 'Motivo (reprogramación / rechazo)' },

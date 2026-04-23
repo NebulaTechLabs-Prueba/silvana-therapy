@@ -109,8 +109,8 @@ export type ImportItem = {
   startIso: string;
   durationMin: number;
   clientName: string;
-  clientEmail: string;
-  clientPhone?: string;
+  clientEmail?: string;   // opcional — el evento de Google puede no tener attendee
+  clientPhone?: string;   // opcional — Silvana puede tipearlo a mano en la preview
   serviceId: string;
   status: 'pending' | 'confirmed';
 };
@@ -129,8 +129,22 @@ export async function importGoogleEvents(
 
   for (const item of items) {
     try {
-      if (!item.eventId || !item.clientName?.trim() || !item.clientEmail?.trim() || !item.serviceId) {
-        errors.push(`${item.title}: datos incompletos (nombre/email/servicio obligatorios)`);
+      // Regla mínima: evento, nombre y servicio. El contacto (email/phone)
+      // exige al menos uno por el CHECK de la tabla clients — validamos
+      // aquí también para dar error claro al admin.
+      const clientEmail = item.clientEmail && item.clientEmail.trim() !== ''
+        ? item.clientEmail.trim().toLowerCase()
+        : null;
+      const clientPhone = item.clientPhone && item.clientPhone.trim() !== ''
+        ? item.clientPhone.trim()
+        : null;
+
+      if (!item.eventId || !item.clientName?.trim() || !item.serviceId) {
+        errors.push(`${item.title}: datos incompletos (nombre/servicio obligatorios)`);
+        continue;
+      }
+      if (!clientEmail && !clientPhone) {
+        errors.push(`${item.title}: el cliente necesita al menos correo o teléfono`);
         continue;
       }
 
@@ -141,31 +155,42 @@ export async function importGoogleEvents(
         .maybeSingle();
       if (dup) { skipped++; continue; }
 
-      const email = item.clientEmail.trim().toLowerCase();
-      const { data: existingClient } = await supabase
-        .from('clients')
-        .select('id')
-        .eq('email', email)
-        .maybeSingle();
+      // Matcheo: por email si existe, si no por phone.
+      let existingClient: { id: string } | null = null;
+      if (clientEmail) {
+        const res = await supabase
+          .from('clients')
+          .select('id')
+          .eq('email', clientEmail)
+          .maybeSingle();
+        existingClient = res.data as { id: string } | null;
+      }
+      if (!existingClient && clientPhone) {
+        const res = await supabase
+          .from('clients')
+          .select('id')
+          .eq('phone', clientPhone)
+          .maybeSingle();
+        existingClient = res.data as { id: string } | null;
+      }
 
       let clientId: string;
       if (existingClient) {
         clientId = existingClient.id;
-        await supabase
-          .from('clients')
-          .update({
-            full_name: item.clientName.trim(),
-            phone: item.clientPhone?.trim() || null,
-            is_returning: true,
-          })
-          .eq('id', clientId);
+        const update: Record<string, unknown> = {
+          full_name: item.clientName.trim(),
+          is_returning: true,
+        };
+        if (clientEmail) update.email = clientEmail;
+        if (clientPhone) update.phone = clientPhone;
+        await supabase.from('clients').update(update).eq('id', clientId);
       } else {
         const { data: newClient, error: cErr } = await supabase
           .from('clients')
           .insert({
             full_name: item.clientName.trim(),
-            email,
-            phone: item.clientPhone?.trim() || null,
+            email: clientEmail,
+            phone: clientPhone,
           })
           .select('id')
           .single();

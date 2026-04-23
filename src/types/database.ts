@@ -235,7 +235,10 @@ export interface BookingWithClient extends Booking {
 
 export interface CreateBookingDTO {
   full_name: string;
-  email: string;
+  // Migración 005: email opcional; el caller debe garantizar que al menos
+  // uno de los dos (email, phone) esté presente — coherente con el CHECK
+  // chk_clients_contact_present en DB y con createBookingSchema en Zod.
+  email?: string;
   phone?: string;
   country?: string;
   reason?: string;

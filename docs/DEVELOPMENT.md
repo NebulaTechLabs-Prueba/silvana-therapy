@@ -125,9 +125,11 @@ PAYPAL_MODE=sandbox
 
 ```
 TWO_FACTOR_ENCRYPTION_KEY=<string aleatorio de 32 chars>
+NEXT_SERVER_ACTIONS_ENCRYPTION_KEY=<hex de 64 chars>
 ```
 
-Se usa para cifrar los secretos TOTP del 2FA. Generar con `openssl rand -hex 16` o similar.
+- **`TWO_FACTOR_ENCRYPTION_KEY`**: cifra los secretos TOTP del 2FA. Generar con `openssl rand -hex 16`.
+- **`NEXT_SERVER_ACTIONS_ENCRYPTION_KEY`**: fija la key con la que Next.js 14 cifra los IDs de Server Actions. Sin ella Next genera una aleatoria por build, lo que invalida las pestañas abiertas del panel tras cualquier deploy (error `Failed to find Server Action`). Generar UNA SOLA VEZ con `openssl rand -hex 32` y no rotarla. En dev puede ser un valor fijo cualquiera; en producción debe existir antes del primer build que entregue al cliente.
 
 ---
 
@@ -214,6 +216,9 @@ El schema vive en un **único baseline**: [`supabase/migrations/001_baseline.sql
 | Archivo | Propósito |
 |---|---|
 | `002_imported_service.sql` | Añade `services.is_internal` (bool) para marcar servicios que no deben aparecer en páginas públicas, y semilla el servicio "Importado de Google Calendar" usado como placeholder por el import de eventos desde Google Calendar cuando el servicio original se desconoce. |
+| `003_admin_timezone.sql` | Añade `admin_settings.admin_timezone` (TEXT, default `America/New_York`) con CHECK constraint sobre lista de IANA TZs permitidas. El admin elige la zona en Mi Cuenta; el panel lee/escribe fechas de booking en esa zona. |
+| `004_display_timezones.sql` | Añade `admin_settings.email_display_tz` y `form_display_tz` (mismo set de TZs permitidas). `email_display_tz` controla la zona mostrada como referencia en los correos automáticos al paciente (default `America/New_York`, editable en Mi Cuenta). `form_display_tz` controla la zona visible en el formulario público de reserva (slots y labels). Los slots siguen generados en `BASE_TZ` (Miami) internamente, solo cambia el display. Extiende `get_public_contact()` RPC para incluir `form_display_tz`. |
+| `005_optional_client_email.sql` | `clients.email` ahora puede ser NULL. La UNIQUE constraint se sustituye por un índice único parcial `clients_email_unique_when_set` que solo aplica cuando email no es null. Nuevo CHECK `chk_clients_contact_present` exige que cada cliente tenga al menos email o teléfono (paridad con validación server y UI). Desbloquea: importar eventos de Google Calendar sin attendee, registrar pacientes que solo coordinan por WhatsApp, flujo público donde el visitante provee teléfono en lugar de correo. |
 
 ### Futuros cambios de schema
 

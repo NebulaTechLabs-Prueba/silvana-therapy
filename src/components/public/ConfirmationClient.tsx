@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { escapeHtml } from '@/lib/utils/escapeHtml';
-import { getClientTime } from '@/lib/utils/timezone';
+import { getClientTime, convertTime, tzShortLabel, BASE_TZ, getClientTimeFallback } from '@/lib/utils/timezone';
 
 const DAYS_F = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
 const MONTHS_F = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
@@ -16,8 +16,15 @@ interface BookingData {
   time: string;
 }
 
-export default function ConfirmationClient() {
+interface Props {
+  /** TZ configurada por Silvana para mostrar al visitante. Default Miami. */
+  formTz?: string;
+}
+
+export default function ConfirmationClient({ formTz = BASE_TZ }: Props) {
   const [data, setData] = useState<BookingData | null>(null);
+  const formTzLabel = tzShortLabel(formTz);
+  const formTzIsBase = formTz === BASE_TZ;
 
   useEffect(() => {
     const code = sessionStorage.getItem('sl_code') || 'SL-000000';
@@ -66,10 +73,10 @@ export default function ConfirmationClient() {
         </span>
 
         <h1 className="font-serif text-clamp-conf font-light text-text-dark mb-2">
-          ¡Tu cita está confirmada!
+          ¡Solicitud recibida!
         </h1>
         <p className="text-[0.9rem] text-text-mid">
-          Descarga tu comprobante y guárdalo como respaldo.
+          Silvana revisará tu solicitud y te enviará la confirmación por correo en breve. Guarda este comprobante como respaldo.
         </p>
       </div>
 
@@ -78,12 +85,16 @@ export default function ConfirmationClient() {
         <Row label="Servicio" value={data.service.title} />
         <Row label="Profesional" value="Lda. Silvana López" />
         <Row label="Fecha" value={dateStr} />
-        <Row label="Hora Miami" value={data.time ? `${data.time} hs` : '—'} />
+        <Row label={`Hora ${formTzLabel}`} value={data.time ? `${(formTzIsBase ? data.time : convertTime(data.date, data.time, BASE_TZ, formTz))} hs` : '—'} />
         {data.form.pais && data.form.pais !== 'Florida' && data.form.pais !== 'Otro' && data.date && data.time && (() => {
           const localT = getClientTime(data.date, data.time, data.form.pais!);
           return localT ? <Row label={`Hora ${data.form.pais}`} value={`${localT} hs`} /> : null;
         })()}
-        {data.form.pais === 'Florida' && data.time && (
+        {data.form.pais === 'Otro' && data.date && data.time && (() => {
+          const fb = getClientTimeFallback(data.date, data.time);
+          return fb ? <Row label={`Hora ${fb.label}`} value={`${fb.time} hs`} /> : null;
+        })()}
+        {data.form.pais === 'Florida' && data.time && formTzIsBase && (
           <Row label="Zona horaria" value="Miami, FL (misma zona)" />
         )}
         <Row label="Duración" value={data.service.duration} />

@@ -43,7 +43,9 @@ export default async function BookingPage() {
   ]);
 
   const service = serviceRes.data;
-  const workingHours = settingsRes.data?.working_hours ?? null;
+  const settings = settingsRes.data as { working_hours?: Record<string, unknown>; form_display_tz?: string } | null;
+  const workingHours = (settings?.working_hours as Record<string, { enabled: boolean; ranges: { start: string; end: string }[] }> | undefined) ?? null;
+  const formTz = settings?.form_display_tz || 'America/New_York';
   const activePaymentMethods = (payMethodsRes.data ?? []).map((m: { nombre: string; recargo_pct?: number }) => ({ nombre: m.nombre, recargoPct: m.recargo_pct || 0 }));
 
   // Build booked slots: array of { date, time, duration }
@@ -81,6 +83,7 @@ export default async function BookingPage() {
         activePaymentMethods={activePaymentMethods}
         bookedSlots={bookedSlots}
         activeExceptions={exceptionsRes.data ?? []}
+        formTz={formTz}
       />
       <Footer />
     </>

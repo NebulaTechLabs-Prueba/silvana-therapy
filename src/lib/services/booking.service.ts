@@ -3,6 +3,7 @@ import { createCalendarEvent, updateCalendarEvent, deleteCalendarEvent } from '@
 import { sendNewBookingNotification, sendBookingReceivedEmail, sendBookingConfirmedEmail, sendBookingRejectedEmail, sendRescheduledEmail, sendPaymentLinkEmail } from '@/lib/adapters/email';
 import { createStripePaymentLink } from '@/lib/adapters/stripe';
 import { createPayPalOrder } from '@/lib/adapters/paypal';
+import { combineToUtc, BASE_TZ } from '@/lib/utils/timezone';
 import type { CreateBookingDTO, AcceptBookingDTO, RejectBookingDTO, RescheduleBookingDTO, CreatePaymentLinkDTO, Booking, BookingWithClient } from '@/types/database';
 
 const supabase = createAdminClient();
@@ -10,35 +11,56 @@ const supabase = createAdminClient();
 // ─── Create Booking (Public) ──────────────────────────────
 
 export async function createBooking(dto: CreateBookingDTO): Promise<Booking> {
-  // 1. Upsert client (find by email or create)
-  const { data: existingClient } = await supabase
-    .from('clients')
-    .select('id')
-    .eq('email', dto.email)
-    .single();
+  // 1. Normalizar contacto + validar (paridad con chk_clients_contact_present
+  //    en DB). Email y phone son opcionales individualmente pero al menos
+  //    uno debe estar presente.
+  const clientEmail = dto.email && dto.email.trim() !== ''
+    ? dto.email.trim().toLowerCase()
+    : null;
+  const clientPhone = dto.phone && dto.phone.trim() !== '' ? dto.phone.trim() : null;
+  if (!clientEmail && !clientPhone) {
+    throw new Error('Debe proporcionar al menos un correo o un teléfono');
+  }
+
+  // 2. Find-or-create client. Matcheo por email si lo hay, si no por phone.
+  let existingClient: { id: string } | null = null;
+  if (clientEmail) {
+    const res = await supabase
+      .from('clients')
+      .select('id')
+      .eq('email', clientEmail)
+      .maybeSingle();
+    existingClient = res.data as { id: string } | null;
+  }
+  if (!existingClient && clientPhone) {
+    const res = await supabase
+      .from('clients')
+      .select('id')
+      .eq('phone', clientPhone)
+      .maybeSingle();
+    existingClient = res.data as { id: string } | null;
+  }
 
   let clientId: string;
 
   if (existingClient) {
     clientId = existingClient.id;
-    // Update client info and mark as returning
-    await supabase
-      .from('clients')
-      .update({
-        full_name: dto.full_name,
-        phone: dto.phone || null,
-        country: dto.country || null,
-        reason: dto.reason || null,
-        is_returning: true,
-      })
-      .eq('id', clientId);
+    const update: Record<string, unknown> = {
+      full_name: dto.full_name,
+      country: dto.country || null,
+      reason: dto.reason || null,
+      is_returning: true,
+    };
+    if (clientEmail) update.email = clientEmail;
+    if (clientPhone) update.phone = clientPhone;
+    await supabase.from('clients').update(update).eq('id', clientId);
   } else {
     const { data: newClient, error } = await supabase
       .from('clients')
       .insert({
         full_name: dto.full_name,
-        email: dto.email,
-        phone: dto.phone || null,
+        email: clientEmail,
+        phone: clientPhone,
         country: dto.country || null,
         reason: dto.reason || null,
       })
@@ -49,11 +71,30 @@ export async function createBooking(dto: CreateBookingDTO): Promise<Booking> {
     clientId = newClient.id;
   }
 
-  // 2. Check for time conflicts via unified RPC (bookings + exceptions + working_hours + google events)
+  // Normalizar preferred_date — el formulario público envía un string
+  // SIN offset de TZ ("YYYY-MM-DDTHH:MM:00") que representa hora Miami
+  // (los slots se generan a partir de working_hours en BASE_TZ=Miami).
+  // Postgres en Supabase tiene session TIMEZONE=UTC, así que un naked
+  // string se interpretaría como UTC — y la cita quedaría 4h corrida.
+  // Convertimos explícitamente Miami → UTC ISO aquí para que el DB
+  // guarde el instante correcto sin depender del session TZ.
+  let preferredDateUtc: string | null = null;
+  let reqDate: string | null = null;
+  let reqTime: string | null = null;
   if (dto.preferred_date) {
-    const reqDate = dto.preferred_date.slice(0, 10);
-    const reqTime = dto.preferred_date.slice(11, 16);
+    reqDate = dto.preferred_date.slice(0, 10);
+    reqTime = dto.preferred_date.slice(11, 16);
+    preferredDateUtc = combineToUtc(reqDate, reqTime, BASE_TZ);
+    if (!preferredDateUtc) {
+      throw new Error('Fecha/hora inválida en la reserva');
+    }
+  }
 
+  // 2. Check for time conflicts via unified RPC (bookings + exceptions + working_hours + google events).
+  // La RPC espera date/time como wall-clock Miami porque working_hours
+  // están definidos en esa zona; usamos los valores originales sin
+  // convertir.
+  if (reqDate && reqTime) {
     const { data: reqSvc } = await supabase
       .from('services')
       .select('duration_min')
@@ -85,13 +126,15 @@ export async function createBooking(dto: CreateBookingDTO): Promise<Booking> {
     }
   }
 
-  // 3. Create booking (trigger auto-detects is_first_session)
+  // 3. Create booking (trigger auto-detects is_first_session).
+  // Usamos preferredDateUtc (ISO con offset explícito) para que el
+  // instante guardado sea canónico independiente del session TZ de DB.
   const { data: booking, error: bookingError } = await supabase
     .from('bookings')
     .insert({
       client_id: clientId,
       service_id: dto.service_id,
-      preferred_date: dto.preferred_date || null,
+      preferred_date: preferredDateUtc,
       idempotency_key: dto.idempotency_key,
       preferred_payment: dto.preferred_payment || null,
       client_local_time: dto.client_local_time || null,
@@ -123,10 +166,10 @@ export async function createBooking(dto: CreateBookingDTO): Promise<Booking> {
       await sendNewBookingNotification({
         adminEmail: settings.notification_email,
         clientName: dto.full_name,
-        clientEmail: dto.email,
-        clientPhone: dto.phone,
+        clientEmail: clientEmail || '',
+        clientPhone: clientPhone || undefined,
         reason: dto.reason,
-        preferredDate: dto.preferred_date,
+        preferredDate: preferredDateUtc || undefined,
         isFirstSession: booking.is_first_session,
         isFree: booking.service?.is_free === true,
         bookingId: booking.id,
@@ -137,10 +180,13 @@ export async function createBooking(dto: CreateBookingDTO): Promise<Booking> {
     }
   }
 
-  // 4. Notify client via email
+  // 4. Notify client via email (si proporcionó email; si no, sendEmail
+  //    en el adapter hace no-op). No-op vs omit aquí es equivalente
+  //    pero dejamos la llamada para que los logs de info registren el
+  //    intent.
   try {
     await sendBookingReceivedEmail({
-      clientEmail: dto.email,
+      clientEmail: clientEmail || '',
       clientName: dto.full_name,
       serviceName: booking.service?.name || 'Consulta',
       preferredDate: dto.preferred_date,

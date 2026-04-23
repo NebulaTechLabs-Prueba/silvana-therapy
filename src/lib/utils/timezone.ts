@@ -76,23 +76,74 @@ export const US_STATE_TIMEZONES: Record<string, string | null> = {
   'Otro': null,
 };
 
+/**
+ * Mapa de países (y regiones no-US) a su IANA timezone. Lo usa el
+ * formulario público para ofrecer una ubicación significativa a
+ * clientes fuera de USA. El campo `clients.country` guarda este
+ * label tal cual; no hay migración necesaria porque es TEXT libre.
+ */
+export const INTL_COUNTRY_TIMEZONES: Record<string, string> = {
+  'Argentina':         'America/Argentina/Buenos_Aires',
+  'España':            'Europe/Madrid',
+  'México':            'America/Mexico_City',
+  'Colombia':          'America/Bogota',
+  'Perú':              'America/Lima',
+  'Chile':             'America/Santiago',
+  'Venezuela':         'America/Caracas',
+  'Ecuador':           'America/Guayaquil',
+  'Bolivia':           'America/La_Paz',
+  'Uruguay':           'America/Montevideo',
+  'Paraguay':          'America/Asuncion',
+  'Brasil':            'America/Sao_Paulo',
+  'República Dominicana': 'America/Santo_Domingo',
+  'Costa Rica':        'America/Costa_Rica',
+  'Panamá':            'America/Panama',
+  'Guatemala':         'America/Guatemala',
+  'Honduras':          'America/Tegucigalpa',
+  'El Salvador':       'America/El_Salvador',
+  'Nicaragua':         'America/Managua',
+  'Cuba':              'America/Havana',
+};
+
+/**
+ * Unión de estados US + países. Este es el mapa completo que debe
+ * usarse para convertir ubicación → IANA TZ en el resto del sistema.
+ */
+export const LOCATION_TIMEZONES: Record<string, string | null> = {
+  ...US_STATE_TIMEZONES,
+  ...INTL_COUNTRY_TIMEZONES,
+};
+
+/**
+ * Opciones estructuradas para renderizar el dropdown con <optgroup>.
+ * Separa países (más relevantes para clientes internacionales) de
+ * estados US. 'Otro' queda al final como fallback.
+ */
+export const LOCATION_OPTIONS = {
+  countries: Object.keys(INTL_COUNTRY_TIMEZONES),
+  usStates: Object.keys(US_STATE_TIMEZONES).filter(k => k !== 'Otro'),
+  fallback: 'Otro',
+} as const;
+
 /** Keep backward compatibility — maps old country names to timezone */
 export const COUNTRY_TIMEZONES = US_STATE_TIMEZONES;
 
 /**
- * Convert a time from base timezone (Eastern) to a target state's timezone.
+ * Convert a time from base timezone (Eastern) to a target location's
+ * timezone. La ubicación puede ser un estado US o un país (ver
+ * LOCATION_TIMEZONES).
  *
  * @param date  ISO date string YYYY-MM-DD (needed for DST accuracy)
  * @param time  HH:MM in Eastern time
- * @param state  State name matching US_STATE_TIMEZONES keys
+ * @param location  State name o país en LOCATION_TIMEZONES
  * @returns HH:MM in the target timezone, or null if no conversion possible
  */
 export function getClientTime(
   date: string,
   time: string,
-  state: string,
+  location: string,
 ): string | null {
-  const targetTz = US_STATE_TIMEZONES[state];
+  const targetTz = LOCATION_TIMEZONES[location];
   if (!targetTz || targetTz === BASE_TZ) return null;
 
   return convertTime(date, time, BASE_TZ, targetTz);
@@ -129,6 +180,151 @@ export function convertTime(
   });
 
   return fmt.format(new Date(actualUtc));
+}
+
+// ─── Admin timezone preference ──────────────────────────────
+// Lista de zonas horarias seleccionables por el admin en Mi Cuenta.
+// Cualquier ampliación requiere también extender la CHECK constraint
+// en supabase/migrations/003_admin_timezone.sql.
+
+export interface AdminTzOption {
+  value: string;       // IANA TZ
+  label: string;       // Etiqueta completa para el dropdown
+  shortLabel: string;  // Etiqueta corta para correos y formulario (ej. "hora Miami")
+}
+
+export const ADMIN_TIMEZONES: AdminTzOption[] = [
+  { value: 'America/New_York',               label: 'Miami / Nueva York (EST/EDT)',   shortLabel: 'Miami' },
+  { value: 'America/Chicago',                label: 'Centro EE.UU. (CST/CDT)',         shortLabel: 'Centro EE.UU.' },
+  { value: 'America/Denver',                 label: 'Montaña EE.UU. (MST/MDT)',        shortLabel: 'Montaña EE.UU.' },
+  { value: 'America/Los_Angeles',            label: 'Pacífico EE.UU. (PST/PDT)',       shortLabel: 'Pacífico EE.UU.' },
+  { value: 'America/Argentina/Mendoza',      label: 'Argentina — Mendoza',              shortLabel: 'Argentina' },
+  { value: 'America/Argentina/Buenos_Aires', label: 'Argentina — Buenos Aires',         shortLabel: 'Argentina' },
+  { value: 'America/Argentina/Cordoba',      label: 'Argentina — Córdoba',              shortLabel: 'Argentina' },
+  { value: 'America/Mexico_City',            label: 'México',                           shortLabel: 'México' },
+  { value: 'America/Bogota',                 label: 'Colombia',                         shortLabel: 'Colombia' },
+  { value: 'America/Lima',                   label: 'Perú',                             shortLabel: 'Perú' },
+  { value: 'America/Santiago',               label: 'Chile',                            shortLabel: 'Chile' },
+  { value: 'America/Caracas',                label: 'Venezuela',                        shortLabel: 'Venezuela' },
+  { value: 'America/Guayaquil',              label: 'Ecuador',                          shortLabel: 'Ecuador' },
+  { value: 'America/La_Paz',                 label: 'Bolivia',                          shortLabel: 'Bolivia' },
+  { value: 'America/Asuncion',               label: 'Paraguay',                         shortLabel: 'Paraguay' },
+  { value: 'America/Montevideo',             label: 'Uruguay',                          shortLabel: 'Uruguay' },
+  { value: 'America/Sao_Paulo',              label: 'Brasil',                           shortLabel: 'Brasil' },
+  { value: 'Europe/Madrid',                  label: 'España',                           shortLabel: 'España' },
+];
+
+/**
+ * Devuelve el shortLabel de una TZ (útil para etiquetas en emails/form).
+ * Si la TZ no está en la lista, devuelve la propia TZ como fallback.
+ */
+export function tzShortLabel(tz: string): string {
+  return ADMIN_TIMEZONES.find(t => t.value === tz)?.shortLabel || tz;
+}
+
+/**
+ * Intenta detectar la TZ del navegador del visitante. Útil como
+ * fallback cuando el visitante pica "Otro" en el dropdown de ubicación:
+ * al menos le mostramos SU hora aproximada sin obligarlo a saber su
+ * UTC offset. Retorna null si la API no está disponible (SSR, navegador
+ * antiguo) o si el TZ detectado no es un IANA válido.
+ */
+export function detectBrowserTz(): string | null {
+  if (typeof Intl === 'undefined' || typeof Intl.DateTimeFormat === 'undefined') return null;
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return tz && /\//.test(tz) ? tz : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fallback para cuando el visitante pica "Otro" y no sabemos su TZ.
+ * Retorna la hora en la TZ del navegador si está disponible, o en UTC
+ * como último recurso. Siempre retorna un objeto con label legible
+ * ("Europe/Madrid" → "España" vía shortLabel; otro IANA → "UTC").
+ */
+export function getClientTimeFallback(
+  date: string,
+  time: string,
+): { time: string; label: string; tz: string } | null {
+  const browserTz = detectBrowserTz();
+  if (browserTz && browserTz !== BASE_TZ) {
+    try {
+      const converted = convertTime(date, time, BASE_TZ, browserTz);
+      return { time: converted, label: tzShortLabel(browserTz), tz: browserTz };
+    } catch { /* falls through to UTC */ }
+  }
+  if (browserTz === BASE_TZ) return null; // browser está en Miami → no hay conversión útil
+  try {
+    const converted = convertTime(date, time, BASE_TZ, 'UTC');
+    return { time: converted, label: 'UTC', tz: 'UTC' };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Format a UTC timestamp (ISO string or Date) into wall-clock date + time
+ * in the target timezone. Used to display booking datetimes in the admin
+ * panel according to Silvana's TZ preference.
+ *
+ * @param utc  UTC ISO string or Date
+ * @param tz   IANA timezone (e.g. 'America/Argentina/Mendoza')
+ * @returns    { date: 'YYYY-MM-DD', time: 'HH:MM' } in the target TZ,
+ *             or null if input is falsy/invalid.
+ */
+export function formatInTz(
+  utc: string | Date | null | undefined,
+  tz: string,
+): { date: string; time: string } | null {
+  if (!utc) return null;
+  const d = typeof utc === 'string' ? new Date(utc) : utc;
+  if (isNaN(d.getTime())) return null;
+
+  // en-CA gives ISO-like YYYY-MM-DD; hour12:false gives HH:MM
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(d);
+
+  const get = (type: string) => parts.find(p => p.type === type)?.value || '';
+  const hour = get('hour') === '24' ? '00' : get('hour');
+
+  return {
+    date: `${get('year')}-${get('month')}-${get('day')}`,
+    time: `${hour}:${get('minute')}`,
+  };
+}
+
+/**
+ * Convert a wall-clock date + time in a given timezone to a UTC ISO string.
+ * Inverse of formatInTz. Used when the admin enters a booking time in the
+ * panel — the string "14:30" on "2026-04-23" is interpreted as a wall clock
+ * in the admin's TZ and persisted as the correct UTC instant.
+ *
+ * @param date  'YYYY-MM-DD'
+ * @param time  'HH:MM'
+ * @param tz    IANA timezone the inputs are expressed in
+ * @returns     UTC ISO string (e.g. '2026-04-23T17:30:00.000Z') or null if invalid
+ */
+export function combineToUtc(
+  date: string,
+  time: string,
+  tz: string,
+): string | null {
+  if (!date || !time) return null;
+  const [y, m, d] = date.split('-').map(Number);
+  const [h, min] = time.split(':').map(Number);
+  if (!y || !m || !d || Number.isNaN(h) || Number.isNaN(min)) return null;
+
+  // Same trick as convertTime(): treat inputs as "wall UTC", then subtract
+  // the actual offset of the source TZ at that instant to get the real UTC.
+  const wallUtc = Date.UTC(y, m - 1, d, h, min, 0);
+  const offset = getUtcOffset(wallUtc, tz);
+  return new Date(wallUtc - offset).toISOString();
 }
 
 /**

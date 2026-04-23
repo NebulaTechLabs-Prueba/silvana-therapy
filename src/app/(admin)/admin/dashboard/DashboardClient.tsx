@@ -6,11 +6,12 @@ import { useRouter } from "next/navigation";
 import { logoutAction } from "@/lib/actions/auth";
 import { updateProfile, updateAuthEmail, updateAuthPassword, updateNotepad, updateNickname, updateContactInfo, upsertService, deleteService, toggleServiceActive, upsertInvoice, deleteInvoice, sendInvoiceNotification, upsertBooking, deleteBooking, updateBookingStatus, upsertPaymentMethod, deletePaymentMethod, togglePaymentMethodActive, upsertAdminLink, deleteAdminLink, updateSecurityQuestion, linkPaymentLinkToBooking, unlinkPaymentLinkFromBooking, upsertAvailabilityException, deleteAvailabilityException, updateIntegrations, updateWaTemplates, updateEmailNotifications } from '@/lib/actions/dashboard';
 import { scanGoogleEvents, importGoogleEvents, type ScannedEvent } from '@/lib/actions/google-import';
-import { getClientTime } from '@/lib/utils/timezone';
+import { getClientTime, formatInTz, combineToUtc, ADMIN_TIMEZONES, LOCATION_OPTIONS } from '@/lib/utils/timezone';
 import { escapeHtml } from '@/lib/utils/escapeHtml';
 import { normalizePhone, buildWaLink } from '@/lib/utils/phone';
 import { renderTemplate, WA_TEMPLATE_EVENTS, WA_TEMPLATE_LABELS, WA_TEMPLATE_VARS } from '@/lib/utils/templates';
 import { sanitizeName, sanitizePhoneInput, isValidName, isValidEmail } from '@/lib/utils/sanitize';
+import { useBreakpoint } from '@/lib/hooks/useBreakpoint';
 
 interface DashboardClientProps {
   userEmail: string;
@@ -67,7 +68,11 @@ const I = {
 const DIAS_ES = ["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"];
 const MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 const HORAS = ["08:00","08:30","09:00","09:30","10:00","10:30","11:00","11:30","12:00","12:30","13:00","13:30","14:00","14:30","15:00","15:30","16:00","16:30","17:00","17:30","18:00","18:30","19:00"];
-const UBICACIONES = ['','Alabama','Alaska','Arizona','Arkansas','California','Colorado','Connecticut','Delaware','Florida','Georgia','Guam','Hawaii','Idaho','Illinois','Indiana','Iowa','Kansas','Kentucky','Louisiana','Maine','Maryland','Massachusetts','Michigan','Minnesota','Mississippi','Missouri','Montana','Nebraska','Nevada','New Hampshire','New Jersey','New Mexico','New York','North Carolina','North Dakota','Ohio','Oklahoma','Oregon','Pennsylvania','Puerto Rico','Rhode Island','South Carolina','South Dakota','Tennessee','Texas','U.S. Virgin Islands','Utah','Vermont','Virginia','Washington','Washington D.C.','West Virginia','Wisconsin','Wyoming','Otro'];
+// Lista de ubicaciones para los dropdowns (Nueva Cita, Editar Cita,
+// Comprobantes). Se construye a partir del catálogo centralizado en
+// timezone.ts para mantener paridad con el formulario público.
+// Orden: vacío → países → estados US → 'Otro'.
+const UBICACIONES = ['', ...LOCATION_OPTIONS.countries, ...LOCATION_OPTIONS.usStates, 'Otro'];
 const TC = {
   Individual:{bg:"#f0f5f0",text:"#2a3528",dot:"#4a7a4a"},
   Pareja:{bg:"#e8eff4",text:"#2b4a6e",dot:"#5a82b0"},
@@ -101,14 +106,18 @@ function absUrl(url) { if (!url) return ''; return /^https?:\/\//i.test(url) ? u
 /* ═══ REUSABLE ═══ */
 function Modal({open,onClose,title,children,width=520,dark=false,zIndex=1000}){
   if(!open) return null;
+  // En < md (≈ teléfonos) el modal pasa a full-screen: mejor aprovechamiento
+  // del espacio y evita modales diminutos con scroll casi obligatorio.
+  // La CSS clase `mdl-box` + media queries hacen el switch sin recalcular
+  // en JS cada resize.
   return(
-    <div style={{position:'fixed',inset:0,zIndex,background:'rgba(42,53,40,.45)',backdropFilter:'blur(4px)',display:'flex',alignItems:'center',justifyContent:'center',animation:'fadeIn .18s'}} onClick={onClose}>
-      <div onClick={e=>e.stopPropagation()} style={{background:dark?'#1e1e1e':'#fdfcfa',borderRadius:16,width:'92%',maxWidth:width,maxHeight:'88vh',overflow:'auto',boxShadow:'0 20px 60px rgba(42,53,40,.25)',animation:'slideUp .22s',border:dark?'1px solid #333':'1px solid #e2ede2'}}>
-        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'18px 22px 12px',borderBottom:dark?'1px solid #333':'1px solid #e2ede2'}}>
+    <div className="mdl-backdrop" style={{position:'fixed',inset:0,zIndex,background:'rgba(42,53,40,.45)',backdropFilter:'blur(4px)',display:'flex',alignItems:'center',justifyContent:'center',animation:'fadeIn .18s'}} onClick={onClose}>
+      <div className="mdl-box" onClick={e=>e.stopPropagation()} style={{background:dark?'#1e1e1e':'#fdfcfa',borderRadius:16,width:'92%',maxWidth:width,maxHeight:'88vh',overflow:'auto',boxShadow:'0 20px 60px rgba(42,53,40,.25)',animation:'slideUp .22s',border:dark?'1px solid #333':'1px solid #e2ede2'}}>
+        <div className="mdl-header" style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'18px 22px 12px',borderBottom:dark?'1px solid #333':'1px solid #e2ede2',position:'sticky',top:0,background:dark?'#1e1e1e':'#fdfcfa',zIndex:1}}>
           <h3 style={{margin:0,fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:19,color:dark?'#e0e0e0':'#2a3528'}}>{title}</h3>
-          <button onClick={onClose} style={{border:'none',background:dark?'#2a2a2a':'#f0f5f0',borderRadius:9,width:32,height:32,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#849884'}}>{I.close}</button>
+          <button onClick={onClose} aria-label="Cerrar" style={{border:'none',background:dark?'#2a2a2a':'#f0f5f0',borderRadius:9,width:32,height:32,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#849884',flexShrink:0}}>{I.close}</button>
         </div>
-        <div style={{padding:'16px 22px 22px'}}>{children}</div>
+        <div className="mdl-body" style={{padding:'16px 22px 22px'}}>{children}</div>
       </div>
     </div>
   );
@@ -211,6 +220,10 @@ function makeInvHTML(inv, acc, payMethods = []) {
 export default function SilvanaDashboard({ userEmail, userName, initialSettings, initialServices, initialInvoices, initialBookings, initialPaymentMethods, initialLinks, availablePaymentLinks = [], initialExceptions = [], googleStatus = { connected: false } }: DashboardClientProps) {
   const [section, setSection] = useState('inicio');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // Breakpoint del viewport. El default SSR-safe del hook es desktop para
+  // evitar flash al hidratar. Lo usamos en secciones donde el layout
+  // depende del ancho (ej. vista calendario semanal no funciona en móvil).
+  const bp = useBreakpoint();
   const [toast, setToast] = useState(null);
   const show = msg => { setToast(msg); setTimeout(() => setToast(null), 2800); };
   const router = useRouter();
@@ -228,6 +241,11 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
     window.history.replaceState({}, '', url.toString());
   }, []);
 
+  // Admin's preferred timezone for reading/writing booking datetimes in the panel.
+  // Source of truth lives in admin_settings.admin_timezone (migration 003).
+  // Bookings persist in UTC; this TZ is only a display/input concern.
+  const adminTz = initialSettings?.admin_timezone || 'America/New_York';
+
   const [account, setAccount] = useState({
     nombre: initialSettings?.nombre || userName || 'Lda. Silvana López',
     especialidad: initialSettings?.especialidad || 'Psicoterapia Online',
@@ -235,7 +253,10 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
     email: initialSettings?.email || userEmail,
     telefono: initialSettings?.telefono || '+54 9 11 5678-1234',
     direccion: initialSettings?.direccion || 'Consulta Online',
-    bio: initialSettings?.bio || 'Licenciada en Psicología, especialista en psicoterapia online. Acompaño procesos de bienestar emocional desde un enfoque cálido y personalizado.'
+    bio: initialSettings?.bio || 'Licenciada en Psicología, especialista en psicoterapia online. Acompaño procesos de bienestar emocional desde un enfoque cálido y personalizado.',
+    timezone: initialSettings?.admin_timezone || 'America/New_York',
+    email_display_tz: initialSettings?.email_display_tz || 'America/New_York',
+    form_display_tz: initialSettings?.form_display_tz || 'America/New_York',
   });
   // Multi-range working_hours: { day: {enabled, ranges: [{start,end}]} } máx 3 por día
   const DAY_KEYS = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'];
@@ -276,7 +297,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
   /* Google Calendar import */
   const [gcImpModal, setGcImpModal] = useState(false);
   const [gcImpLoading, setGcImpLoading] = useState(false);
-  const [gcImpEvents, setGcImpEvents] = useState<(ScannedEvent & {selected:boolean; serviceId:string; clientName:string; clientEmail:string; status:'pending'|'confirmed'})[]>([]);
+  const [gcImpEvents, setGcImpEvents] = useState<(ScannedEvent & {selected:boolean; serviceId:string; clientName:string; clientEmail:string; clientPhone:string; status:'pending'|'confirmed'})[]>([]);
   const [gcImpFrom, setGcImpFrom] = useState(() => { const d=new Date(); d.setDate(d.getDate()-30); return d.toISOString().slice(0,10); });
   const [gcImpTo, setGcImpTo] = useState(() => { const d=new Date(); d.setDate(d.getDate()+60); return d.toISOString().slice(0,10); });
   const [gcImpError, setGcImpError] = useState('');
@@ -297,6 +318,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
         serviceId: defaultServiceId,
         clientName: e.attendeeName || '',
         clientEmail: e.attendeeEmail || '',
+        clientPhone: '',
         status: 'confirmed' as const,
       }));
       setGcImpEvents(mapped);
@@ -310,8 +332,14 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
   const gcImpCommit = async () => {
     const selected = gcImpEvents.filter(e => e.selected && !e.alreadyImported);
     if (selected.length === 0) { show('No hay eventos seleccionados'); return; }
-    const missing = selected.filter(e => !e.clientName.trim() || !e.clientEmail.trim() || !e.serviceId);
-    if (missing.length > 0) { setGcImpError(`${missing.length} evento(s) sin nombre/email/servicio`); return; }
+    // Exigimos al menos un canal de contacto (email o teléfono) por evento,
+    // paridad con chk_clients_contact_present en DB.
+    const missing = selected.filter(e =>
+      !e.clientName.trim() ||
+      !e.serviceId ||
+      (!e.clientEmail.trim() && !e.clientPhone.trim())
+    );
+    if (missing.length > 0) { setGcImpError(`${missing.length} evento(s) sin nombre/servicio o sin correo ni teléfono`); return; }
     setGcImpLoading(true); setGcImpError('');
     try {
       const items = selected.map(e => ({
@@ -321,7 +349,8 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
         startIso: e.startIso,
         durationMin: e.durationMin,
         clientName: e.clientName,
-        clientEmail: e.clientEmail,
+        clientEmail: e.clientEmail || undefined,
+        clientPhone: e.clientPhone || undefined,
         serviceId: e.serviceId,
         status: e.status,
       }));
@@ -534,12 +563,17 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
     from_name:  initialSettings?.smtp_from_name  || '',
     secure:     initialSettings?.smtp_secure     || false,
   });
+  // Plantillas WhatsApp por defecto. Las referencias "hora Miami" se
+  // sustituyen por {zona}, una variable que se resuelve al render con
+  // el shortLabel de la TZ configurada para correos (email_display_tz).
+  // Así si el admin cambia su preferencia a Argentina, las plantillas
+  // dicen "hora Argentina" automáticamente sin tener que editarlas.
   const defaultWaTpls: Record<string,string> = {
     booking_received:  'Hola {cliente} 👋 Recibí tu solicitud de *{servicio}* para el {fecha} a las {hora}. Te confirmo en breve.',
-    booking_confirmed: 'Hola {cliente} ✅ Tu cita de *{servicio}* queda confirmada para el {fecha} a las {hora} (hora Miami). ¡Nos vemos!',
+    booking_confirmed: 'Hola {cliente} ✅ Tu cita de *{servicio}* queda confirmada para el {fecha} a las {hora} (hora {zona}). ¡Nos vemos!',
     payment_link:      'Hola {cliente} 💳 Aquí está tu enlace de pago para *{servicio}*: {link}. Monto: {precio} USD.',
-    reschedule:        'Hola {cliente} 🔁 Tu cita de *{servicio}* fue reprogramada para el {fecha} a las {hora}. Cualquier duda, avísame.',
-    reminder_24h:      'Hola {cliente} ⏰ Te recuerdo tu cita de *{servicio}* mañana {fecha} a las {hora} (hora Miami).',
+    reschedule:        'Hola {cliente} 🔁 Tu cita de *{servicio}* fue reprogramada para el {fecha} a las {hora} (hora {zona}). Cualquier duda, avísame.',
+    reminder_24h:      'Hola {cliente} ⏰ Te recuerdo tu cita de *{servicio}* mañana {fecha} a las {hora} (hora {zona}).',
     custom:            'Hola {cliente}, ',
   };
   const [waTpls, setWaTpls] = useState<Record<string,string>>(() => {
@@ -608,17 +642,23 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
     if (res.success) show('Preferencias de correo guardadas'); else show(res.error || 'Error al guardar');
   };
 
-  // Render a WA template with a booking's data
+  // Render a WA template with a booking's data.
+  // {zona} se resuelve al shortLabel de `email_display_tz` para
+  // coherencia: si Silvana configuró "España" en la zona de correos,
+  // las plantillas WA también dirán "hora España" por defecto.
   const buildWaMessageFor = (booking: any, event: string): string => {
     const tpl = waTpls[event] || waTpls.custom || '';
     const svcName = booking?.tipo || '';
     const svc = services.find((s:any)=>s.nombre===svcName);
     const precio = svc && !svc.is_free ? svc.precio : '';
+    const zonaTz = account.email_display_tz || 'America/New_York';
+    const zona = ADMIN_TIMEZONES.find(t => t.value === zonaTz)?.shortLabel || 'Miami';
     return renderTemplate(tpl, {
       cliente:  booking?.paciente || '',
       servicio: svcName,
       fecha:    booking?.fecha || '',
       hora:     booking?.hora || '',
+      zona,
       precio,
       link:     '',
       motivo:   booking?.motivo || '',
@@ -677,14 +717,17 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
     if (initialBookings && initialBookings.length > 0) {
       const statusToEs = {pending:'pendiente',confirmed:'confirmada',cancelled:'cancelada',completed:'completada',rejected:'rechazada',accepted:'aceptada',payment_pending:'pago pendiente',rescheduled:'reagendada',expired:'expirada'};
       return initialBookings.map(b => {
-        const dt = b.preferred_date ? new Date(b.preferred_date) : null;
+        // Format booking datetime in the admin's preferred TZ (Miami by default,
+        // or whatever Silvana set in Mi Cuenta). DB stores UTC; we only transform
+        // for display. toISOString().slice() would give UTC — wrong.
+        const wall = formatInTz(b.preferred_date, adminTz);
         return {
           id: b.id,
           paciente: b.client?.full_name || '',
           email: b.client?.email || '',
           telefono: b.client?.phone || '',
-          fecha: dt ? dt.toISOString().slice(0, 10) : '',
-          hora: dt ? dt.toISOString().slice(11, 16) : '',
+          fecha: wall?.date || '',
+          hora: wall?.time || '',
           duracion: b.service?.duration_min || 60,
           tipo: b.service?.name || '',
           serviceId: b.service_id || '',
@@ -847,6 +890,10 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
     if (!isValidName(resF.paciente)) { show('Nombre del paciente inválido'); return; }
     if (resF.email && !isValidEmail(resF.email)) { show('Email inválido'); return; }
     if (resF.telefono && !normalizePhone(resF.telefono)) { show('Teléfono inválido — incluye código de país (+1, +54)'); return; }
+    // Al menos uno de los dos canales de contacto debe existir.
+    const hasEmail = !!resF.email?.trim();
+    const hasPhone = !!resF.telefono?.trim();
+    if (!hasEmail && !hasPhone) { show('El paciente necesita al menos correo o teléfono'); return; }
     if (!resF.serviceId) { show('Selecciona un servicio'); return; }
     if (!eResId && resF.fecha < todayISO) { show('No se pueden crear citas con fecha pasada'); return; }
     if (eResId) {
@@ -998,6 +1045,11 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
 
   return (
     <div style={{display:'flex',minHeight:'100vh',fontFamily:"'DM Sans',sans-serif",background:darkMode?'#141414':'#fdfcfa',color:darkMode?'#e0e0e0':'#2a3528',transition:'background .3s, color .3s'}}>
+      {/* Backdrop para cerrar sidebar en móvil/tablet al click fuera */}
+      {sidebarOpen && (
+        <div className="psb-backdrop open" onClick={()=>setSidebarOpen(false)} aria-hidden="true" />
+      )}
+
       {/* SIDEBAR — Silvana brand */}
       <aside className={'psb' + (sidebarOpen ? ' open' : '')} style={{width:248,background:'#2a3528',color:'#c8ddc8',display:'flex',flexDirection:'column',position:'fixed',top:0,left:0,bottom:0,zIndex:900,transition:'transform .3s'}}>
         <div style={{padding:'22px 20px 16px',borderBottom:'1px solid rgba(200,221,200,.12)'}}>
@@ -1026,16 +1078,25 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
 
       {/* MAIN */}
       <main className="pmc" style={{flex:1,marginLeft:248,minHeight:'100vh',background:bgMain,transition:'background .3s'}}>
-        <header style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 28px',borderBottom:'1px solid '+borderC,background:dm?'rgba(20,20,20,.95)':'rgba(253,252,250,.95)',backdropFilter:'blur(8px)',position:'sticky',top:0,zIndex:100}}>
-          <div style={{display:'flex',alignItems:'center',gap:14}}>
-            <button className="pmb" onClick={()=>setSidebarOpen(!sidebarOpen)} style={{display:'none',border:'none',background:'none',cursor:'pointer',color:txSub,alignItems:'center',justifyContent:'center'}}>{I.menu}</button>
-            <h1 style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:20,margin:0,color:txMain,fontWeight:400}}>{navItems.find(n=>n.key===section)?.label}</h1>
+        <header className="pmc-header" style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,padding:'12px 28px',borderBottom:'1px solid '+borderC,background:dm?'rgba(20,20,20,.95)':'rgba(253,252,250,.95)',backdropFilter:'blur(8px)',position:'sticky',top:0,zIndex:100}}>
+          <div style={{display:'flex',alignItems:'center',gap:12,minWidth:0}}>
+            {/* Hamburguesa: CSS la muestra en viewports < 1024px.
+                Padding/size aumentado un toque para ser táctil-friendly
+                sin ocupar demasiado en desktop (donde está oculta). */}
+            <button
+              className="pmb"
+              aria-label={sidebarOpen ? 'Cerrar menú' : 'Abrir menú'}
+              aria-expanded={sidebarOpen}
+              onClick={()=>setSidebarOpen(!sidebarOpen)}
+              style={{display:'none',border:'none',background:'none',cursor:'pointer',color:txSub,alignItems:'center',justifyContent:'center',padding:6,borderRadius:8}}
+            >{I.menu}</button>
+            <h1 style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:'clamp(16px, 2.2vw, 20px)',margin:0,color:txMain,fontWeight:400,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{navItems.find(n=>n.key===section)?.label}</h1>
           </div>
-          <div style={{display:'flex',alignItems:'center',gap:10}}>
+          <div style={{display:'flex',alignItems:'center',gap:10,flexShrink:0}}>
           </div>
         </header>
 
-        <div style={{padding:'22px 28px 40px',maxWidth:1180}}>
+        <div className="pmc-content" style={{padding:'22px 28px 40px',maxWidth:1180}}>
 
           {/* INICIO */}
           {section === 'inicio' && (
@@ -1077,8 +1138,16 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                   </div>
                   <button onClick={()=>{setEditAcc(true);setAccF({...account})}} style={btnP}>{I.edit} Editar</button>
                 </div>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'14px 26px'}}>
-                  {[['Email',account.email],['Teléfono',account.telefono],['Dirección',account.direccion],['Cédula',account.cedula]].map(([l,v],i) => (
+                <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'14px 26px'}}>
+                  {[
+                    ['Email',account.email],
+                    ['Teléfono',account.telefono],
+                    ['Dirección',account.direccion],
+                    ['Cédula',account.cedula],
+                    ['Zona horaria del panel', ADMIN_TIMEZONES.find(t => t.value === account.timezone)?.label || account.timezone],
+                    ['Zona mostrada en correos', ADMIN_TIMEZONES.find(t => t.value === account.email_display_tz)?.label || account.email_display_tz],
+                    ['Zona mostrada en formulario', ADMIN_TIMEZONES.find(t => t.value === account.form_display_tz)?.label || account.form_display_tz],
+                  ].map(([l,v],i) => (
                     <div key={i}><div style={{fontSize:10,color:'#849884',fontWeight:500,textTransform:'uppercase',letterSpacing:'.5px',marginBottom:2}}>{l}</div><div style={{fontSize:14,fontWeight:400}}>{v}</div></div>
                   ))}
                 </div>
@@ -1126,7 +1195,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
 
               {/* Edit Account Modal */}
               <Modal dark={dm} open={editAcc} onClose={()=>setEditAcc(false)} title="Editar Cuenta" width={600}>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                   <Field label="Nombre"><input style={inp} value={accF.nombre} onChange={e=>setAccF({...accF,nombre:e.target.value})}/></Field>
                   <Field label="Especialidad"><input style={inp} value={accF.especialidad} onChange={e=>setAccF({...accF,especialidad:e.target.value})}/></Field>
                   <Field label="Email"><input style={inp} value={accF.email} onChange={e=>setAccF({...accF,email:e.target.value})}/></Field>
@@ -1135,14 +1204,35 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                 </div>
                 <Field label="Dirección"><input style={inp} value={accF.direccion} onChange={e=>setAccF({...accF,direccion:e.target.value})}/></Field>
                 <Field label="Biografía"><textarea style={{...inp,minHeight:70,resize:'vertical'}} value={accF.bio} onChange={e=>setAccF({...accF,bio:e.target.value})}/></Field>
+                <div style={{background:'#f0f5f0',border:'1px solid #c8ddc8',borderRadius:10,padding:'12px 14px',marginBottom:10}}>
+                  <div style={{fontSize:11,color:'#4a7a4a',fontWeight:500,textTransform:'uppercase',letterSpacing:'.4px',marginBottom:8}}>Zonas horarias</div>
+                  <Field label="Panel administrativo (la que usted ve)">
+                    <select style={sel} value={accF.timezone || 'America/New_York'} onChange={e=>setAccF({...accF,timezone:e.target.value})}>
+                      {ADMIN_TIMEZONES.map(tz => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
+                    </select>
+                    <p style={{fontSize:11,color:'#849884',margin:'4px 0 0',fontStyle:'italic'}}>Las horas que teclee en citas y las importadas de Google Calendar se interpretan en esta zona.</p>
+                  </Field>
+                  <Field label="Mostrada en correos al paciente">
+                    <select style={sel} value={accF.email_display_tz || 'America/New_York'} onChange={e=>setAccF({...accF,email_display_tz:e.target.value})}>
+                      {ADMIN_TIMEZONES.map(tz => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
+                    </select>
+                    <p style={{fontSize:11,color:'#849884',margin:'4px 0 0',fontStyle:'italic'}}>Zona que aparece en los correos automáticos. Si el paciente tiene una zona distinta (por estado US), se mostrará también como referencia.</p>
+                  </Field>
+                  <Field label="Mostrada en el formulario público">
+                    <select style={sel} value={accF.form_display_tz || 'America/New_York'} onChange={e=>setAccF({...accF,form_display_tz:e.target.value})}>
+                      {ADMIN_TIMEZONES.map(tz => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
+                    </select>
+                    <p style={{fontSize:11,color:'#849884',margin:'4px 0 0',fontStyle:'italic'}}>Zona que el visitante ve al reservar. Internamente los horarios siguen en la zona del negocio; esta preferencia solo controla qué etiqueta aparece y cómo se convierten las horas en pantalla.</p>
+                  </Field>
+                </div>
                 <div style={{background:'#f0f5f0',border:'1px solid #c8ddc8',borderRadius:10,padding:'10px 14px',fontSize:12,color:'#4a7a4a',marginBottom:8}}>
                   El horario laboral y las excepciones se gestionan ahora en <strong>Disponibilidad</strong>.
                 </div>
                 <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:4}}>
                   <button onClick={()=>setEditAcc(false)} style={btnS}>Cancelar</button>
                   <button onClick={async ()=>{
-                    setAccount({...accF});setEditAcc(false);show('Cuenta actualizada');
-                    try{await updateProfile({...accF, working_hours: workingHours})}catch(e){show('Error al guardar cuenta')}
+                    setAccount({...accF});setEditAcc(false);show('Cuenta actualizada. Recarga para ver las horas en la nueva zona.');
+                    try{await updateProfile({...accF, timezone: accF.timezone, email_display_tz: accF.email_display_tz, form_display_tz: accF.form_display_tz, working_hours: workingHours})}catch(e){show('Error al guardar cuenta')}
                   }} style={btnP}>{I.check} Guardar</button>
                 </div>
               </Modal>
@@ -1152,7 +1242,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                 <Field label="Nombre del servicio"><input style={inp} value={svcF.nombre} onChange={e=>setSvcF({...svcF,nombre:e.target.value})} placeholder="Ej: Cita Gratuita, Sesión de pareja..."/></Field>
                 <Field label="Subtítulo (opcional)"><input style={inp} value={svcF.subtitle} onChange={e=>setSvcF({...svcF,subtitle:e.target.value})} placeholder="Ej: Sin cargo · Sin compromiso"/></Field>
                 <Field label="Descripción"><textarea style={{...inp,minHeight:60,resize:'vertical'}} value={svcF.descripcion} onChange={e=>setSvcF({...svcF,descripcion:e.target.value})} placeholder="Breve descripción del servicio"/></Field>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                   <Field label="Duración (minutos)"><input type="number" min="10" step="5" style={inp} value={svcF.duracion} onChange={e=>setSvcF({...svcF,duracion:Number(e.target.value)||50})}/></Field>
                   <Field label="Modalidad"><input style={inp} value={svcF.modalidad} onChange={e=>setSvcF({...svcF,modalidad:e.target.value})} placeholder="Online · Videollamada"/></Field>
                 </div>
@@ -1171,7 +1261,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                   )}
                   {svcF.precioTipo==='oculto' && <p style={{fontSize:11,color:'#849884',margin:'2px 0 0',fontStyle:'italic'}}>El precio no se mostrará en la página pública</p>}
                 </Field>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                   <Field label="Etiqueta (opcional)"><input style={inp} value={svcF.tag} onChange={e=>setSvcF({...svcF,tag:e.target.value})} placeholder="Ej: Consulta inicial"/></Field>
                   <Field label="Tipo (opcional)"><input style={inp} value={svcF.typeLabel} onChange={e=>setSvcF({...svcF,typeLabel:e.target.value})} placeholder="Ej: Proceso continuo"/></Field>
                 </div>
@@ -1292,12 +1382,12 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                 </Field>
 
                 <Field label="Paciente"><input style={inp} value={invF.paciente} onChange={e=>setInvF({...invF,paciente:sanitizeName(e.target.value)})} maxLength={80} placeholder="Nombre del paciente"/></Field>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                   <Field label="Email"><input style={inp} type="email" value={invF.email} onChange={e=>setInvF({...invF,email:e.target.value})} placeholder="correo@mail.com"/></Field>
                   <Field label="WhatsApp / Teléfono"><input style={inp} value={invF.telefono} onChange={e=>setInvF({...invF,telefono:sanitizePhoneInput(e.target.value)})} maxLength={22} placeholder="+1 000 000 0000"/></Field>
                 </div>
                 {!invF.bookingId && (
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'0 14px'}}>
+                  <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'0 14px'}}>
                     <Field label="Cédula / DNI"><input style={inp} value={invF.cedula} onChange={e=>setInvF({...invF,cedula:e.target.value})} placeholder="00000000"/></Field>
                     <Field label="Ubicación"><select style={sel} value={invF.pais} onChange={e=>setInvF({...invF,pais:e.target.value})}>{UBICACIONES.map(p=><option key={p} value={p}>{p||'— Sin ubicación —'}</option>)}</select></Field>
                     <Field label="Dirección"><input style={inp} value={invF.direccion} onChange={e=>setInvF({...invF,direccion:e.target.value})} placeholder="Ciudad, Estado"/></Field>
@@ -1320,7 +1410,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                 {isFreeService && (
                   <div style={{background:'#FFF8E1',borderRadius:10,padding:'11px 14px',fontSize:12,color:'#b08050',border:'1px solid #ffe0b2',marginTop:4}}>Este servicio es gratuito. No se puede crear comprobante ni enlace de pago.</div>
                 )}
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                   <Field label="Monto (USD)"><input style={inp} type="number" value={invF.monto} onChange={e=>setInvF({...invF,monto:e.target.value})} placeholder="0.00" disabled={isFreeService}/></Field>
                   <Field label="Estado"><select style={sel} value={invF.estado} onChange={e=>setInvF({...invF,estado:e.target.value})}><option value="pendiente">Pendiente</option><option value="pagada">Pagada</option><option value="vencida">Vencida</option><option value="cancelada">Cancelada</option></select></Field>
                 </div>
@@ -1373,14 +1463,20 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
           )}
 
           {/* CALENDARIO */}
-          {section === 'reservas' && (
+          {section === 'reservas' && (() => {
+            // En < md (≈ teléfonos) la vista Semana no cabe (7 columnas +
+            // columna de horas), así que forzamos Lista. La preferencia
+            // del usuario se conserva en state; al volver a desktop se
+            // aplica sin cambios.
+            const effectiveCalView = bp.isBelow.md && calView !== 'list' ? 'list' : calView;
+            return (
             <div style={{animation:'slideIn .3s',display:'flex',gap:0,minHeight:'calc(100vh - 130px)'}}>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14,flexWrap:'wrap',gap:10}}>
                   <div style={{display:'flex',alignItems:'center',gap:8}}>
                     <button onClick={()=>navC(-1)} style={{border:'none',background:'#f0f5f0',borderRadius:8,width:32,height:32,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#4e6050',border:'1px solid #e2ede2'}}>{I.chevL}</button>
                     <h2 style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:18,margin:0,minWidth:200,textAlign:'center',fontWeight:400}}>
-                      {calView === 'week'
+                      {effectiveCalView === 'week'
                         ? wd[0].getDate() + ' – ' + wd[6].getDate() + ' ' + MESES[wd[6].getMonth()] + ' ' + wd[6].getFullYear()
                         : MESES[calDate.getMonth()] + ' ' + calDate.getFullYear()
                       }
@@ -1388,8 +1484,8 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                     <button onClick={()=>navC(1)} style={{border:'none',background:'#f0f5f0',borderRadius:8,width:32,height:32,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#4e6050',border:'1px solid #e2ede2'}}>{I.chevR}</button>
                     <button onClick={()=>setCalDate(new Date(TODAY))} style={{...btnS,fontSize:11,padding:'5px 12px'}}>Hoy</button>
                   </div>
-                  <div style={{display:'flex',gap:4}}>
-                    {['week','month','list'].map(v => (
+                  <div style={{display:'flex',gap:4,flexWrap:'wrap'}}>
+                    {['week','month','list'].filter(v => !(bp.isBelow.md && v !== 'list')).map(v => (
                       <button key={v} onClick={()=>setCalView(v)} style={{padding:'6px 14px',borderRadius:8,border:'1.5px solid',fontSize:12,fontWeight:500,cursor:'pointer',fontFamily:"'DM Sans',sans-serif",borderColor:calView===v?'#4a7a4a':'#c8ddc8',background:calView===v?'#f0f5f0':'#fdfcfa',color:calView===v?'#4a7a4a':'#4e6050'}}>{v === 'week' ? 'Semana' : v === 'month' ? 'Mes' : 'Lista'}</button>
                     ))}
                     <button onClick={exportGCal} style={{...btnS,fontSize:11,padding:'5px 10px'}} title="Agregar citas visibles a Google Calendar">{I.calendar} Google</button>
@@ -1399,7 +1495,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                   </div>
                 </div>
 
-                {calView === 'week' && (
+                {effectiveCalView === 'week' && (
                   <div style={{...CARD,overflow:'hidden'}}>
                     <div style={{display:'grid',gridTemplateColumns:'54px repeat(7,1fr)',borderBottom:'2px solid '+(dm?'#333':'#c8d8c8')}}>
                       <div style={{padding:8,borderRight:'1px solid '+(dm?'#2a2a2a':'#d4ddd4')}}/>
@@ -1445,7 +1541,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                   </div>
                 )}
 
-                {calView === 'month' && (
+                {effectiveCalView === 'month' && (
                   <div style={{...CARD,overflow:'hidden'}}>
                     <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',borderBottom:'2px solid '+(dm?'#333':'#c8d8c8')}}>
                       {DIAS_ES.map(d => <div key={d} style={{padding:8,textAlign:'center',fontSize:10,fontWeight:500,color:'#849884',textTransform:'uppercase'}}>{d}</div>)}
@@ -1479,12 +1575,12 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                   </div>
                 )}
 
-                {calView === 'list' && (
+                {effectiveCalView === 'list' && (
                   <div>
                     <div style={{marginBottom:12}}>
                       <input value={calSearch} onChange={e=>setCalSearch(e.target.value)} placeholder="Buscar por código de reserva o paciente..." style={{padding:'8px 16px',borderRadius:20,border:'1.5px solid #c8ddc8',fontSize:12,fontFamily:"'DM Sans',sans-serif",background:'#fdfcfa',color:'#2a3528',outline:'none',width:'100%',maxWidth:400}} />
                     </div>
-                    <div style={{...CARD,overflow:'hidden'}}>
+                    <div className="tbl-wrap" style={{...CARD,overflow:'auto'}}>
                     <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
                       <thead><tr style={{borderBottom:'2px solid '+(dm?'#333':'#e2ede2')}}>
                         {['Código','Fecha','Hora','Paciente','Tipo','Duración','Estado','Pago',''].map(h => (
@@ -1545,7 +1641,10 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                     <div style={{padding:'12px 16px'}}>
                       {[
                         [I.calendar,'Fecha',selRes.fecha],
-                        [I.clock,'Hora Miami',selRes.hora+' ('+selRes.duracion+' min)'],
+                        // La hora ya viene formateada en adminTz (via formatInTz al mapear
+                        // initialBookings). Etiquetamos con el shortLabel correspondiente para
+                        // coherencia. Si el admin no cambió la preferencia, sigue siendo "Miami".
+                        [I.clock,'Hora '+(ADMIN_TIMEZONES.find(t=>t.value===adminTz)?.shortLabel || 'Miami'),selRes.hora+' ('+selRes.duracion+' min)'],
                         [I.user,'Tipo',selRes.tipo],
                         [I.mail,'Email',selRes.email||'—'],
                         [I.msg,'Tel',selRes.telefono||'—'],
@@ -1585,7 +1684,11 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                       {/* WhatsApp quick-send */}
                       <div style={{marginTop:10}}>
                         <div style={{fontSize:10,color:'#849884',fontWeight:500,textTransform:'uppercase',letterSpacing:'.4px',marginBottom:6,textAlign:'center'}}>Enviar WhatsApp</div>
-                        {(() => {
+                        {!selRes.telefono?.trim() ? (
+                          <div style={{fontSize:10,color:'#b08050',background:'#fff8e1',padding:'6px 9px',borderRadius:7,border:'1px solid #ffe0b2'}}>
+                            El paciente no tiene teléfono registrado.{selRes.email ? ' Usa correo como canal.' : ''}
+                          </div>
+                        ) : (() => {
                           const phoneOk = !!normalizePhone(selRes.telefono);
                           return (
                             <>
@@ -1608,9 +1711,9 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                       {/* Email manual resend — abre mailto: con plantilla */}
                       <div style={{marginTop:10}}>
                         <div style={{fontSize:10,color:'#849884',fontWeight:500,textTransform:'uppercase',letterSpacing:'.4px',marginBottom:6,textAlign:'center'}}>Reenviar correo</div>
-                        {!selRes.email ? (
+                        {!selRes.email?.trim() ? (
                           <div style={{fontSize:10,color:'#b08050',background:'#fff8e1',padding:'6px 9px',borderRadius:7,border:'1px solid #ffe0b2'}}>
-                            El cliente no tiene email registrado.
+                            El paciente no tiene correo registrado.{selRes.telefono ? ' Usa WhatsApp como canal.' : ''}
                           </div>
                         ) : (
                           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:5}}>
@@ -1655,28 +1758,32 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
 
               <Modal dark={dm} open={resModal} onClose={()=>{setResModal(false);setEResId(null)}} title={eResId?'Editar Cita':'Nueva Cita'} width={520}>
                 <Field label="Paciente"><input style={inp} value={resF.paciente} onChange={e=>setResF({...resF,paciente:sanitizeName(e.target.value)})} maxLength={80} placeholder="Nombre completo"/></Field>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'0 14px'}}>
-                  <Field label="Email"><input style={inp} type="email" value={resF.email} onChange={e=>setResF({...resF,email:e.target.value})} placeholder="correo@mail.com"/></Field>
-                  <Field label="Teléfono"><input style={inp} value={resF.telefono} onChange={e=>setResF({...resF,telefono:sanitizePhoneInput(e.target.value)})} maxLength={22} placeholder="+1 000 000 0000"/></Field>
+                <div style={{fontSize:11,color:'#849884',fontStyle:'italic',margin:'0 0 6px'}}>
+                  Correo o teléfono — al menos uno es obligatorio. Sin correo no se envían notificaciones por email.
+                </div>
+                <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'0 14px'}}>
+                  <Field label="Email (opcional)"><input style={inp} type="email" value={resF.email} onChange={e=>setResF({...resF,email:e.target.value})} placeholder="correo@mail.com"/></Field>
+                  <Field label="Teléfono (opcional)"><input style={inp} value={resF.telefono} onChange={e=>setResF({...resF,telefono:sanitizePhoneInput(e.target.value)})} maxLength={22} placeholder="+1 000 000 0000"/></Field>
                   <Field label="Ubicación"><select style={sel} value={resF.pais} onChange={e=>setResF({...resF,pais:e.target.value})}>{UBICACIONES.map(p=><option key={p} value={p}>{p||'— Sin ubicación —'}</option>)}</select></Field>
                 </div>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'0 14px'}}>
+                <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'0 14px'}}>
                   <Field label="Fecha"><input style={inp} type="date" min={eResId?undefined:todayISO} value={resF.fecha} onChange={e=>setResF({...resF,fecha:e.target.value})}/></Field>
                   <Field label="Hora"><select style={sel} value={resF.hora} onChange={e=>setResF({...resF,hora:e.target.value})}><option value="">—</option>{HORAS.map(h=><option key={h}>{h}</option>)}</select></Field>
                   <Field label="Duración"><input style={{...inp,background:'#f0f5f0',cursor:'default'}} value={`${resF.duracion} min`} readOnly title="La duración se establece desde el servicio"/></Field>
                 </div>
                 {resF.pais && resF.pais !== 'Florida' && resF.pais !== 'Otro' && resF.fecha && resF.hora && (() => {
                   const localTime = getClientTime(resF.fecha, resF.hora, resF.pais);
+                  const adminZonaLabel = ADMIN_TIMEZONES.find(t=>t.value===adminTz)?.shortLabel || 'Miami';
                   return localTime ? (
                     <div style={{background:'#f0f7f0',border:'1px solid #c8dcc8',borderRadius:12,padding:'10px 14px',marginBottom:8,display:'flex',alignItems:'center',gap:10}}>
                       <span style={{fontSize:16}}>🌎</span>
                       <span style={{fontSize:13,color:'#4a7a4a'}}>
-                        Hora Miami: <strong>{resF.hora} hs</strong> — Hora {resF.pais}: <strong>{localTime} hs</strong>
+                        Hora {adminZonaLabel}: <strong>{resF.hora} hs</strong> — Hora {resF.pais}: <strong>{localTime} hs</strong>
                       </span>
                     </div>
                   ) : null;
                 })()}
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                   <Field label="Servicio"><select style={sel} value={resF.serviceId} onChange={e=>{const sid=e.target.value;const svc=services.find(s=>s.id===sid);if(svc)setResF({...resF,serviceId:sid,tipo:svc.nombre,duracion:svc.duracion});else setResF({...resF,serviceId:'',tipo:'',duracion:60});}}><option value="">Seleccionar servicio...</option>{services.filter(s=>s.active).map(s=><option key={s.id} value={s.id}>{s.nombre}{s.is_free?' (Gratis)':s.precio?' — $'+s.precio+' USD':''}</option>)}</select></Field>
                   <Field label="Estado"><select style={sel} value={resF.estado} onChange={e=>setResF({...resF,estado:e.target.value})}><option value="pendiente">Pendiente</option><option value="confirmada">Confirmada</option><option value="cancelada">Cancelada</option></select></Field>
                 </div>
@@ -1786,7 +1893,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
               {/* GOOGLE CALENDAR IMPORT MODAL */}
               <Modal dark={dm} open={gcImpModal} onClose={()=>setGcImpModal(false)} title="Importar de Google Calendar" width={880}>
                 <p style={{fontSize:12,color:'#849884',margin:'0 0 14px'}}>Lista eventos del rango y permite importarlos como reservas. Los eventos ya importados se muestran como referencia y no se vuelven a insertar.</p>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr auto',gap:10,alignItems:'end',marginBottom:14}}>
+                <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr auto',gap:10,alignItems:'end',marginBottom:14}}>
                   <Field label="Desde"><input style={inp} type="date" value={gcImpFrom} onChange={e=>setGcImpFrom(e.target.value)}/></Field>
                   <Field label="Hasta"><input style={inp} type="date" value={gcImpTo} onChange={e=>setGcImpTo(e.target.value)}/></Field>
                   <button onClick={gcImpScan} disabled={gcImpLoading} style={{...btnP,opacity:gcImpLoading?.6:1,marginBottom:10}}>{gcImpLoading?'Escaneando…':'Escanear'}</button>
@@ -1798,7 +1905,8 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                   <div style={{maxHeight:'55vh',overflowY:'auto',border:'1px solid '+(dm?'#2a2a2a':'#e2ede2'),borderRadius:10}}>
                     {gcImpEvents.map((ev,idx) => {
                       const dt = ev.startIso ? new Date(ev.startIso) : null;
-                      const dstr = dt ? dt.toLocaleString('es-ES',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '—';
+                      // Render event start in admin's preferred TZ, not browser TZ.
+                      const dstr = dt ? dt.toLocaleString('es-ES',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',timeZone:adminTz}) : '—';
                       return (
                         <div key={ev.eventId} style={{padding:'12px 14px',borderBottom:idx<gcImpEvents.length-1?'1px solid '+(dm?'#2a2a2a':'#e2ede2'):'none',background:ev.alreadyImported?(dm?'#1e1e1e':'#f5f5f5'):(dm?'#161616':'#fff'),opacity:ev.alreadyImported?.7:1}}>
                           <div style={{display:'flex',alignItems:'flex-start',gap:10,marginBottom:8}}>
@@ -1808,19 +1916,32 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                               <div style={{fontSize:11,color:'#849884',marginTop:2}}>{dstr} · {ev.durationMin} min{ev.attendeeEmail?' · '+ev.attendeeEmail:''}</div>
                             </div>
                           </div>
-                          {!ev.alreadyImported && ev.selected && (
-                            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 160px 130px',gap:8,marginLeft:26}}>
-                              <input style={{...inp,marginBottom:0}} placeholder="Nombre cliente" value={ev.clientName} onChange={e=>{const v=e.target.value;setGcImpEvents(p=>p.map((x,i)=>i===idx?{...x,clientName:v}:x))}}/>
-                              <input style={{...inp,marginBottom:0}} placeholder="Email cliente" value={ev.clientEmail} onChange={e=>{const v=e.target.value;setGcImpEvents(p=>p.map((x,i)=>i===idx?{...x,clientEmail:v}:x))}}/>
-                              <select style={{...sel,marginBottom:0}} value={ev.serviceId} onChange={e=>{const v=e.target.value;setGcImpEvents(p=>p.map((x,i)=>i===idx?{...x,serviceId:v}:x))}}>
-                                {services.map((s:any) => <option key={s.id} value={s.id}>{s.nombre || s.name}</option>)}
-                              </select>
-                              <select style={{...sel,marginBottom:0}} value={ev.status} onChange={e=>{const v=e.target.value as 'pending'|'confirmed';setGcImpEvents(p=>p.map((x,i)=>i===idx?{...x,status:v}:x))}}>
-                                <option value="confirmed">Confirmada</option>
-                                <option value="pending">Pendiente</option>
-                              </select>
-                            </div>
-                          )}
+                          {!ev.alreadyImported && ev.selected && (() => {
+                            const noEmail = !ev.clientEmail.trim();
+                            const noPhone = !ev.clientPhone.trim();
+                            const noContact = noEmail && noPhone;
+                            return (
+                              <div style={{marginLeft:26}}>
+                                <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 160px 130px',gap:8}}>
+                                  <input style={{...inp,marginBottom:0}} placeholder="Nombre cliente" value={ev.clientName} onChange={e=>{const v=e.target.value;setGcImpEvents(p=>p.map((x,i)=>i===idx?{...x,clientName:v}:x))}}/>
+                                  <input style={{...inp,marginBottom:0}} placeholder="Email (opcional)" value={ev.clientEmail} onChange={e=>{const v=e.target.value;setGcImpEvents(p=>p.map((x,i)=>i===idx?{...x,clientEmail:v}:x))}}/>
+                                  <input style={{...inp,marginBottom:0}} placeholder="Teléfono (opcional)" value={ev.clientPhone} onChange={e=>{const v=sanitizePhoneInput(e.target.value);setGcImpEvents(p=>p.map((x,i)=>i===idx?{...x,clientPhone:v}:x))}} maxLength={22}/>
+                                  <select style={{...sel,marginBottom:0}} value={ev.serviceId} onChange={e=>{const v=e.target.value;setGcImpEvents(p=>p.map((x,i)=>i===idx?{...x,serviceId:v}:x))}}>
+                                    {services.map((s:any) => <option key={s.id} value={s.id}>{s.nombre || s.name}</option>)}
+                                  </select>
+                                  <select style={{...sel,marginBottom:0}} value={ev.status} onChange={e=>{const v=e.target.value as 'pending'|'confirmed';setGcImpEvents(p=>p.map((x,i)=>i===idx?{...x,status:v}:x))}}>
+                                    <option value="confirmed">Confirmada</option>
+                                    <option value="pending">Pendiente</option>
+                                  </select>
+                                </div>
+                                <div style={{display:'flex',gap:6,marginTop:6,flexWrap:'wrap'}}>
+                                  {noContact && <span style={{fontSize:10,padding:'2px 7px',background:'#FFEBEE',color:'#C62828',borderRadius:8}}>⚠️ Requiere correo o teléfono</span>}
+                                  {noEmail && !noContact && <span style={{fontSize:10,padding:'2px 7px',background:'#FFF8E1',color:'#B08050',borderRadius:8}}>📧 Sin correo — contactar por WhatsApp</span>}
+                                  {noPhone && !noContact && !noEmail && <span style={{fontSize:10,padding:'2px 7px',background:'#FFF8E1',color:'#B08050',borderRadius:8}}>📱 Sin teléfono</span>}
+                                </div>
+                              </div>
+                            );
+                          })()}
                         </div>
                       );
                     })}
@@ -1838,7 +1959,8 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                 </div>
               </Modal>
             </div>
-          )}
+          );
+          })()}
 
           {/* DISPONIBILIDAD */}
           {section === 'disponibilidad' && (
@@ -1880,19 +2002,19 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                       }
                     };
                     return (
-                      <div key={key} style={{display:'flex',alignItems:'flex-start',gap:12,padding:'12px 14px',borderBottom:'1px solid #e2ede2',background:day.enabled?'transparent':'#f8f8f6'}}>
+                      <div key={key} className="avail-day-row" style={{display:'flex',alignItems:'flex-start',gap:12,padding:'12px 14px',borderBottom:'1px solid #e2ede2',background:day.enabled?'transparent':'#f8f8f6'}}>
                         <button onClick={toggleEnabled} style={{marginTop:3,width:34,height:18,borderRadius:9,border:'none',background:day.enabled?'#4a7a4a':'#c8ddc8',cursor:'pointer',position:'relative',flexShrink:0}}>
                           <div style={{width:12,height:12,borderRadius:'50%',background:'#fff',position:'absolute',top:3,left:day.enabled?19:3,transition:'left .3s',boxShadow:'0 1px 2px rgba(0,0,0,.15)'}}/>
                         </button>
-                        <span style={{width:90,fontSize:13,fontWeight:500,color:day.enabled?'#2a3528':'#849884',marginTop:5}}>{DAY_LABELS_ES[key]}</span>
+                        <span style={{width:90,fontSize:13,fontWeight:500,color:day.enabled?'#2a3528':'#849884',marginTop:5,flexShrink:0}}>{DAY_LABELS_ES[key]}</span>
                         {day.enabled ? (
-                          <div style={{flex:1,display:'flex',flexDirection:'column',gap:6}}>
+                          <div className="avail-day-ranges" style={{flex:1,display:'flex',flexDirection:'column',gap:6,minWidth:0}}>
                             {(day.ranges||[]).map((r,idx) => (
-                              <div key={idx} style={{display:'flex',alignItems:'center',gap:6}}>
-                                <input type="time" style={{...inp,padding:'5px 8px',fontSize:12,width:100,marginBottom:0}} value={r.start} onChange={e=>updateRange(idx,'start',e.target.value)}/>
+                              <div key={idx} style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
+                                <input type="time" style={{...inp,padding:'5px 8px',fontSize:12,width:110,marginBottom:0}} value={r.start} onChange={e=>updateRange(idx,'start',e.target.value)}/>
                                 <span style={{fontSize:11,color:'#849884'}}>a</span>
-                                <input type="time" style={{...inp,padding:'5px 8px',fontSize:12,width:100,marginBottom:0}} value={r.end} onChange={e=>updateRange(idx,'end',e.target.value)}/>
-                                <button onClick={()=>removeRange(idx)} style={{border:'none',background:'#FFEBEE',borderRadius:6,width:26,height:26,cursor:'pointer',color:'#C62828',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14}}>×</button>
+                                <input type="time" style={{...inp,padding:'5px 8px',fontSize:12,width:110,marginBottom:0}} value={r.end} onChange={e=>updateRange(idx,'end',e.target.value)}/>
+                                <button onClick={()=>removeRange(idx)} aria-label="Eliminar rango" style={{border:'none',background:'#FFEBEE',borderRadius:6,width:26,height:26,cursor:'pointer',color:'#C62828',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,flexShrink:0}}>×</button>
                               </div>
                             ))}
                             {(day.ranges||[]).length < 3 && (
@@ -1985,7 +2107,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                 )}
 
                 {excF.type === 'range' && (
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                  <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                     <Field label="Desde"><input type="date" min={todayISO} style={inp} value={excF.start_date} onChange={e=>setExcF({...excF,start_date:e.target.value})}/></Field>
                     <Field label="Hasta"><input type="date" min={excF.start_date || todayISO} style={inp} value={excF.end_date} onChange={e=>setExcF({...excF,end_date:e.target.value})}/></Field>
                   </div>
@@ -2003,7 +2125,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                         })}
                       </div>
                     </Field>
-                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                    <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                       <Field label="Desde"><input type="date" min={todayISO} style={inp} value={excF.start_date} onChange={e=>setExcF({...excF,start_date:e.target.value})}/></Field>
                       <Field label="Hasta (opcional)"><input type="date" min={excF.start_date || todayISO} style={inp} value={excF.end_date} onChange={e=>setExcF({...excF,end_date:e.target.value})}/></Field>
                     </div>
@@ -2153,25 +2275,25 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
 
               {/* Add/Edit Method Modal */}
               <Modal dark={dm} open={metModal} onClose={()=>{setMetModal(false);setEMetId(null)}} title={eMetId?'Editar Método':'Agregar Método'} width={560}>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                   <Field label="Tipo de método"><select style={sel} value={metF.tipo} onChange={e=>setMetF({...metF,tipo:e.target.value})}><option>Transferencia</option><option>Zelle</option><option>Tarjeta</option><option>PayPal</option><option>Efectivo</option><option>Otro</option></select></Field>
                   <Field label="Nombre visible"><input style={inp} value={metF.nombre} onChange={e=>setMetF({...metF,nombre:e.target.value})} placeholder="Ej: Transferencia bancaria BBVA"/></Field>
                 </div>
 
                 {metF.tipo==='Transferencia' && <>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                  <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                     <Field label="Banco (Bank)"><input style={inp} value={metF.banco} onChange={e=>setMetF({...metF,banco:e.target.value})} placeholder="Chase, Bank of America..."/></Field>
                     <Field label="Moneda"><select style={sel} value={metF.moneda} onChange={e=>setMetF({...metF,moneda:e.target.value})}><option value="USD">USD — Dólar estadounidense</option><option value="EUR">EUR — Euro</option><option value="GBP">GBP — Libra esterlina</option><option value="ARS">ARS — Peso argentino</option><option value="MXN">MXN — Peso mexicano</option><option value="COP">COP — Peso colombiano</option><option value="CLP">CLP — Peso chileno</option><option value="BRL">BRL — Real brasileño</option><option value="PEN">PEN — Sol peruano</option><option value="UYU">UYU — Peso uruguayo</option></select></Field>
                   </div>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                  <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                     <Field label="Titular (Account Holder)"><input style={inp} value={metF.titular} onChange={e=>setMetF({...metF,titular:e.target.value})} placeholder="Nombre del titular"/></Field>
                     <Field label="Número de cuenta (Account Number)"><input style={inp} value={metF.cuentaCompleta} onChange={e=>setMetF({...metF,cuentaCompleta:e.target.value})} placeholder="1234567890"/></Field>
                   </div>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                  <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                     <Field label="Cuenta visible (para cliente)"><input style={inp} value={metF.cuentaVisible} onChange={e=>setMetF({...metF,cuentaVisible:e.target.value})} placeholder="**** 4521"/></Field>
                     <Field label="ABA Routing Number"><input style={inp} value={metF.idComercio} onChange={e=>setMetF({...metF,idComercio:e.target.value})} placeholder="021000021"/></Field>
                   </div>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                  <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                     <Field label="Swift Code"><input style={inp} value={metF.clavePublica} onChange={e=>setMetF({...metF,clavePublica:e.target.value})} placeholder="CHASUS33"/></Field>
                     <Field label="Dirección de la sucursal (Branch Address)"><input style={inp} value={metF.claveSecreta} onChange={e=>setMetF({...metF,claveSecreta:e.target.value})} placeholder="123 Main St, Miami FL 33101"/></Field>
                   </div>
@@ -2180,7 +2302,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                 </>}
 
                 {metF.tipo==='Zelle' && <>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                  <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                     <Field label="Correo Zelle"><input style={inp} value={metF.correoProveedor} onChange={e=>setMetF({...metF,correoProveedor:e.target.value})} placeholder="correo@zelle.com"/></Field>
                     <Field label="Banco asociado"><input style={inp} value={metF.banco} onChange={e=>setMetF({...metF,banco:e.target.value})} placeholder="Bank of America, Chase..."/></Field>
                   </div>
@@ -2190,19 +2312,19 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                 </>}
 
                 {metF.tipo==='Tarjeta' && <>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                  <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                     <Field label="Proveedor"><input style={inp} value={metF.banco} onChange={e=>setMetF({...metF,banco:e.target.value})} placeholder="Stripe, Square, MercadoPago..."/></Field>
                     <Field label="Correo de cuenta"><input style={inp} value={metF.correoProveedor} onChange={e=>setMetF({...metF,correoProveedor:e.target.value})} placeholder="correo@proveedor.com"/></Field>
                   </div>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                  <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                     <Field label="Últimos 4 dígitos depósito"><input style={inp} value={metF.cuentaVisible} onChange={e=>setMetF({...metF,cuentaVisible:e.target.value})} placeholder="**** 7890"/></Field>
                     <Field label="Comisión"><input style={inp} value={metF.comision} onChange={e=>setMetF({...metF,comision:e.target.value})} placeholder="2.9% + $0.30"/></Field>
                   </div>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                  <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                     <Field label="Estado de conexión"><select style={sel} value={metF.estadoConexion} onChange={e=>setMetF({...metF,estadoConexion:e.target.value})}><option value="conectado">Conectado</option><option value="desconectado">Requiere reconectar</option></select></Field>
                     <Field label="Monedas aceptadas"><input style={inp} value={metF.monedasAceptadas} onChange={e=>setMetF({...metF,monedasAceptadas:e.target.value})} placeholder="USD, EUR, ARS"/></Field>
                   </div>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                  <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                     <Field label="Clave pública (Public Key)"><input style={inp} value={metF.clavePublica} onChange={e=>setMetF({...metF,clavePublica:e.target.value})} placeholder="pk_live_..."/></Field>
                     <Field label="Clave secreta (Secret Key)"><input style={inp} type="password" value={metF.claveSecreta} onChange={e=>setMetF({...metF,claveSecreta:e.target.value})} placeholder="sk_live_..."/></Field>
                   </div>
@@ -2215,16 +2337,16 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                 </>}
 
                 {metF.tipo==='PayPal' && <>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                  <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                     <Field label="Correo PayPal"><input style={inp} value={metF.cuentaVisible} onChange={e=>setMetF({...metF,cuentaVisible:e.target.value,cuentaCompleta:e.target.value})} placeholder="correo@paypal.com"/></Field>
                     <Field label="Tipo de cuenta"><select style={sel} value={metF.tipoCuenta} onChange={e=>setMetF({...metF,tipoCuenta:e.target.value})}><option>Personal</option><option>Business</option></select></Field>
                   </div>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                  <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                     <Field label="Monedas aceptadas"><input style={inp} value={metF.monedasAceptadas} onChange={e=>setMetF({...metF,monedasAceptadas:e.target.value})} placeholder="USD, EUR"/></Field>
                     <Field label="Tiempo de acreditación"><input style={inp} value={metF.tiempoAcredit} onChange={e=>setMetF({...metF,tiempoAcredit:e.target.value})} placeholder="Instantáneo"/></Field>
                   </div>
                   <Field label="Política de reembolsos"><input style={inp} value={metF.politicaReembolso} onChange={e=>setMetF({...metF,politicaReembolso:e.target.value})} placeholder="Reembolso hasta 30 días..."/></Field>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                  <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                     <Field label="Client ID (Clave pública)"><input style={inp} value={metF.clavePublica} onChange={e=>setMetF({...metF,clavePublica:e.target.value})} placeholder="Client ID..."/></Field>
                     <Field label="Client Secret (Clave secreta)"><input style={inp} type="password" value={metF.claveSecreta} onChange={e=>setMetF({...metF,claveSecreta:e.target.value})} placeholder="Client Secret..."/></Field>
                   </div>
@@ -2245,7 +2367,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                       ))}
                     </div>
                   </Field>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                  <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                     <Field label="Prioridad (orden para el cliente)"><input style={inp} type="number" min="1" value={metF.prioridad} onChange={e=>setMetF({...metF,prioridad:Number(e.target.value)})}/></Field>
                     <Field label="Recargo adicional (%)"><input style={inp} type="number" min="0" max="100" step="0.5" value={metF.recargoPct} onChange={e=>setMetF({...metF,recargoPct:Number(e.target.value)})} placeholder="0"/></Field>
                   </div>
@@ -2470,7 +2592,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                   Datos de contacto público
                 </h3>
                 <p style={{fontSize:12,color:'#849884',margin:'0 0 14px',fontWeight:300}}>Se muestran en la sección de contacto de la página principal.</p>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                   <Field label="Email de contacto"><input style={inp} type="email" value={contactEmail} onChange={e=>setContactEmail(e.target.value)} placeholder="consultas@correo.com"/></Field>
                   <Field label="WhatsApp / Teléfono"><input style={inp} value={contactPhone} onChange={e=>setContactPhone(e.target.value)} placeholder="+54 9 11 0000-0000"/></Field>
                 </div>
