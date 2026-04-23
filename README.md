@@ -1,6 +1,6 @@
 # Silvana Therapy
 
-Sistema de gestión de citas y landing page para **Lda. Silvana López**, psicóloga online (terapia individual, de pareja y consulta gratuita).
+Sistema de gestión de citas y landing page para una consulta de psicoterapia online (terapia individual, de pareja y consulta gratuita).
 
 ## Stack
 
@@ -47,4 +47,4 @@ Ver [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) para la guía completa de desarro
 
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — instalar deps, variables de entorno, correr en local, acceder al admin, flujo de ramas
 - [docs/DEPLOY.md](docs/DEPLOY.md) — deploy al Droplet (Ubuntu, 1 GB RAM)
-- [docs/HANDOVER.md](docs/HANDOVER.md) — guía de entrega al cliente: swap de credenciales dev→Silvana (Brevo, Google Cloud, DNS)
+- [docs/HANDOVER.md](docs/HANDOVER.md) — guía de entrega al cliente final: swap de credenciales dev→cliente (Brevo, Google Cloud, DNS)
