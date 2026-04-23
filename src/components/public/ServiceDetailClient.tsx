@@ -183,7 +183,7 @@ export default function ServiceDetailClient({ service, workingHours = null, acti
           <p className="text-[0.88rem] text-text-mid leading-[1.7]">
             {service.is_free
               ? 'Elige una fecha y hora disponible, completa tus datos y recibirás un email de confirmación con el enlace de videollamada. Rápido y sin complicaciones.'
-              : 'Elige una fecha y hora disponible, completa tus datos y recibirás un enlace de pago por correo electrónico o WhatsApp para confirmar tu cita.'}
+              : 'Elige una fecha y hora disponible y completa tus datos. Los detalles de pago se coordinan al confirmar la reserva (por correo o WhatsApp).'}
           </p>
         </div>
       </div>
@@ -264,7 +264,7 @@ export default function ServiceDetailClient({ service, workingHours = null, acti
           <p className="text-[0.72rem] text-text-light text-center mt-3">
             {service.is_free
               ? 'Sin pago por adelantado · Cancela hasta 24h antes'
-              : 'Tras agendar, recibirás un enlace de pago a tu correo o WhatsApp'}
+              : 'Los detalles de pago se coordinan al confirmar la reserva'}
           </p>
         </div>
       </div>
