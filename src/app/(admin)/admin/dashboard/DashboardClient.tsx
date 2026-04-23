@@ -11,6 +11,7 @@ import { escapeHtml } from '@/lib/utils/escapeHtml';
 import { normalizePhone, buildWaLink } from '@/lib/utils/phone';
 import { renderTemplate, WA_TEMPLATE_EVENTS, WA_TEMPLATE_LABELS, WA_TEMPLATE_VARS } from '@/lib/utils/templates';
 import { sanitizeName, sanitizePhoneInput, isValidName, isValidEmail } from '@/lib/utils/sanitize';
+import { useBreakpoint } from '@/lib/hooks/useBreakpoint';
 
 interface DashboardClientProps {
   userEmail: string;
@@ -211,6 +212,10 @@ function makeInvHTML(inv, acc, payMethods = []) {
 export default function SilvanaDashboard({ userEmail, userName, initialSettings, initialServices, initialInvoices, initialBookings, initialPaymentMethods, initialLinks, availablePaymentLinks = [], initialExceptions = [], googleStatus = { connected: false } }: DashboardClientProps) {
   const [section, setSection] = useState('inicio');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // Breakpoint del viewport. El default SSR-safe del hook es desktop para
+  // evitar flash al hidratar. Lo usamos en secciones donde el layout
+  // depende del ancho (ej. vista calendario semanal no funciona en móvil).
+  const bp = useBreakpoint();
   const [toast, setToast] = useState(null);
   const show = msg => { setToast(msg); setTimeout(() => setToast(null), 2800); };
   const router = useRouter();
@@ -1114,7 +1119,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                   </div>
                   <button onClick={()=>{setEditAcc(true);setAccF({...account})}} style={btnP}>{I.edit} Editar</button>
                 </div>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'14px 26px'}}>
+                <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'14px 26px'}}>
                   {[
                     ['Email',account.email],
                     ['Teléfono',account.telefono],
@@ -1171,7 +1176,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
 
               {/* Edit Account Modal */}
               <Modal dark={dm} open={editAcc} onClose={()=>setEditAcc(false)} title="Editar Cuenta" width={600}>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                   <Field label="Nombre"><input style={inp} value={accF.nombre} onChange={e=>setAccF({...accF,nombre:e.target.value})}/></Field>
                   <Field label="Especialidad"><input style={inp} value={accF.especialidad} onChange={e=>setAccF({...accF,especialidad:e.target.value})}/></Field>
                   <Field label="Email"><input style={inp} value={accF.email} onChange={e=>setAccF({...accF,email:e.target.value})}/></Field>
@@ -1218,7 +1223,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                 <Field label="Nombre del servicio"><input style={inp} value={svcF.nombre} onChange={e=>setSvcF({...svcF,nombre:e.target.value})} placeholder="Ej: Cita Gratuita, Sesión de pareja..."/></Field>
                 <Field label="Subtítulo (opcional)"><input style={inp} value={svcF.subtitle} onChange={e=>setSvcF({...svcF,subtitle:e.target.value})} placeholder="Ej: Sin cargo · Sin compromiso"/></Field>
                 <Field label="Descripción"><textarea style={{...inp,minHeight:60,resize:'vertical'}} value={svcF.descripcion} onChange={e=>setSvcF({...svcF,descripcion:e.target.value})} placeholder="Breve descripción del servicio"/></Field>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                   <Field label="Duración (minutos)"><input type="number" min="10" step="5" style={inp} value={svcF.duracion} onChange={e=>setSvcF({...svcF,duracion:Number(e.target.value)||50})}/></Field>
                   <Field label="Modalidad"><input style={inp} value={svcF.modalidad} onChange={e=>setSvcF({...svcF,modalidad:e.target.value})} placeholder="Online · Videollamada"/></Field>
                 </div>
@@ -1237,7 +1242,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                   )}
                   {svcF.precioTipo==='oculto' && <p style={{fontSize:11,color:'#849884',margin:'2px 0 0',fontStyle:'italic'}}>El precio no se mostrará en la página pública</p>}
                 </Field>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                   <Field label="Etiqueta (opcional)"><input style={inp} value={svcF.tag} onChange={e=>setSvcF({...svcF,tag:e.target.value})} placeholder="Ej: Consulta inicial"/></Field>
                   <Field label="Tipo (opcional)"><input style={inp} value={svcF.typeLabel} onChange={e=>setSvcF({...svcF,typeLabel:e.target.value})} placeholder="Ej: Proceso continuo"/></Field>
                 </div>
@@ -1358,12 +1363,12 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                 </Field>
 
                 <Field label="Paciente"><input style={inp} value={invF.paciente} onChange={e=>setInvF({...invF,paciente:sanitizeName(e.target.value)})} maxLength={80} placeholder="Nombre del paciente"/></Field>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                   <Field label="Email"><input style={inp} type="email" value={invF.email} onChange={e=>setInvF({...invF,email:e.target.value})} placeholder="correo@mail.com"/></Field>
                   <Field label="WhatsApp / Teléfono"><input style={inp} value={invF.telefono} onChange={e=>setInvF({...invF,telefono:sanitizePhoneInput(e.target.value)})} maxLength={22} placeholder="+1 000 000 0000"/></Field>
                 </div>
                 {!invF.bookingId && (
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'0 14px'}}>
+                  <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'0 14px'}}>
                     <Field label="Cédula / DNI"><input style={inp} value={invF.cedula} onChange={e=>setInvF({...invF,cedula:e.target.value})} placeholder="00000000"/></Field>
                     <Field label="Ubicación"><select style={sel} value={invF.pais} onChange={e=>setInvF({...invF,pais:e.target.value})}>{UBICACIONES.map(p=><option key={p} value={p}>{p||'— Sin ubicación —'}</option>)}</select></Field>
                     <Field label="Dirección"><input style={inp} value={invF.direccion} onChange={e=>setInvF({...invF,direccion:e.target.value})} placeholder="Ciudad, Estado"/></Field>
@@ -1386,7 +1391,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                 {isFreeService && (
                   <div style={{background:'#FFF8E1',borderRadius:10,padding:'11px 14px',fontSize:12,color:'#b08050',border:'1px solid #ffe0b2',marginTop:4}}>Este servicio es gratuito. No se puede crear comprobante ni enlace de pago.</div>
                 )}
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                   <Field label="Monto (USD)"><input style={inp} type="number" value={invF.monto} onChange={e=>setInvF({...invF,monto:e.target.value})} placeholder="0.00" disabled={isFreeService}/></Field>
                   <Field label="Estado"><select style={sel} value={invF.estado} onChange={e=>setInvF({...invF,estado:e.target.value})}><option value="pendiente">Pendiente</option><option value="pagada">Pagada</option><option value="vencida">Vencida</option><option value="cancelada">Cancelada</option></select></Field>
                 </div>
@@ -1439,14 +1444,20 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
           )}
 
           {/* CALENDARIO */}
-          {section === 'reservas' && (
+          {section === 'reservas' && (() => {
+            // En < md (≈ teléfonos) la vista Semana no cabe (7 columnas +
+            // columna de horas), así que forzamos Lista. La preferencia
+            // del usuario se conserva en state; al volver a desktop se
+            // aplica sin cambios.
+            const effectiveCalView = bp.isBelow.md && calView !== 'list' ? 'list' : calView;
+            return (
             <div style={{animation:'slideIn .3s',display:'flex',gap:0,minHeight:'calc(100vh - 130px)'}}>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14,flexWrap:'wrap',gap:10}}>
                   <div style={{display:'flex',alignItems:'center',gap:8}}>
                     <button onClick={()=>navC(-1)} style={{border:'none',background:'#f0f5f0',borderRadius:8,width:32,height:32,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#4e6050',border:'1px solid #e2ede2'}}>{I.chevL}</button>
                     <h2 style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:18,margin:0,minWidth:200,textAlign:'center',fontWeight:400}}>
-                      {calView === 'week'
+                      {effectiveCalView === 'week'
                         ? wd[0].getDate() + ' – ' + wd[6].getDate() + ' ' + MESES[wd[6].getMonth()] + ' ' + wd[6].getFullYear()
                         : MESES[calDate.getMonth()] + ' ' + calDate.getFullYear()
                       }
@@ -1454,8 +1465,8 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                     <button onClick={()=>navC(1)} style={{border:'none',background:'#f0f5f0',borderRadius:8,width:32,height:32,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#4e6050',border:'1px solid #e2ede2'}}>{I.chevR}</button>
                     <button onClick={()=>setCalDate(new Date(TODAY))} style={{...btnS,fontSize:11,padding:'5px 12px'}}>Hoy</button>
                   </div>
-                  <div style={{display:'flex',gap:4}}>
-                    {['week','month','list'].map(v => (
+                  <div style={{display:'flex',gap:4,flexWrap:'wrap'}}>
+                    {['week','month','list'].filter(v => !(bp.isBelow.md && v !== 'list')).map(v => (
                       <button key={v} onClick={()=>setCalView(v)} style={{padding:'6px 14px',borderRadius:8,border:'1.5px solid',fontSize:12,fontWeight:500,cursor:'pointer',fontFamily:"'DM Sans',sans-serif",borderColor:calView===v?'#4a7a4a':'#c8ddc8',background:calView===v?'#f0f5f0':'#fdfcfa',color:calView===v?'#4a7a4a':'#4e6050'}}>{v === 'week' ? 'Semana' : v === 'month' ? 'Mes' : 'Lista'}</button>
                     ))}
                     <button onClick={exportGCal} style={{...btnS,fontSize:11,padding:'5px 10px'}} title="Agregar citas visibles a Google Calendar">{I.calendar} Google</button>
@@ -1465,7 +1476,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                   </div>
                 </div>
 
-                {calView === 'week' && (
+                {effectiveCalView === 'week' && (
                   <div style={{...CARD,overflow:'hidden'}}>
                     <div style={{display:'grid',gridTemplateColumns:'54px repeat(7,1fr)',borderBottom:'2px solid '+(dm?'#333':'#c8d8c8')}}>
                       <div style={{padding:8,borderRight:'1px solid '+(dm?'#2a2a2a':'#d4ddd4')}}/>
@@ -1511,7 +1522,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                   </div>
                 )}
 
-                {calView === 'month' && (
+                {effectiveCalView === 'month' && (
                   <div style={{...CARD,overflow:'hidden'}}>
                     <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',borderBottom:'2px solid '+(dm?'#333':'#c8d8c8')}}>
                       {DIAS_ES.map(d => <div key={d} style={{padding:8,textAlign:'center',fontSize:10,fontWeight:500,color:'#849884',textTransform:'uppercase'}}>{d}</div>)}
@@ -1545,12 +1556,12 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                   </div>
                 )}
 
-                {calView === 'list' && (
+                {effectiveCalView === 'list' && (
                   <div>
                     <div style={{marginBottom:12}}>
                       <input value={calSearch} onChange={e=>setCalSearch(e.target.value)} placeholder="Buscar por código de reserva o paciente..." style={{padding:'8px 16px',borderRadius:20,border:'1.5px solid #c8ddc8',fontSize:12,fontFamily:"'DM Sans',sans-serif",background:'#fdfcfa',color:'#2a3528',outline:'none',width:'100%',maxWidth:400}} />
                     </div>
-                    <div style={{...CARD,overflow:'hidden'}}>
+                    <div className="tbl-wrap" style={{...CARD,overflow:'auto'}}>
                     <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
                       <thead><tr style={{borderBottom:'2px solid '+(dm?'#333':'#e2ede2')}}>
                         {['Código','Fecha','Hora','Paciente','Tipo','Duración','Estado','Pago',''].map(h => (
@@ -1728,12 +1739,12 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                 <div style={{fontSize:11,color:'#849884',fontStyle:'italic',margin:'0 0 6px'}}>
                   Correo o teléfono — al menos uno es obligatorio. Sin correo no se envían notificaciones por email.
                 </div>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'0 14px'}}>
+                <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'0 14px'}}>
                   <Field label="Email (opcional)"><input style={inp} type="email" value={resF.email} onChange={e=>setResF({...resF,email:e.target.value})} placeholder="correo@mail.com"/></Field>
                   <Field label="Teléfono (opcional)"><input style={inp} value={resF.telefono} onChange={e=>setResF({...resF,telefono:sanitizePhoneInput(e.target.value)})} maxLength={22} placeholder="+1 000 000 0000"/></Field>
                   <Field label="Ubicación"><select style={sel} value={resF.pais} onChange={e=>setResF({...resF,pais:e.target.value})}>{UBICACIONES.map(p=><option key={p} value={p}>{p||'— Sin ubicación —'}</option>)}</select></Field>
                 </div>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'0 14px'}}>
+                <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'0 14px'}}>
                   <Field label="Fecha"><input style={inp} type="date" min={eResId?undefined:todayISO} value={resF.fecha} onChange={e=>setResF({...resF,fecha:e.target.value})}/></Field>
                   <Field label="Hora"><select style={sel} value={resF.hora} onChange={e=>setResF({...resF,hora:e.target.value})}><option value="">—</option>{HORAS.map(h=><option key={h}>{h}</option>)}</select></Field>
                   <Field label="Duración"><input style={{...inp,background:'#f0f5f0',cursor:'default'}} value={`${resF.duracion} min`} readOnly title="La duración se establece desde el servicio"/></Field>
@@ -1749,7 +1760,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                     </div>
                   ) : null;
                 })()}
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                   <Field label="Servicio"><select style={sel} value={resF.serviceId} onChange={e=>{const sid=e.target.value;const svc=services.find(s=>s.id===sid);if(svc)setResF({...resF,serviceId:sid,tipo:svc.nombre,duracion:svc.duracion});else setResF({...resF,serviceId:'',tipo:'',duracion:60});}}><option value="">Seleccionar servicio...</option>{services.filter(s=>s.active).map(s=><option key={s.id} value={s.id}>{s.nombre}{s.is_free?' (Gratis)':s.precio?' — $'+s.precio+' USD':''}</option>)}</select></Field>
                   <Field label="Estado"><select style={sel} value={resF.estado} onChange={e=>setResF({...resF,estado:e.target.value})}><option value="pendiente">Pendiente</option><option value="confirmada">Confirmada</option><option value="cancelada">Cancelada</option></select></Field>
                 </div>
@@ -1859,7 +1870,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
               {/* GOOGLE CALENDAR IMPORT MODAL */}
               <Modal dark={dm} open={gcImpModal} onClose={()=>setGcImpModal(false)} title="Importar de Google Calendar" width={880}>
                 <p style={{fontSize:12,color:'#849884',margin:'0 0 14px'}}>Lista eventos del rango y permite importarlos como reservas. Los eventos ya importados se muestran como referencia y no se vuelven a insertar.</p>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr auto',gap:10,alignItems:'end',marginBottom:14}}>
+                <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr auto',gap:10,alignItems:'end',marginBottom:14}}>
                   <Field label="Desde"><input style={inp} type="date" value={gcImpFrom} onChange={e=>setGcImpFrom(e.target.value)}/></Field>
                   <Field label="Hasta"><input style={inp} type="date" value={gcImpTo} onChange={e=>setGcImpTo(e.target.value)}/></Field>
                   <button onClick={gcImpScan} disabled={gcImpLoading} style={{...btnP,opacity:gcImpLoading?.6:1,marginBottom:10}}>{gcImpLoading?'Escaneando…':'Escanear'}</button>
@@ -1888,7 +1899,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                             const noContact = noEmail && noPhone;
                             return (
                               <div style={{marginLeft:26}}>
-                                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 160px 130px',gap:8}}>
+                                <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 160px 130px',gap:8}}>
                                   <input style={{...inp,marginBottom:0}} placeholder="Nombre cliente" value={ev.clientName} onChange={e=>{const v=e.target.value;setGcImpEvents(p=>p.map((x,i)=>i===idx?{...x,clientName:v}:x))}}/>
                                   <input style={{...inp,marginBottom:0}} placeholder="Email (opcional)" value={ev.clientEmail} onChange={e=>{const v=e.target.value;setGcImpEvents(p=>p.map((x,i)=>i===idx?{...x,clientEmail:v}:x))}}/>
                                   <input style={{...inp,marginBottom:0}} placeholder="Teléfono (opcional)" value={ev.clientPhone} onChange={e=>{const v=sanitizePhoneInput(e.target.value);setGcImpEvents(p=>p.map((x,i)=>i===idx?{...x,clientPhone:v}:x))}} maxLength={22}/>
@@ -1925,7 +1936,8 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                 </div>
               </Modal>
             </div>
-          )}
+          );
+          })()}
 
           {/* DISPONIBILIDAD */}
           {section === 'disponibilidad' && (
@@ -2072,7 +2084,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                 )}
 
                 {excF.type === 'range' && (
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                  <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                     <Field label="Desde"><input type="date" min={todayISO} style={inp} value={excF.start_date} onChange={e=>setExcF({...excF,start_date:e.target.value})}/></Field>
                     <Field label="Hasta"><input type="date" min={excF.start_date || todayISO} style={inp} value={excF.end_date} onChange={e=>setExcF({...excF,end_date:e.target.value})}/></Field>
                   </div>
@@ -2090,7 +2102,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                         })}
                       </div>
                     </Field>
-                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                    <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                       <Field label="Desde"><input type="date" min={todayISO} style={inp} value={excF.start_date} onChange={e=>setExcF({...excF,start_date:e.target.value})}/></Field>
                       <Field label="Hasta (opcional)"><input type="date" min={excF.start_date || todayISO} style={inp} value={excF.end_date} onChange={e=>setExcF({...excF,end_date:e.target.value})}/></Field>
                     </div>
@@ -2240,25 +2252,25 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
 
               {/* Add/Edit Method Modal */}
               <Modal dark={dm} open={metModal} onClose={()=>{setMetModal(false);setEMetId(null)}} title={eMetId?'Editar Método':'Agregar Método'} width={560}>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                   <Field label="Tipo de método"><select style={sel} value={metF.tipo} onChange={e=>setMetF({...metF,tipo:e.target.value})}><option>Transferencia</option><option>Zelle</option><option>Tarjeta</option><option>PayPal</option><option>Efectivo</option><option>Otro</option></select></Field>
                   <Field label="Nombre visible"><input style={inp} value={metF.nombre} onChange={e=>setMetF({...metF,nombre:e.target.value})} placeholder="Ej: Transferencia bancaria BBVA"/></Field>
                 </div>
 
                 {metF.tipo==='Transferencia' && <>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                  <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                     <Field label="Banco (Bank)"><input style={inp} value={metF.banco} onChange={e=>setMetF({...metF,banco:e.target.value})} placeholder="Chase, Bank of America..."/></Field>
                     <Field label="Moneda"><select style={sel} value={metF.moneda} onChange={e=>setMetF({...metF,moneda:e.target.value})}><option value="USD">USD — Dólar estadounidense</option><option value="EUR">EUR — Euro</option><option value="GBP">GBP — Libra esterlina</option><option value="ARS">ARS — Peso argentino</option><option value="MXN">MXN — Peso mexicano</option><option value="COP">COP — Peso colombiano</option><option value="CLP">CLP — Peso chileno</option><option value="BRL">BRL — Real brasileño</option><option value="PEN">PEN — Sol peruano</option><option value="UYU">UYU — Peso uruguayo</option></select></Field>
                   </div>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                  <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                     <Field label="Titular (Account Holder)"><input style={inp} value={metF.titular} onChange={e=>setMetF({...metF,titular:e.target.value})} placeholder="Nombre del titular"/></Field>
                     <Field label="Número de cuenta (Account Number)"><input style={inp} value={metF.cuentaCompleta} onChange={e=>setMetF({...metF,cuentaCompleta:e.target.value})} placeholder="1234567890"/></Field>
                   </div>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                  <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                     <Field label="Cuenta visible (para cliente)"><input style={inp} value={metF.cuentaVisible} onChange={e=>setMetF({...metF,cuentaVisible:e.target.value})} placeholder="**** 4521"/></Field>
                     <Field label="ABA Routing Number"><input style={inp} value={metF.idComercio} onChange={e=>setMetF({...metF,idComercio:e.target.value})} placeholder="021000021"/></Field>
                   </div>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                  <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                     <Field label="Swift Code"><input style={inp} value={metF.clavePublica} onChange={e=>setMetF({...metF,clavePublica:e.target.value})} placeholder="CHASUS33"/></Field>
                     <Field label="Dirección de la sucursal (Branch Address)"><input style={inp} value={metF.claveSecreta} onChange={e=>setMetF({...metF,claveSecreta:e.target.value})} placeholder="123 Main St, Miami FL 33101"/></Field>
                   </div>
@@ -2267,7 +2279,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                 </>}
 
                 {metF.tipo==='Zelle' && <>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                  <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                     <Field label="Correo Zelle"><input style={inp} value={metF.correoProveedor} onChange={e=>setMetF({...metF,correoProveedor:e.target.value})} placeholder="correo@zelle.com"/></Field>
                     <Field label="Banco asociado"><input style={inp} value={metF.banco} onChange={e=>setMetF({...metF,banco:e.target.value})} placeholder="Bank of America, Chase..."/></Field>
                   </div>
@@ -2277,19 +2289,19 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                 </>}
 
                 {metF.tipo==='Tarjeta' && <>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                  <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                     <Field label="Proveedor"><input style={inp} value={metF.banco} onChange={e=>setMetF({...metF,banco:e.target.value})} placeholder="Stripe, Square, MercadoPago..."/></Field>
                     <Field label="Correo de cuenta"><input style={inp} value={metF.correoProveedor} onChange={e=>setMetF({...metF,correoProveedor:e.target.value})} placeholder="correo@proveedor.com"/></Field>
                   </div>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                  <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                     <Field label="Últimos 4 dígitos depósito"><input style={inp} value={metF.cuentaVisible} onChange={e=>setMetF({...metF,cuentaVisible:e.target.value})} placeholder="**** 7890"/></Field>
                     <Field label="Comisión"><input style={inp} value={metF.comision} onChange={e=>setMetF({...metF,comision:e.target.value})} placeholder="2.9% + $0.30"/></Field>
                   </div>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                  <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                     <Field label="Estado de conexión"><select style={sel} value={metF.estadoConexion} onChange={e=>setMetF({...metF,estadoConexion:e.target.value})}><option value="conectado">Conectado</option><option value="desconectado">Requiere reconectar</option></select></Field>
                     <Field label="Monedas aceptadas"><input style={inp} value={metF.monedasAceptadas} onChange={e=>setMetF({...metF,monedasAceptadas:e.target.value})} placeholder="USD, EUR, ARS"/></Field>
                   </div>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                  <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                     <Field label="Clave pública (Public Key)"><input style={inp} value={metF.clavePublica} onChange={e=>setMetF({...metF,clavePublica:e.target.value})} placeholder="pk_live_..."/></Field>
                     <Field label="Clave secreta (Secret Key)"><input style={inp} type="password" value={metF.claveSecreta} onChange={e=>setMetF({...metF,claveSecreta:e.target.value})} placeholder="sk_live_..."/></Field>
                   </div>
@@ -2302,16 +2314,16 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                 </>}
 
                 {metF.tipo==='PayPal' && <>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                  <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                     <Field label="Correo PayPal"><input style={inp} value={metF.cuentaVisible} onChange={e=>setMetF({...metF,cuentaVisible:e.target.value,cuentaCompleta:e.target.value})} placeholder="correo@paypal.com"/></Field>
                     <Field label="Tipo de cuenta"><select style={sel} value={metF.tipoCuenta} onChange={e=>setMetF({...metF,tipoCuenta:e.target.value})}><option>Personal</option><option>Business</option></select></Field>
                   </div>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                  <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                     <Field label="Monedas aceptadas"><input style={inp} value={metF.monedasAceptadas} onChange={e=>setMetF({...metF,monedasAceptadas:e.target.value})} placeholder="USD, EUR"/></Field>
                     <Field label="Tiempo de acreditación"><input style={inp} value={metF.tiempoAcredit} onChange={e=>setMetF({...metF,tiempoAcredit:e.target.value})} placeholder="Instantáneo"/></Field>
                   </div>
                   <Field label="Política de reembolsos"><input style={inp} value={metF.politicaReembolso} onChange={e=>setMetF({...metF,politicaReembolso:e.target.value})} placeholder="Reembolso hasta 30 días..."/></Field>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                  <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                     <Field label="Client ID (Clave pública)"><input style={inp} value={metF.clavePublica} onChange={e=>setMetF({...metF,clavePublica:e.target.value})} placeholder="Client ID..."/></Field>
                     <Field label="Client Secret (Clave secreta)"><input style={inp} type="password" value={metF.claveSecreta} onChange={e=>setMetF({...metF,claveSecreta:e.target.value})} placeholder="Client Secret..."/></Field>
                   </div>
@@ -2332,7 +2344,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                       ))}
                     </div>
                   </Field>
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                  <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                     <Field label="Prioridad (orden para el cliente)"><input style={inp} type="number" min="1" value={metF.prioridad} onChange={e=>setMetF({...metF,prioridad:Number(e.target.value)})}/></Field>
                     <Field label="Recargo adicional (%)"><input style={inp} type="number" min="0" max="100" step="0.5" value={metF.recargoPct} onChange={e=>setMetF({...metF,recargoPct:Number(e.target.value)})} placeholder="0"/></Field>
                   </div>
@@ -2557,7 +2569,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                   Datos de contacto público
                 </h3>
                 <p style={{fontSize:12,color:'#849884',margin:'0 0 14px',fontWeight:300}}>Se muestran en la sección de contacto de la página principal.</p>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
+                <div className="grid-col-stack" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 14px'}}>
                   <Field label="Email de contacto"><input style={inp} type="email" value={contactEmail} onChange={e=>setContactEmail(e.target.value)} placeholder="consultas@correo.com"/></Field>
                   <Field label="WhatsApp / Teléfono"><input style={inp} value={contactPhone} onChange={e=>setContactPhone(e.target.value)} placeholder="+54 9 11 0000-0000"/></Field>
                 </div>
