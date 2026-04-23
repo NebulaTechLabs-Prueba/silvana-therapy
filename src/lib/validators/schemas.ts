@@ -108,6 +108,17 @@ export const loginSchema = z.object({
 
 // ─── Dashboard: Admin Profile ────────────────────────────
 
+// Mantener en sincronía con:
+//   - supabase/migrations/003_admin_timezone.sql (CHECK constraint)
+//   - src/lib/utils/timezone.ts ADMIN_TIMEZONES
+const ADMIN_TZ_VALUES = [
+  'America/New_York','America/Chicago','America/Denver','America/Los_Angeles',
+  'America/Argentina/Buenos_Aires','America/Argentina/Mendoza','America/Argentina/Cordoba',
+  'America/Mexico_City','America/Bogota','America/Lima','America/Santiago','America/Caracas',
+  'America/Guayaquil','America/La_Paz','America/Asuncion','America/Montevideo',
+  'America/Sao_Paulo','Europe/Madrid',
+] as const;
+
 export const updateProfileSchema = z.object({
   nombre: z.string().min(1).max(200),
   especialidad: z.string().max(200),
@@ -116,6 +127,9 @@ export const updateProfileSchema = z.object({
   telefono: z.string().max(30),
   direccion: z.string().max(300),
   bio: z.string().max(2000),
+  timezone: z.enum(ADMIN_TZ_VALUES).optional(),
+  email_display_tz: z.enum(ADMIN_TZ_VALUES).optional(),
+  form_display_tz: z.enum(ADMIN_TZ_VALUES).optional(),
   working_hours: z.record(z.object({
     enabled: z.boolean(),
     ranges: z.array(z.object({

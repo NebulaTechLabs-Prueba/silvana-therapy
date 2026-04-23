@@ -2,6 +2,7 @@ import nodemailer from 'nodemailer';
 import type { Transporter } from 'nodemailer';
 import { createAdminClient } from '@/lib/supabase/admin';
 import type { EmailEventKey, EmailRecipient, EmailNotificationPrefs } from '@/types/database';
+import { tzShortLabel } from '@/lib/utils/timezone';
 
 /**
  * Email Adapter (SMTP genérico).
@@ -16,11 +17,31 @@ import type { EmailEventKey, EmailRecipient, EmailNotificationPrefs } from '@/ty
  * Si ni DB ni env están configurados, el envío se omite con un warning en logs
  * (no rompe los flujos de booking).
  *
- * Todas las fechas visibles se formatean en America/New_York (Miami).
+ * Zona horaria de las fechas visibles: preferencia `admin_settings.email_display_tz`
+ * (configurable desde Mi Cuenta). Default `America/New_York`. Las fechas
+ * siempre persisten en UTC; solo cambia la etiqueta y el formato mostrado.
  */
 
-const BASE_TZ = 'America/New_York';
+const DEFAULT_TZ = 'America/New_York';
 const LOCALE = 'es-US';
+
+/**
+ * Lee la TZ configurada para correos al paciente. Fallback al default si
+ * la fila/columna no existe (instancias previas a la migración 004).
+ */
+async function loadEmailDisplayTz(): Promise<string> {
+  try {
+    const supabase = createAdminClient();
+    const { data } = await supabase
+      .from('admin_settings')
+      .select('email_display_tz')
+      .limit(1)
+      .single();
+    return (data as { email_display_tz?: string } | null)?.email_display_tz || DEFAULT_TZ;
+  } catch {
+    return DEFAULT_TZ;
+  }
+}
 
 interface ResolvedConfig {
   host: string;
@@ -151,9 +172,9 @@ async function isNotificationEnabled(
   }
 }
 
-function fmtDate(iso: string, withTime = true): string {
+function fmtDate(iso: string, tz: string, withTime = true): string {
   const opts: Intl.DateTimeFormatOptions = {
-    timeZone: BASE_TZ,
+    timeZone: tz,
     weekday: 'long',
     year: 'numeric',
     month: 'long',
@@ -201,7 +222,9 @@ export async function sendBookingReceivedEmail(params: {
   isFree?: boolean;
 }): Promise<void> {
   if (!(await isNotificationEnabled('booking_received', 'client'))) return;
-  const dateStr = params.preferredDate ? fmtDate(params.preferredDate) : null;
+  const tz = await loadEmailDisplayTz();
+  const tzLabel = tzShortLabel(tz);
+  const dateStr = params.preferredDate ? fmtDate(params.preferredDate, tz) : null;
 
   await sendEmail({
     to: params.clientEmail,
@@ -212,7 +235,7 @@ export async function sendBookingReceivedEmail(params: {
       <p>Tu solicitud de cita ha sido recibida exitosamente.${params.isFree ? ' Este servicio es completamente gratuito.' : ''}</p>
       <div style="background: ${brandLight}; padding: 20px; border-radius: 8px; margin: 16px 0;">
         <p><strong>Servicio:</strong> ${params.serviceName}</p>
-        ${dateStr ? `<p><strong>Fecha solicitada:</strong> ${dateStr} (hora Miami, FL)</p>` : ''}
+        ${dateStr ? `<p><strong>Fecha solicitada:</strong> ${dateStr} (hora ${tzLabel})</p>` : ''}
       </div>
       <p>Revisaré tu solicitud y te confirmaré la cita a la brevedad. Si necesitas comunicarte, puedes escribirme por WhatsApp.</p>
       <p style="color: #888; font-style: italic;">Gracias por tu confianza.</p>
@@ -235,6 +258,8 @@ export async function sendNewBookingNotification(params: {
 }): Promise<void> {
   if (!(await isNotificationEnabled('booking_received', 'admin'))) return;
   const adminUrl = process.env.NEXT_PUBLIC_ADMIN_URL;
+  const tz = await loadEmailDisplayTz();
+  const tzLabel = tzShortLabel(tz);
 
   await sendEmail({
     to: params.adminEmail,
@@ -246,7 +271,7 @@ export async function sendNewBookingNotification(params: {
         <p><strong>Email:</strong> ${params.clientEmail}</p>
         ${params.clientPhone ? `<p><strong>Teléfono:</strong> ${params.clientPhone}</p>` : ''}
         ${params.reason ? `<p><strong>Motivo:</strong> ${params.reason}</p>` : ''}
-        ${params.preferredDate ? `<p><strong>Fecha preferida:</strong> ${fmtDate(params.preferredDate)} (hora Miami)</p>` : ''}
+        ${params.preferredDate ? `<p><strong>Fecha preferida:</strong> ${fmtDate(params.preferredDate, tz)} (hora ${tzLabel})</p>` : ''}
         <p><strong>Tipo:</strong> ${params.isFree ? '🟢 Sesión gratuita' : '🔵 Sesión pagada'}</p>
       </div>
       <a href="${adminUrl}/admin/dashboard"
@@ -268,7 +293,9 @@ export async function sendBookingConfirmedEmail(params: {
   meetLink?: string | null;
 }): Promise<void> {
   if (!(await isNotificationEnabled('booking_confirmed', 'client'))) return;
-  const dateStr = fmtDate(params.confirmedDate);
+  const tz = await loadEmailDisplayTz();
+  const tzLabel = tzShortLabel(tz);
+  const dateStr = fmtDate(params.confirmedDate, tz);
 
   await sendEmail({
     to: params.clientEmail,
@@ -279,7 +306,7 @@ export async function sendBookingConfirmedEmail(params: {
       <p>Tu sesión ha sido confirmada para:</p>
       <div style="background: ${brandLight}; padding: 20px; border-radius: 8px; margin: 16px 0;">
         <p style="font-size: 18px; color: ${brandColor}; margin: 0;"><strong>${dateStr}</strong></p>
-        <p style="margin: 8px 0 0;">${params.serviceName} · ${params.durationMin} minutos · hora Miami (FL)</p>
+        <p style="margin: 8px 0 0;">${params.serviceName} · ${params.durationMin} minutos · hora ${tzLabel}</p>
       </div>
       ${params.meetLink ? `
       <div style="text-align: center; margin: 20px 0;">
@@ -331,6 +358,8 @@ export async function sendPaymentLinkEmail(params: {
   expiresAt?: string;
 }): Promise<void> {
   if (!(await isNotificationEnabled('payment_link', 'client'))) return;
+  const tz = await loadEmailDisplayTz();
+  const tzLabel = tzShortLabel(tz);
   const surchargeNote = params.provider === 'paypal'
     ? `<p style="font-size: 13px; color: #888;">* El monto incluye un recargo del 10% por uso de PayPal.</p>`
     : '';
@@ -351,7 +380,7 @@ export async function sendPaymentLinkEmail(params: {
           Realizar pago
         </a>
       </div>
-      ${params.expiresAt ? `<p style="font-size: 13px; color: #888; text-align: center; margin-top: 12px;">Este enlace expira el ${fmtDate(params.expiresAt)} (hora Miami).</p>` : ''}
+      ${params.expiresAt ? `<p style="font-size: 13px; color: #888; text-align: center; margin-top: 12px;">Este enlace expira el ${fmtDate(params.expiresAt, tz)} (hora ${tzLabel}).</p>` : ''}
     `),
   });
 }
@@ -366,15 +395,17 @@ export async function sendRescheduledEmail(params: {
   meetLink?: string | null;
 }): Promise<void> {
   if (!(await isNotificationEnabled('booking_rescheduled', 'client'))) return;
-  const oldDateStr = fmtDate(params.oldDate);
-  const newDateStr = fmtDate(params.newDate);
+  const tz = await loadEmailDisplayTz();
+  const tzLabel = tzShortLabel(tz);
+  const oldDateStr = fmtDate(params.oldDate, tz);
+  const newDateStr = fmtDate(params.newDate, tz);
 
   await sendEmail({
     to: params.clientEmail,
     subject: 'Tu cita ha sido reagendada — Lda. Silvana López',
     html: wrapTemplate(`
       <p>Hola ${params.clientName},</p>
-      <p>Tu cita ha sido reagendada (hora Miami):</p>
+      <p>Tu cita ha sido reagendada (hora ${tzLabel}):</p>
       <div style="background: ${brandLight}; padding: 20px; border-radius: 8px; margin: 16px 0;">
         <p style="text-decoration: line-through; color: #999;">${oldDateStr}</p>
         <p style="font-size: 18px; color: ${brandColor}; margin: 8px 0 0;"><strong>${newDateStr}</strong></p>
@@ -427,6 +458,7 @@ export async function sendInvoiceEmail(params: {
   paymentMethods?: { nombre: string; instrucciones?: string }[];
 }): Promise<void> {
   if (!(await isNotificationEnabled('invoice', 'client'))) return;
+  const tz = await loadEmailDisplayTz();
   const methodsHtml = (params.paymentMethods || []).map(m =>
     `<div style="background: #fff; padding: 10px 14px; border: 1px solid #e2ede2; border-radius: 6px; margin-bottom: 6px;">
       <strong>${m.nombre}</strong>
@@ -445,7 +477,7 @@ export async function sendInvoiceEmail(params: {
         <p><strong>Concepto:</strong> ${params.concepto}</p>
         <p><strong>Monto:</strong> $${params.monto.toFixed(2)} USD</p>
         <p><strong>Estado:</strong> ${params.estado}</p>
-        <p><strong>Fecha:</strong> ${fmtDate(params.fecha, false)}</p>
+        <p><strong>Fecha:</strong> ${fmtDate(params.fecha, tz, false)}</p>
       </div>
       ${params.estado !== 'pagada' && methodsHtml ? `
         <p><strong>Métodos de pago disponibles:</strong></p>
@@ -467,7 +499,8 @@ export async function sendBookingCancelledEmail(params: {
   cancelledBy: 'client' | 'admin';
 }): Promise<void> {
   if (!(await isNotificationEnabled('booking_cancelled', 'client'))) return;
-  const dateStr = fmtDate(params.cancelledDate);
+  const tz = await loadEmailDisplayTz();
+  const dateStr = fmtDate(params.cancelledDate, tz);
   const isAdminCancel = params.cancelledBy === 'admin';
 
   await sendEmail({
@@ -510,7 +543,9 @@ export async function sendBookingCancelledAdminNotification(params: {
   cancelledBy: 'client' | 'admin';
 }): Promise<void> {
   if (!(await isNotificationEnabled('booking_cancelled', 'admin'))) return;
-  const dateStr = fmtDate(params.cancelledDate);
+  const tz = await loadEmailDisplayTz();
+  const tzLabel = tzShortLabel(tz);
+  const dateStr = fmtDate(params.cancelledDate, tz);
   const byLabel = params.cancelledBy === 'client' ? 'el cliente' : 'administración';
 
   await sendEmail({
@@ -523,7 +558,7 @@ export async function sendBookingCancelledAdminNotification(params: {
         <p><strong>Cliente:</strong> ${params.clientName}</p>
         <p><strong>Email:</strong> ${params.clientEmail}</p>
         <p><strong>Servicio:</strong> ${params.serviceName}</p>
-        <p><strong>Fecha cancelada:</strong> ${dateStr} (hora Miami)</p>
+        <p><strong>Fecha cancelada:</strong> ${dateStr} (hora ${tzLabel})</p>
         ${params.reason ? `<p><strong>Motivo:</strong> <em>${params.reason}</em></p>` : ''}
       </div>
       <a href="${process.env.NEXT_PUBLIC_ADMIN_URL}/admin/dashboard"
@@ -551,7 +586,9 @@ export async function sendReminderEmail(params: {
   meetLink?: string | null;
 }): Promise<void> {
   if (!(await isNotificationEnabled('reminder_24h', 'client'))) return;
-  const dateStr = fmtDate(params.confirmedDate);
+  const tz = await loadEmailDisplayTz();
+  const tzLabel = tzShortLabel(tz);
+  const dateStr = fmtDate(params.confirmedDate, tz);
 
   await sendEmail({
     to: params.clientEmail,
@@ -562,7 +599,7 @@ export async function sendReminderEmail(params: {
       <p>Te recordamos que tienes una sesión agendada para:</p>
       <div style="background: ${brandLight}; padding: 20px; border-radius: 8px; margin: 16px 0;">
         <p style="font-size: 18px; color: ${brandColor}; margin: 0;"><strong>${dateStr}</strong></p>
-        <p style="margin: 8px 0 0;">${params.serviceName} · ${params.durationMin} minutos · hora Miami (FL)</p>
+        <p style="margin: 8px 0 0;">${params.serviceName} · ${params.durationMin} minutos · hora ${tzLabel}</p>
       </div>
       ${params.meetLink ? `
       <div style="text-align: center; margin: 20px 0;">

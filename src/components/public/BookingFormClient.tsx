@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { getClientTime } from '@/lib/utils/timezone';
+import { getClientTime, convertTime, tzShortLabel, BASE_TZ } from '@/lib/utils/timezone';
 import { sanitizeName, sanitizePhoneInput, isValidName, isValidEmail } from '@/lib/utils/sanitize';
 import { normalizePhone } from '@/lib/utils/phone';
 
@@ -152,10 +152,26 @@ interface Props {
   activePaymentMethods?: PaymentMethodInfo[];
   bookedSlots?: BookedSlot[];
   activeExceptions?: ActiveException[];
+  /**
+   * TZ IANA a mostrar al visitante en etiquetas y botones de slot.
+   * Los slots se generan siempre en BASE_TZ (Miami) — esta preferencia
+   * solo controla la ETIQUETA y la hora visible. El valor que se envía
+   * al backend sigue siendo Miami wall-clock.
+   */
+  formTz?: string;
 }
 
 /* ─── Component ─── */
-export default function BookingFormClient({ serviceId: propServiceId, serviceName: propServiceName, serviceDuration: propServiceDuration, workingHours = null, isFree = true, activePaymentMethods = [], bookedSlots = [], activeExceptions = [] }: Props) {
+export default function BookingFormClient({ serviceId: propServiceId, serviceName: propServiceName, serviceDuration: propServiceDuration, workingHours = null, isFree = true, activePaymentMethods = [], bookedSlots = [], activeExceptions = [], formTz = BASE_TZ }: Props) {
+  // Helper: convierte un slot Miami (HH:MM) a la TZ del formulario (para mostrar).
+  // Si formTz === BASE_TZ, retorna el mismo valor sin convertir.
+  const toFormTz = useCallback((date: string | null | undefined, miamiTime: string): string => {
+    if (!formTz || formTz === BASE_TZ) return miamiTime;
+    if (!date) return miamiTime;
+    return convertTime(date, miamiTime, BASE_TZ, formTz);
+  }, [formTz]);
+  const formTzLabel = tzShortLabel(formTz || BASE_TZ);
+  const formTzIsBase = !formTz || formTz === BASE_TZ;
   const router = useRouter();
   const [step, setStep] = useState(1);
 
@@ -400,7 +416,7 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
           <SumRow label="Duración" value={`${svcDuration} min`} />
           <SumRow label="Modalidad" value="Online" />
           {selDate && <SumRow label="Fecha" value={formatDate(selDate)} />}
-          {selTime && <SumRow label="Hora Miami" value={`${selTime} hs`} />}
+          {selTime && <SumRow label={`Hora ${formTzLabel}`} value={`${toFormTz(selDate, selTime)} hs`} />}
           {selTime && pais && pais !== 'Florida' && pais !== 'Otro' && selDate && (() => {
             const localT = getClientTime(selDate, selTime, pais);
             return localT ? <SumRow label={`Hora ${pais}`} value={`${localT} hs`} /> : null;
@@ -503,7 +519,9 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
             </p>
             {selDate && (
               <p className="text-[0.68rem] text-text-light mb-3 italic">
-                Horarios en hora Miami, FL (Este de EE.UU.)
+                {formTzIsBase
+                  ? 'Horarios en hora Miami, FL (Este de EE.UU.)'
+                  : `Horarios en hora ${formTzLabel}`}
               </p>
             )}
             {selDate && (() => {
@@ -518,6 +536,10 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
                 <div className="grid grid-cols-4 max-md:grid-cols-3 max-sm:grid-cols-2 gap-2 mb-6">
                   {allSlots.map(t => {
                     const available = availableSlots.includes(t);
+                    // Internamente seguimos trabajando con el slot Miami (t).
+                    // El label que ve el visitante se convierte a formTz si
+                    // Silvana lo configuró distinto.
+                    const displayLabel = toFormTz(selDate, t);
                     return (
                       <button
                         key={t}
@@ -531,7 +553,7 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
                               : 'bg-transparent border-green-soft text-text-mid hover:bg-green-pale hover:border-green-deep hover:text-green-deep cursor-pointer'
                         }`}
                       >
-                        {t}
+                        {displayLabel}
                       </button>
                     );
                   })}
@@ -639,16 +661,17 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
                 {US_STATES.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
               {selTime && pais && (() => {
+                const formDisplay = toFormTz(selDate, selTime);
                 const localT = pais !== 'Florida' && pais !== 'Otro' && selDate
                   ? getClientTime(selDate, selTime, pais)
                   : null;
                 return localT ? (
                   <span className="text-[0.72rem] text-green-deep">
-                    {selTime} hs hora Miami — {localT} hs hora {pais}
+                    {formDisplay} hs hora {formTzLabel} — {localT} hs hora {pais}
                   </span>
                 ) : selTime && pais === 'Florida' ? (
                   <span className="text-[0.72rem] text-text-light">
-                    {selTime} hs hora Miami (misma zona horaria)
+                    {formDisplay} hs hora {formTzLabel}{formTzIsBase ? ' (misma zona horaria)' : ''}
                   </span>
                 ) : null;
               })()}
@@ -749,11 +772,12 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
               <ReviewRow label="Servicio" value={svcName} />
               {selDate && <ReviewRow label="Fecha" value={formatDateFull(selDate)} />}
               {selTime && (() => {
+                const formDisplay = toFormTz(selDate, selTime);
                 const localT = pais && pais !== 'Florida' && pais !== 'Otro' && selDate
                   ? getClientTime(selDate, selTime, pais)
                   : null;
                 return (<>
-                  <ReviewRow label="Hora Miami" value={`${selTime} hs`} />
+                  <ReviewRow label={`Hora ${formTzLabel}`} value={`${formDisplay} hs`} />
                   {localT && <ReviewRow label={`Hora ${pais}`} value={`${localT} hs`} />}
                 </>);
               })()}
