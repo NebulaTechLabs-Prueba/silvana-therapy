@@ -98,3 +98,27 @@ input:focus, select:focus, textarea:focus {
   z-index: 850;
   animation: fadeIn .2s ease;
 }
+
+/* ─── Utilidades responsive para grids del panel admin ─── */
+/* Los formularios y layouts del dashboard usan inline styles con
+   gridTemplateColumns fijos (ej. "1fr 1fr 1fr"). Estas utilidades
+   permiten colapsar a una columna en viewports chicos sin tocar los
+   2000 lugares donde está el inline style. Se aplica agregando la
+   clase; el `!important` es necesario porque el inline style gana
+   por specificidad. */
+@media (max-width: 767px) {
+  .grid-col-stack { grid-template-columns: 1fr !important; gap: 12px !important; }
+}
+@media (max-width: 1023px) {
+  .grid-col-stack-tab { grid-template-columns: 1fr !important; gap: 12px !important; }
+}
+/* Tablas ancho-forzado: wrap con scroll horizontal en móvil en lugar
+   de reventar el layout. Usar en el contenedor de la tabla. */
+.tbl-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+@media (max-width: 767px) {
+  .tbl-wrap table { min-width: 640px; }
+}
+/* Utilidades generales */
+@media (max-width: 767px) {
+  .hide-on-mobile { display: none !important; }
+}
