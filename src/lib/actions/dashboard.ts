@@ -383,30 +383,51 @@ export async function upsertBooking(raw: {
     .single();
   const adminTz = (tzSettings?.admin_timezone as string) || 'America/New_York';
 
-  // For bookings, the dashboard uses a simplified view.
-  // We need to find-or-create the client, then upsert the booking.
-  // First, find or create client
+  // Normalizar canales de contacto: strings vacíos → null.
+  // El DB acepta NULL en ambos pero exige CHECK (email OR phone).
+  const clientEmail = data.email && data.email.trim() !== '' ? data.email.trim().toLowerCase() : null;
+  const clientPhone = data.telefono && data.telefono.trim() !== '' ? data.telefono.trim() : null;
+
+  // Find-or-create client. Prioridad de matcheo:
+  //   1. Por email si lo hay (UNIQUE parcial garantiza 0 o 1 match).
+  //   2. Por phone si no hay email pero sí phone.
+  //   3. Crear cliente nuevo.
   let clientId: string;
-  const { data: existing } = await supabase
-    .from('clients')
-    .select('id')
-    .eq('email', data.email)
-    .limit(1)
-    .single();
+  let existing: { id: string } | null = null;
+  if (clientEmail) {
+    const res = await supabase
+      .from('clients')
+      .select('id')
+      .eq('email', clientEmail)
+      .limit(1)
+      .maybeSingle();
+    existing = res.data as { id: string } | null;
+  }
+  if (!existing && clientPhone) {
+    const res = await supabase
+      .from('clients')
+      .select('id')
+      .eq('phone', clientPhone)
+      .limit(1)
+      .maybeSingle();
+    existing = res.data as { id: string } | null;
+  }
 
   if (existing) {
     clientId = existing.id;
-    // Update country if provided
-    if (data.pais) {
-      await supabase.from('clients').update({ country: data.pais }).eq('id', clientId);
-    }
+    // Refrescar datos "suaves" (nombre, país, canales que ahora sí llegaron).
+    const update: Record<string, unknown> = { full_name: data.paciente };
+    if (clientEmail) update.email = clientEmail;
+    if (clientPhone) update.phone = clientPhone;
+    if (data.pais) update.country = data.pais;
+    await supabase.from('clients').update(update).eq('id', clientId);
   } else {
     const { data: newClient, error: clientErr } = await supabase
       .from('clients')
       .insert({
         full_name: data.paciente,
-        email: data.email,
-        phone: data.telefono,
+        email: clientEmail,
+        phone: clientPhone,
         country: data.pais || null,
       })
       .select('id')

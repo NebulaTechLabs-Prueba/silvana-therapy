@@ -276,7 +276,17 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
   }
 
   /* ─── Validation ─── */
-  const formValid = isValidName(nombre) && isValidName(apellido) && isValidEmail(email) && !!normalizePhone(tel);
+  // Contact policy: email y teléfono son opcionales individualmente pero
+  // al menos uno debe estar completo y válido. Coherente con
+  // chk_clients_contact_present en DB.
+  const emailTouched = email.trim().length > 0;
+  const telTouched = tel.trim().length > 0;
+  const emailValid = emailTouched && isValidEmail(email);
+  const telValid = telTouched && !!normalizePhone(tel);
+  const contactProvided = emailValid || telValid;
+  const emailLooksValid = !emailTouched || emailValid;
+  const telLooksValid = !telTouched || telValid;
+  const formValid = isValidName(nombre) && isValidName(apellido) && contactProvided && emailLooksValid && telLooksValid;
 
   /* ─── Format helpers ─── */
   function formatDate(iso: string) {
@@ -310,7 +320,7 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           full_name: `${nombre.trim()} ${apellido.trim()}`,
-          email: email.trim(),
+          email: email.trim() || undefined,
           phone: tel.trim() || undefined,
           country: pais || undefined,
           reason: motivo.trim() || undefined,
@@ -614,10 +624,13 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
               </div>
             </div>
 
+            <div className="mb-2 text-[0.72rem] text-text-light italic">
+              Proporciona al menos uno: correo o WhatsApp. Usaremos el que esté disponible para contactarte.
+            </div>
             <div className="grid grid-cols-2 max-sm:grid-cols-1 gap-5 mb-5">
               <div className="flex flex-col gap-1.5">
                 <label className="text-[0.65rem] tracking-[0.12em] uppercase text-text-light font-medium">
-                  Email *
+                  Email
                 </label>
                 <input
                   type="email"
@@ -626,13 +639,16 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
                   placeholder="tu@email.com"
                   className="text-[0.88rem] py-3 px-4 border border-green-pale rounded-xl bg-[#fff] text-text-dark outline-none transition-all focus:border-green-deep focus:shadow-[0_0_0_3px_rgba(74,122,74,0.1)]"
                 />
-                <span className="text-[0.72rem] text-text-light">
-                  Recibirás la confirmación aquí
-                </span>
+                {emailTouched && !emailValid && (
+                  <span className="text-[0.68rem] text-red-600">Correo inválido.</span>
+                )}
+                {!emailTouched && !telValid && (
+                  <span className="text-[0.72rem] text-text-light">Recibirás la confirmación aquí.</span>
+                )}
               </div>
               <div className="flex flex-col gap-1.5">
                 <label className="text-[0.65rem] tracking-[0.12em] uppercase text-text-light font-medium">
-                  WhatsApp *
+                  WhatsApp
                 </label>
                 <input
                   type="tel"
@@ -642,11 +658,16 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
                   maxLength={22}
                   className="text-[0.88rem] py-3 px-4 border border-green-pale rounded-xl bg-[#fff] text-text-dark outline-none transition-all focus:border-green-deep focus:shadow-[0_0_0_3px_rgba(74,122,74,0.1)]"
                 />
-                {tel.length > 0 && !normalizePhone(tel) && (
+                {telTouched && !telValid && (
                   <span className="text-[0.68rem] text-red-600">Número inválido — debe tener entre 8 y 15 dígitos, incluyendo el código de país (ej. +1, +54).</span>
                 )}
               </div>
             </div>
+            {!contactProvided && (emailTouched || telTouched) && (
+              <div className="-mt-3 mb-4 text-[0.72rem] text-red-600">
+                Completa correctamente al menos uno de los dos (correo o WhatsApp) para poder coordinar la cita.
+              </div>
+            )}
 
             <div className="flex flex-col gap-1.5 mb-5">
               <label className="text-[0.65rem] tracking-[0.12em] uppercase text-text-light font-medium">
@@ -805,8 +826,8 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
                 Tus datos
               </p>
               <ReviewRow label="Nombre" value={`${nombre} ${apellido}`} />
-              <ReviewRow label="Email" value={email} />
-              <ReviewRow label="WhatsApp" value={tel} />
+              {email && <ReviewRow label="Email" value={email} />}
+              {tel && <ReviewRow label="WhatsApp" value={tel} />}
               {pais && <ReviewRow label="Ubicación" value={pais} />}
               {metodoPago && <ReviewRow label="Método de pago" value={metodoPago} />}
             </div>
