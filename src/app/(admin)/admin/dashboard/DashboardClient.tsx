@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { logoutAction } from "@/lib/actions/auth";
 import { updateProfile, updateAuthEmail, updateAuthPassword, updateNotepad, updateNickname, updateContactInfo, upsertService, deleteService, toggleServiceActive, upsertInvoice, deleteInvoice, sendInvoiceNotification, upsertBooking, deleteBooking, updateBookingStatus, upsertPaymentMethod, deletePaymentMethod, togglePaymentMethodActive, upsertAdminLink, deleteAdminLink, updateSecurityQuestion, linkPaymentLinkToBooking, unlinkPaymentLinkFromBooking, upsertAvailabilityException, deleteAvailabilityException, updateIntegrations, updateWaTemplates, updateEmailNotifications } from '@/lib/actions/dashboard';
 import { scanGoogleEvents, importGoogleEvents, type ScannedEvent } from '@/lib/actions/google-import';
-import { getClientTime, formatInTz, combineToUtc, ADMIN_TIMEZONES } from '@/lib/utils/timezone';
+import { getClientTime, formatInTz, combineToUtc, ADMIN_TIMEZONES, LOCATION_OPTIONS } from '@/lib/utils/timezone';
 import { escapeHtml } from '@/lib/utils/escapeHtml';
 import { normalizePhone, buildWaLink } from '@/lib/utils/phone';
 import { renderTemplate, WA_TEMPLATE_EVENTS, WA_TEMPLATE_LABELS, WA_TEMPLATE_VARS } from '@/lib/utils/templates';
@@ -68,7 +68,11 @@ const I = {
 const DIAS_ES = ["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"];
 const MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 const HORAS = ["08:00","08:30","09:00","09:30","10:00","10:30","11:00","11:30","12:00","12:30","13:00","13:30","14:00","14:30","15:00","15:30","16:00","16:30","17:00","17:30","18:00","18:30","19:00"];
-const UBICACIONES = ['','Alabama','Alaska','Arizona','Arkansas','California','Colorado','Connecticut','Delaware','Florida','Georgia','Guam','Hawaii','Idaho','Illinois','Indiana','Iowa','Kansas','Kentucky','Louisiana','Maine','Maryland','Massachusetts','Michigan','Minnesota','Mississippi','Missouri','Montana','Nebraska','Nevada','New Hampshire','New Jersey','New Mexico','New York','North Carolina','North Dakota','Ohio','Oklahoma','Oregon','Pennsylvania','Puerto Rico','Rhode Island','South Carolina','South Dakota','Tennessee','Texas','U.S. Virgin Islands','Utah','Vermont','Virginia','Washington','Washington D.C.','West Virginia','Wisconsin','Wyoming','Otro'];
+// Lista de ubicaciones para los dropdowns (Nueva Cita, Editar Cita,
+// Comprobantes). Se construye a partir del catálogo centralizado en
+// timezone.ts para mantener paridad con el formulario público.
+// Orden: vacío → países → estados US → 'Otro'.
+const UBICACIONES = ['', ...LOCATION_OPTIONS.countries, ...LOCATION_OPTIONS.usStates, 'Otro'];
 const TC = {
   Individual:{bg:"#f0f5f0",text:"#2a3528",dot:"#4a7a4a"},
   Pareja:{bg:"#e8eff4",text:"#2b4a6e",dot:"#5a82b0"},
@@ -559,12 +563,17 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
     from_name:  initialSettings?.smtp_from_name  || '',
     secure:     initialSettings?.smtp_secure     || false,
   });
+  // Plantillas WhatsApp por defecto. Las referencias "hora Miami" se
+  // sustituyen por {zona}, una variable que se resuelve al render con
+  // el shortLabel de la TZ configurada para correos (email_display_tz).
+  // Así si el admin cambia su preferencia a Argentina, las plantillas
+  // dicen "hora Argentina" automáticamente sin tener que editarlas.
   const defaultWaTpls: Record<string,string> = {
     booking_received:  'Hola {cliente} 👋 Recibí tu solicitud de *{servicio}* para el {fecha} a las {hora}. Te confirmo en breve.',
-    booking_confirmed: 'Hola {cliente} ✅ Tu cita de *{servicio}* queda confirmada para el {fecha} a las {hora} (hora Miami). ¡Nos vemos!',
+    booking_confirmed: 'Hola {cliente} ✅ Tu cita de *{servicio}* queda confirmada para el {fecha} a las {hora} (hora {zona}). ¡Nos vemos!',
     payment_link:      'Hola {cliente} 💳 Aquí está tu enlace de pago para *{servicio}*: {link}. Monto: {precio} USD.',
-    reschedule:        'Hola {cliente} 🔁 Tu cita de *{servicio}* fue reprogramada para el {fecha} a las {hora}. Cualquier duda, avísame.',
-    reminder_24h:      'Hola {cliente} ⏰ Te recuerdo tu cita de *{servicio}* mañana {fecha} a las {hora} (hora Miami).',
+    reschedule:        'Hola {cliente} 🔁 Tu cita de *{servicio}* fue reprogramada para el {fecha} a las {hora} (hora {zona}). Cualquier duda, avísame.',
+    reminder_24h:      'Hola {cliente} ⏰ Te recuerdo tu cita de *{servicio}* mañana {fecha} a las {hora} (hora {zona}).',
     custom:            'Hola {cliente}, ',
   };
   const [waTpls, setWaTpls] = useState<Record<string,string>>(() => {
@@ -633,17 +642,23 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
     if (res.success) show('Preferencias de correo guardadas'); else show(res.error || 'Error al guardar');
   };
 
-  // Render a WA template with a booking's data
+  // Render a WA template with a booking's data.
+  // {zona} se resuelve al shortLabel de `email_display_tz` para
+  // coherencia: si Silvana configuró "España" en la zona de correos,
+  // las plantillas WA también dirán "hora España" por defecto.
   const buildWaMessageFor = (booking: any, event: string): string => {
     const tpl = waTpls[event] || waTpls.custom || '';
     const svcName = booking?.tipo || '';
     const svc = services.find((s:any)=>s.nombre===svcName);
     const precio = svc && !svc.is_free ? svc.precio : '';
+    const zonaTz = account.email_display_tz || 'America/New_York';
+    const zona = ADMIN_TIMEZONES.find(t => t.value === zonaTz)?.shortLabel || 'Miami';
     return renderTemplate(tpl, {
       cliente:  booking?.paciente || '',
       servicio: svcName,
       fecha:    booking?.fecha || '',
       hora:     booking?.hora || '',
+      zona,
       precio,
       link:     '',
       motivo:   booking?.motivo || '',
@@ -1626,7 +1641,10 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                     <div style={{padding:'12px 16px'}}>
                       {[
                         [I.calendar,'Fecha',selRes.fecha],
-                        [I.clock,'Hora Miami',selRes.hora+' ('+selRes.duracion+' min)'],
+                        // La hora ya viene formateada en adminTz (via formatInTz al mapear
+                        // initialBookings). Etiquetamos con el shortLabel correspondiente para
+                        // coherencia. Si el admin no cambió la preferencia, sigue siendo "Miami".
+                        [I.clock,'Hora '+(ADMIN_TIMEZONES.find(t=>t.value===adminTz)?.shortLabel || 'Miami'),selRes.hora+' ('+selRes.duracion+' min)'],
                         [I.user,'Tipo',selRes.tipo],
                         [I.mail,'Email',selRes.email||'—'],
                         [I.msg,'Tel',selRes.telefono||'—'],
@@ -1755,11 +1773,12 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                 </div>
                 {resF.pais && resF.pais !== 'Florida' && resF.pais !== 'Otro' && resF.fecha && resF.hora && (() => {
                   const localTime = getClientTime(resF.fecha, resF.hora, resF.pais);
+                  const adminZonaLabel = ADMIN_TIMEZONES.find(t=>t.value===adminTz)?.shortLabel || 'Miami';
                   return localTime ? (
                     <div style={{background:'#f0f7f0',border:'1px solid #c8dcc8',borderRadius:12,padding:'10px 14px',marginBottom:8,display:'flex',alignItems:'center',gap:10}}>
                       <span style={{fontSize:16}}>🌎</span>
                       <span style={{fontSize:13,color:'#4a7a4a'}}>
-                        Hora Miami: <strong>{resF.hora} hs</strong> — Hora {resF.pais}: <strong>{localTime} hs</strong>
+                        Hora {adminZonaLabel}: <strong>{resF.hora} hs</strong> — Hora {resF.pais}: <strong>{localTime} hs</strong>
                       </span>
                     </div>
                   ) : null;

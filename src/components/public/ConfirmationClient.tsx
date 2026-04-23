@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { escapeHtml } from '@/lib/utils/escapeHtml';
-import { getClientTime, convertTime, tzShortLabel, BASE_TZ } from '@/lib/utils/timezone';
+import { getClientTime, convertTime, tzShortLabel, BASE_TZ, getClientTimeFallback } from '@/lib/utils/timezone';
 
 const DAYS_F = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
 const MONTHS_F = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
@@ -89,6 +89,10 @@ export default function ConfirmationClient({ formTz = BASE_TZ }: Props) {
         {data.form.pais && data.form.pais !== 'Florida' && data.form.pais !== 'Otro' && data.date && data.time && (() => {
           const localT = getClientTime(data.date, data.time, data.form.pais!);
           return localT ? <Row label={`Hora ${data.form.pais}`} value={`${localT} hs`} /> : null;
+        })()}
+        {data.form.pais === 'Otro' && data.date && data.time && (() => {
+          const fb = getClientTimeFallback(data.date, data.time);
+          return fb ? <Row label={`Hora ${fb.label}`} value={`${fb.time} hs`} /> : null;
         })()}
         {data.form.pais === 'Florida' && data.time && formTzIsBase && (
           <Row label="Zona horaria" value="Miami, FL (misma zona)" />

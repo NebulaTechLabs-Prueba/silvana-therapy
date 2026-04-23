@@ -76,23 +76,74 @@ export const US_STATE_TIMEZONES: Record<string, string | null> = {
   'Otro': null,
 };
 
+/**
+ * Mapa de países (y regiones no-US) a su IANA timezone. Lo usa el
+ * formulario público para ofrecer una ubicación significativa a
+ * clientes fuera de USA. El campo `clients.country` guarda este
+ * label tal cual; no hay migración necesaria porque es TEXT libre.
+ */
+export const INTL_COUNTRY_TIMEZONES: Record<string, string> = {
+  'Argentina':         'America/Argentina/Buenos_Aires',
+  'España':            'Europe/Madrid',
+  'México':            'America/Mexico_City',
+  'Colombia':          'America/Bogota',
+  'Perú':              'America/Lima',
+  'Chile':             'America/Santiago',
+  'Venezuela':         'America/Caracas',
+  'Ecuador':           'America/Guayaquil',
+  'Bolivia':           'America/La_Paz',
+  'Uruguay':           'America/Montevideo',
+  'Paraguay':          'America/Asuncion',
+  'Brasil':            'America/Sao_Paulo',
+  'República Dominicana': 'America/Santo_Domingo',
+  'Costa Rica':        'America/Costa_Rica',
+  'Panamá':            'America/Panama',
+  'Guatemala':         'America/Guatemala',
+  'Honduras':          'America/Tegucigalpa',
+  'El Salvador':       'America/El_Salvador',
+  'Nicaragua':         'America/Managua',
+  'Cuba':              'America/Havana',
+};
+
+/**
+ * Unión de estados US + países. Este es el mapa completo que debe
+ * usarse para convertir ubicación → IANA TZ en el resto del sistema.
+ */
+export const LOCATION_TIMEZONES: Record<string, string | null> = {
+  ...US_STATE_TIMEZONES,
+  ...INTL_COUNTRY_TIMEZONES,
+};
+
+/**
+ * Opciones estructuradas para renderizar el dropdown con <optgroup>.
+ * Separa países (más relevantes para clientes internacionales) de
+ * estados US. 'Otro' queda al final como fallback.
+ */
+export const LOCATION_OPTIONS = {
+  countries: Object.keys(INTL_COUNTRY_TIMEZONES),
+  usStates: Object.keys(US_STATE_TIMEZONES).filter(k => k !== 'Otro'),
+  fallback: 'Otro',
+} as const;
+
 /** Keep backward compatibility — maps old country names to timezone */
 export const COUNTRY_TIMEZONES = US_STATE_TIMEZONES;
 
 /**
- * Convert a time from base timezone (Eastern) to a target state's timezone.
+ * Convert a time from base timezone (Eastern) to a target location's
+ * timezone. La ubicación puede ser un estado US o un país (ver
+ * LOCATION_TIMEZONES).
  *
  * @param date  ISO date string YYYY-MM-DD (needed for DST accuracy)
  * @param time  HH:MM in Eastern time
- * @param state  State name matching US_STATE_TIMEZONES keys
+ * @param location  State name o país en LOCATION_TIMEZONES
  * @returns HH:MM in the target timezone, or null if no conversion possible
  */
 export function getClientTime(
   date: string,
   time: string,
-  state: string,
+  location: string,
 ): string | null {
-  const targetTz = US_STATE_TIMEZONES[state];
+  const targetTz = LOCATION_TIMEZONES[location];
   if (!targetTz || targetTz === BASE_TZ) return null;
 
   return convertTime(date, time, BASE_TZ, targetTz);
@@ -169,6 +220,49 @@ export const ADMIN_TIMEZONES: AdminTzOption[] = [
  */
 export function tzShortLabel(tz: string): string {
   return ADMIN_TIMEZONES.find(t => t.value === tz)?.shortLabel || tz;
+}
+
+/**
+ * Intenta detectar la TZ del navegador del visitante. Útil como
+ * fallback cuando el visitante pica "Otro" en el dropdown de ubicación:
+ * al menos le mostramos SU hora aproximada sin obligarlo a saber su
+ * UTC offset. Retorna null si la API no está disponible (SSR, navegador
+ * antiguo) o si el TZ detectado no es un IANA válido.
+ */
+export function detectBrowserTz(): string | null {
+  if (typeof Intl === 'undefined' || typeof Intl.DateTimeFormat === 'undefined') return null;
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return tz && /\//.test(tz) ? tz : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fallback para cuando el visitante pica "Otro" y no sabemos su TZ.
+ * Retorna la hora en la TZ del navegador si está disponible, o en UTC
+ * como último recurso. Siempre retorna un objeto con label legible
+ * ("Europe/Madrid" → "España" vía shortLabel; otro IANA → "UTC").
+ */
+export function getClientTimeFallback(
+  date: string,
+  time: string,
+): { time: string; label: string; tz: string } | null {
+  const browserTz = detectBrowserTz();
+  if (browserTz && browserTz !== BASE_TZ) {
+    try {
+      const converted = convertTime(date, time, BASE_TZ, browserTz);
+      return { time: converted, label: tzShortLabel(browserTz), tz: browserTz };
+    } catch { /* falls through to UTC */ }
+  }
+  if (browserTz === BASE_TZ) return null; // browser está en Miami → no hay conversión útil
+  try {
+    const converted = convertTime(date, time, BASE_TZ, 'UTC');
+    return { time: converted, label: 'UTC', tz: 'UTC' };
+  } catch {
+    return null;
+  }
 }
 
 /**

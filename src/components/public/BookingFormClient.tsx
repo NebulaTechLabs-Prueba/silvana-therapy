@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { getClientTime, convertTime, tzShortLabel, BASE_TZ } from '@/lib/utils/timezone';
+import { getClientTime, convertTime, tzShortLabel, BASE_TZ, LOCATION_OPTIONS, getClientTimeFallback } from '@/lib/utils/timezone';
 import { sanitizeName, sanitizePhoneInput, isValidName, isValidEmail } from '@/lib/utils/sanitize';
 import { normalizePhone } from '@/lib/utils/phone';
 
@@ -58,7 +58,12 @@ function isDayEnabled(dayOfWeek: number, wh: WorkingHoursMap | null): boolean {
   return schedule[key]?.enabled ?? false;
 }
 
-const US_STATES = ['Alabama','Alaska','Arizona','Arkansas','California','Colorado','Connecticut','Delaware','Florida','Georgia','Guam','Hawaii','Idaho','Illinois','Indiana','Iowa','Kansas','Kentucky','Louisiana','Maine','Maryland','Massachusetts','Michigan','Minnesota','Mississippi','Missouri','Montana','Nebraska','Nevada','New Hampshire','New Jersey','New Mexico','New York','North Carolina','North Dakota','Ohio','Oklahoma','Oregon','Pennsylvania','Puerto Rico','Rhode Island','South Carolina','South Dakota','Tennessee','Texas','U.S. Virgin Islands','Utah','Vermont','Virginia','Washington','Washington D.C.','West Virginia','Wisconsin','Wyoming','Otro'];
+// Las opciones del dropdown vienen del catálogo centralizado en
+// timezone.ts. Se agrupan en <optgroup> para que clientes de LATAM y
+// España encuentren su país rápido sin perderse entre los 50+ estados
+// US. 'Otro' como fallback final.
+const LOCATION_COUNTRIES = LOCATION_OPTIONS.countries;
+const LOCATION_US_STATES = LOCATION_OPTIONS.usStates;
 
 type PaymentMethodInfo = { nombre: string; recargoPct: number };
 type BookedSlot = { date: string; time: string; duration: number };
@@ -431,6 +436,10 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
             const localT = getClientTime(selDate, selTime, pais);
             return localT ? <SumRow label={`Hora ${pais}`} value={`${localT} hs`} /> : null;
           })()}
+          {selTime && pais === 'Otro' && selDate && (() => {
+            const fb = getClientTimeFallback(selDate, selTime);
+            return fb ? <SumRow label={`Hora ${fb.label}`} value={`${fb.time} hs`} /> : null;
+          })()}
           {hasSur && (
             <>
               <SumRow label="Subtotal" value={svcPrice} />
@@ -678,23 +687,47 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
                 onChange={e => setPais(e.target.value)}
                 className="text-[0.88rem] py-3 px-4 border border-green-pale rounded-xl bg-[#fff] text-text-dark outline-none transition-all focus:border-green-deep focus:shadow-[0_0_0_3px_rgba(74,122,74,0.1)] cursor-pointer"
               >
-                <option value="">Selecciona tu estado</option>
-                {US_STATES.map(c => <option key={c} value={c}>{c}</option>)}
+                <option value="">Selecciona tu país o estado</option>
+                <optgroup label="Países">
+                  {LOCATION_COUNTRIES.map(c => <option key={c} value={c}>{c}</option>)}
+                </optgroup>
+                <optgroup label="Estados de Estados Unidos">
+                  {LOCATION_US_STATES.map(s => <option key={s} value={s}>{s}</option>)}
+                </optgroup>
+                <option value="Otro">Otro / no listado</option>
               </select>
               {selTime && pais && (() => {
                 const formDisplay = toFormTz(selDate, selTime);
                 const localT = pais !== 'Florida' && pais !== 'Otro' && selDate
                   ? getClientTime(selDate, selTime, pais)
                   : null;
-                return localT ? (
-                  <span className="text-[0.72rem] text-green-deep">
-                    {formDisplay} hs hora {formTzLabel} — {localT} hs hora {pais}
-                  </span>
-                ) : selTime && pais === 'Florida' ? (
-                  <span className="text-[0.72rem] text-text-light">
-                    {formDisplay} hs hora {formTzLabel}{formTzIsBase ? ' (misma zona horaria)' : ''}
-                  </span>
-                ) : null;
+                // Si el visitante picó "Otro" usamos fallback del browser
+                // (→ su hora local) o UTC. Así no lo dejamos sin referencia.
+                const fallback = pais === 'Otro' && selDate && selTime
+                  ? getClientTimeFallback(selDate, selTime)
+                  : null;
+                if (localT) {
+                  return (
+                    <span className="text-[0.72rem] text-green-deep">
+                      {formDisplay} hs hora {formTzLabel} — {localT} hs hora {pais}
+                    </span>
+                  );
+                }
+                if (pais === 'Florida') {
+                  return (
+                    <span className="text-[0.72rem] text-text-light">
+                      {formDisplay} hs hora {formTzLabel}{formTzIsBase ? ' (misma zona horaria)' : ''}
+                    </span>
+                  );
+                }
+                if (fallback) {
+                  return (
+                    <span className="text-[0.72rem] text-green-deep">
+                      {formDisplay} hs hora {formTzLabel} — {fallback.time} hs {fallback.label}
+                    </span>
+                  );
+                }
+                return null;
               })()}
             </div>
 
@@ -797,9 +830,13 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
                 const localT = pais && pais !== 'Florida' && pais !== 'Otro' && selDate
                   ? getClientTime(selDate, selTime, pais)
                   : null;
+                const fb = pais === 'Otro' && selDate
+                  ? getClientTimeFallback(selDate, selTime)
+                  : null;
                 return (<>
                   <ReviewRow label={`Hora ${formTzLabel}`} value={`${formDisplay} hs`} />
                   {localT && <ReviewRow label={`Hora ${pais}`} value={`${localT} hs`} />}
+                  {fb && <ReviewRow label={`Hora ${fb.label}`} value={`${fb.time} hs`} />}
                 </>);
               })()}
               <ReviewRow label="Duración" value={`${svcDuration} min`} />
