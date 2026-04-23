@@ -1021,6 +1021,11 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
 
   return (
     <div style={{display:'flex',minHeight:'100vh',fontFamily:"'DM Sans',sans-serif",background:darkMode?'#141414':'#fdfcfa',color:darkMode?'#e0e0e0':'#2a3528',transition:'background .3s, color .3s'}}>
+      {/* Backdrop para cerrar sidebar en móvil/tablet al click fuera */}
+      {sidebarOpen && (
+        <div className="psb-backdrop open" onClick={()=>setSidebarOpen(false)} aria-hidden="true" />
+      )}
+
       {/* SIDEBAR — Silvana brand */}
       <aside className={'psb' + (sidebarOpen ? ' open' : '')} style={{width:248,background:'#2a3528',color:'#c8ddc8',display:'flex',flexDirection:'column',position:'fixed',top:0,left:0,bottom:0,zIndex:900,transition:'transform .3s'}}>
         <div style={{padding:'22px 20px 16px',borderBottom:'1px solid rgba(200,221,200,.12)'}}>
@@ -1049,16 +1054,25 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
 
       {/* MAIN */}
       <main className="pmc" style={{flex:1,marginLeft:248,minHeight:'100vh',background:bgMain,transition:'background .3s'}}>
-        <header style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 28px',borderBottom:'1px solid '+borderC,background:dm?'rgba(20,20,20,.95)':'rgba(253,252,250,.95)',backdropFilter:'blur(8px)',position:'sticky',top:0,zIndex:100}}>
-          <div style={{display:'flex',alignItems:'center',gap:14}}>
-            <button className="pmb" onClick={()=>setSidebarOpen(!sidebarOpen)} style={{display:'none',border:'none',background:'none',cursor:'pointer',color:txSub,alignItems:'center',justifyContent:'center'}}>{I.menu}</button>
-            <h1 style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:20,margin:0,color:txMain,fontWeight:400}}>{navItems.find(n=>n.key===section)?.label}</h1>
+        <header className="pmc-header" style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,padding:'12px 28px',borderBottom:'1px solid '+borderC,background:dm?'rgba(20,20,20,.95)':'rgba(253,252,250,.95)',backdropFilter:'blur(8px)',position:'sticky',top:0,zIndex:100}}>
+          <div style={{display:'flex',alignItems:'center',gap:12,minWidth:0}}>
+            {/* Hamburguesa: CSS la muestra en viewports < 1024px.
+                Padding/size aumentado un toque para ser táctil-friendly
+                sin ocupar demasiado en desktop (donde está oculta). */}
+            <button
+              className="pmb"
+              aria-label={sidebarOpen ? 'Cerrar menú' : 'Abrir menú'}
+              aria-expanded={sidebarOpen}
+              onClick={()=>setSidebarOpen(!sidebarOpen)}
+              style={{display:'none',border:'none',background:'none',cursor:'pointer',color:txSub,alignItems:'center',justifyContent:'center',padding:6,borderRadius:8}}
+            >{I.menu}</button>
+            <h1 style={{fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:'clamp(16px, 2.2vw, 20px)',margin:0,color:txMain,fontWeight:400,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{navItems.find(n=>n.key===section)?.label}</h1>
           </div>
-          <div style={{display:'flex',alignItems:'center',gap:10}}>
+          <div style={{display:'flex',alignItems:'center',gap:10,flexShrink:0}}>
           </div>
         </header>
 
-        <div style={{padding:'22px 28px 40px',maxWidth:1180}}>
+        <div className="pmc-content" style={{padding:'22px 28px 40px',maxWidth:1180}}>
 
           {/* INICIO */}
           {section === 'inicio' && (

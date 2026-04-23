@@ -68,9 +68,33 @@ input:focus, select:focus, textarea:focus {
 }
 ::-webkit-scrollbar { width: 5px }
 ::-webkit-scrollbar-thumb { background: #c8ddc8; border-radius: 6px }
-@media (max-width: 860px) {
+/* ─── Dashboard admin responsive ─── */
+/* Antes el breakpoint era 860px; subido a 1024px (tablet landscape) porque
+   Silvana trabaja mayormente desde su Samsung A15 y también desde laptop
+   13" — ambas caen por debajo de ese umbral. En desktop verdadero (≥ 1024)
+   el sidebar sigue visible en su ancho completo. */
+@media (max-width: 1023px) {
   .psb { transform: translateX(-100%) !important; position: fixed !important; z-index: 900 }
   .psb.open { transform: translateX(0) !important }
   .pmc { margin-left: 0 !important }
   .pmb { display: flex !important }
+  /* Backdrop sólo aparece cuando .psb-backdrop.open existe en DOM;
+     oscurece el contenido y permite cerrar con click fuera. */
+  .psb-backdrop { display: none }
+  .psb-backdrop.open { display: block }
+  /* Padding más compacto del contenido principal en móvil/tablet */
+  .pmc-content { padding: 14px 14px 32px !important }
+  .pmc-header { padding: 10px 14px !important }
+}
+@media (max-width: 639px) {
+  /* En teléfonos: padding aún más pequeño y header más bajo */
+  .pmc-content { padding: 12px 10px 28px !important }
+  .pmc-header { padding: 8px 12px !important }
+}
+.psb-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 25, 20, .45);
+  z-index: 850;
+  animation: fadeIn .2s ease;
 }
