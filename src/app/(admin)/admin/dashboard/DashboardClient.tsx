@@ -102,14 +102,18 @@ function absUrl(url) { if (!url) return ''; return /^https?:\/\//i.test(url) ? u
 /* ═══ REUSABLE ═══ */
 function Modal({open,onClose,title,children,width=520,dark=false,zIndex=1000}){
   if(!open) return null;
+  // En < md (≈ teléfonos) el modal pasa a full-screen: mejor aprovechamiento
+  // del espacio y evita modales diminutos con scroll casi obligatorio.
+  // La CSS clase `mdl-box` + media queries hacen el switch sin recalcular
+  // en JS cada resize.
   return(
-    <div style={{position:'fixed',inset:0,zIndex,background:'rgba(42,53,40,.45)',backdropFilter:'blur(4px)',display:'flex',alignItems:'center',justifyContent:'center',animation:'fadeIn .18s'}} onClick={onClose}>
-      <div onClick={e=>e.stopPropagation()} style={{background:dark?'#1e1e1e':'#fdfcfa',borderRadius:16,width:'92%',maxWidth:width,maxHeight:'88vh',overflow:'auto',boxShadow:'0 20px 60px rgba(42,53,40,.25)',animation:'slideUp .22s',border:dark?'1px solid #333':'1px solid #e2ede2'}}>
-        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'18px 22px 12px',borderBottom:dark?'1px solid #333':'1px solid #e2ede2'}}>
+    <div className="mdl-backdrop" style={{position:'fixed',inset:0,zIndex,background:'rgba(42,53,40,.45)',backdropFilter:'blur(4px)',display:'flex',alignItems:'center',justifyContent:'center',animation:'fadeIn .18s'}} onClick={onClose}>
+      <div className="mdl-box" onClick={e=>e.stopPropagation()} style={{background:dark?'#1e1e1e':'#fdfcfa',borderRadius:16,width:'92%',maxWidth:width,maxHeight:'88vh',overflow:'auto',boxShadow:'0 20px 60px rgba(42,53,40,.25)',animation:'slideUp .22s',border:dark?'1px solid #333':'1px solid #e2ede2'}}>
+        <div className="mdl-header" style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'18px 22px 12px',borderBottom:dark?'1px solid #333':'1px solid #e2ede2',position:'sticky',top:0,background:dark?'#1e1e1e':'#fdfcfa',zIndex:1}}>
           <h3 style={{margin:0,fontFamily:"'Cormorant Garamond',Georgia,serif",fontSize:19,color:dark?'#e0e0e0':'#2a3528'}}>{title}</h3>
-          <button onClick={onClose} style={{border:'none',background:dark?'#2a2a2a':'#f0f5f0',borderRadius:9,width:32,height:32,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#849884'}}>{I.close}</button>
+          <button onClick={onClose} aria-label="Cerrar" style={{border:'none',background:dark?'#2a2a2a':'#f0f5f0',borderRadius:9,width:32,height:32,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#849884',flexShrink:0}}>{I.close}</button>
         </div>
-        <div style={{padding:'16px 22px 22px'}}>{children}</div>
+        <div className="mdl-body" style={{padding:'16px 22px 22px'}}>{children}</div>
       </div>
     </div>
   );
@@ -1979,19 +1983,19 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                       }
                     };
                     return (
-                      <div key={key} style={{display:'flex',alignItems:'flex-start',gap:12,padding:'12px 14px',borderBottom:'1px solid #e2ede2',background:day.enabled?'transparent':'#f8f8f6'}}>
+                      <div key={key} className="avail-day-row" style={{display:'flex',alignItems:'flex-start',gap:12,padding:'12px 14px',borderBottom:'1px solid #e2ede2',background:day.enabled?'transparent':'#f8f8f6'}}>
                         <button onClick={toggleEnabled} style={{marginTop:3,width:34,height:18,borderRadius:9,border:'none',background:day.enabled?'#4a7a4a':'#c8ddc8',cursor:'pointer',position:'relative',flexShrink:0}}>
                           <div style={{width:12,height:12,borderRadius:'50%',background:'#fff',position:'absolute',top:3,left:day.enabled?19:3,transition:'left .3s',boxShadow:'0 1px 2px rgba(0,0,0,.15)'}}/>
                         </button>
-                        <span style={{width:90,fontSize:13,fontWeight:500,color:day.enabled?'#2a3528':'#849884',marginTop:5}}>{DAY_LABELS_ES[key]}</span>
+                        <span style={{width:90,fontSize:13,fontWeight:500,color:day.enabled?'#2a3528':'#849884',marginTop:5,flexShrink:0}}>{DAY_LABELS_ES[key]}</span>
                         {day.enabled ? (
-                          <div style={{flex:1,display:'flex',flexDirection:'column',gap:6}}>
+                          <div className="avail-day-ranges" style={{flex:1,display:'flex',flexDirection:'column',gap:6,minWidth:0}}>
                             {(day.ranges||[]).map((r,idx) => (
-                              <div key={idx} style={{display:'flex',alignItems:'center',gap:6}}>
-                                <input type="time" style={{...inp,padding:'5px 8px',fontSize:12,width:100,marginBottom:0}} value={r.start} onChange={e=>updateRange(idx,'start',e.target.value)}/>
+                              <div key={idx} style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
+                                <input type="time" style={{...inp,padding:'5px 8px',fontSize:12,width:110,marginBottom:0}} value={r.start} onChange={e=>updateRange(idx,'start',e.target.value)}/>
                                 <span style={{fontSize:11,color:'#849884'}}>a</span>
-                                <input type="time" style={{...inp,padding:'5px 8px',fontSize:12,width:100,marginBottom:0}} value={r.end} onChange={e=>updateRange(idx,'end',e.target.value)}/>
-                                <button onClick={()=>removeRange(idx)} style={{border:'none',background:'#FFEBEE',borderRadius:6,width:26,height:26,cursor:'pointer',color:'#C62828',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14}}>×</button>
+                                <input type="time" style={{...inp,padding:'5px 8px',fontSize:12,width:110,marginBottom:0}} value={r.end} onChange={e=>updateRange(idx,'end',e.target.value)}/>
+                                <button onClick={()=>removeRange(idx)} aria-label="Eliminar rango" style={{border:'none',background:'#FFEBEE',borderRadius:6,width:26,height:26,cursor:'pointer',color:'#C62828',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,flexShrink:0}}>×</button>
                               </div>
                             ))}
                             {(day.ranges||[]).length < 3 && (

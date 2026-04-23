@@ -122,3 +122,32 @@ input:focus, select:focus, textarea:focus {
 @media (max-width: 767px) {
   .hide-on-mobile { display: none !important; }
 }
+
+/* ─── Modales full-screen en móvil ─── */
+/* En pantallas pequeñas los modales diminutos con scroll interno son
+   frustrantes (se ve medio modal arriba, las acciones siempre escondidas).
+   Debajo de md los modales del dashboard pasan a full-screen: cubren
+   todo el viewport y scrollean nativamente con el body. */
+@media (max-width: 767px) {
+  .mdl-backdrop { align-items: stretch !important; justify-content: stretch !important; }
+  .mdl-box {
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: 100vh !important;
+    border-radius: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+    animation: fadeIn .18s !important;
+  }
+  .mdl-header { padding: 14px 16px 10px !important; }
+  .mdl-body { padding: 14px 16px 22px !important; }
+}
+
+/* ─── Grids de Disponibilidad (rangos horarios) ─── */
+/* Cada día del horario laboral tiene el patrón [toggle] [label] [inputs]
+   [acciones], layout horizontal. En < sm los elementos se estrujan. Esta
+   clase fuerza wrap + que los inputs ocupen ancho completo. */
+@media (max-width: 639px) {
+  .avail-day-row { flex-wrap: wrap !important; }
+  .avail-day-row .avail-day-ranges { width: 100%; }
+}
