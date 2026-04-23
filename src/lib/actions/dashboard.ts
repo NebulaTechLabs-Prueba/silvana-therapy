@@ -40,6 +40,8 @@ export async function updateProfile(raw: {
   direccion: string;
   bio: string;
   timezone?: string;
+  email_display_tz?: string;
+  form_display_tz?: string;
   working_hours?: Record<string, { enabled: boolean; ranges: { start: string; end: string }[] }>;
 }) {
   const parsed = updateProfileSchema.safeParse(raw);
@@ -60,6 +62,12 @@ export async function updateProfile(raw: {
   }
   if (data.timezone) {
     update.admin_timezone = data.timezone;
+  }
+  if (data.email_display_tz) {
+    update.email_display_tz = data.email_display_tz;
+  }
+  if (data.form_display_tz) {
+    update.form_display_tz = data.form_display_tz;
   }
   const { error } = await supabase
     .from('admin_settings')

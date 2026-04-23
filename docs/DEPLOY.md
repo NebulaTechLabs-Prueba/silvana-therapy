@@ -166,6 +166,7 @@ Se hace en este orden (DB primero, código después) para evitar errores 500 por
 | `001_baseline.sql` | Schema base consolidado (enums, tablas, RLS, triggers, seed de `admin_settings`) |
 | `002_imported_service.sql` | Añade columna `services.is_internal` y seed del servicio "Importado de Google Calendar" (placeholder para eventos importados desde Google Calendar cuyo servicio original se desconoce; oculto en `/services` y `/booking`) |
 | `003_admin_timezone.sql` | Añade columna `admin_settings.admin_timezone` + CHECK con lista de TZs IANA permitidas. Permite que Silvana opere el panel en su zona (ej. Argentina/Mendoza) mientras el negocio sigue siendo Miami. Default `America/New_York` preserva comportamiento previo |
+| `004_display_timezones.sql` | Añade `admin_settings.email_display_tz` y `form_display_tz` (mismo set de TZs permitidas). Una controla la zona mostrada en correos al paciente, la otra en el formulario público. Extiende `get_public_contact()` RPC para exponer `form_display_tz` al form público. Default de ambas `America/New_York` |
 
 ---
 

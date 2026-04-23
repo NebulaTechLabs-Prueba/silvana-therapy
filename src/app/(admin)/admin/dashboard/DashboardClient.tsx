@@ -242,6 +242,8 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
     direccion: initialSettings?.direccion || 'Consulta Online',
     bio: initialSettings?.bio || 'Licenciada en Psicología, especialista en psicoterapia online. Acompaño procesos de bienestar emocional desde un enfoque cálido y personalizado.',
     timezone: initialSettings?.admin_timezone || 'America/New_York',
+    email_display_tz: initialSettings?.email_display_tz || 'America/New_York',
+    form_display_tz: initialSettings?.form_display_tz || 'America/New_York',
   });
   // Multi-range working_hours: { day: {enabled, ranges: [{start,end}]} } máx 3 por día
   const DAY_KEYS = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'];
@@ -1092,7 +1094,9 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                     ['Teléfono',account.telefono],
                     ['Dirección',account.direccion],
                     ['Cédula',account.cedula],
-                    ['Zona horaria', ADMIN_TIMEZONES.find(t => t.value === account.timezone)?.label || account.timezone],
+                    ['Zona horaria del panel', ADMIN_TIMEZONES.find(t => t.value === account.timezone)?.label || account.timezone],
+                    ['Zona mostrada en correos', ADMIN_TIMEZONES.find(t => t.value === account.email_display_tz)?.label || account.email_display_tz],
+                    ['Zona mostrada en formulario', ADMIN_TIMEZONES.find(t => t.value === account.form_display_tz)?.label || account.form_display_tz],
                   ].map(([l,v],i) => (
                     <div key={i}><div style={{fontSize:10,color:'#849884',fontWeight:500,textTransform:'uppercase',letterSpacing:'.5px',marginBottom:2}}>{l}</div><div style={{fontSize:14,fontWeight:400}}>{v}</div></div>
                   ))}
@@ -1150,12 +1154,27 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                 </div>
                 <Field label="Dirección"><input style={inp} value={accF.direccion} onChange={e=>setAccF({...accF,direccion:e.target.value})}/></Field>
                 <Field label="Biografía"><textarea style={{...inp,minHeight:70,resize:'vertical'}} value={accF.bio} onChange={e=>setAccF({...accF,bio:e.target.value})}/></Field>
-                <Field label="Zona horaria del panel">
-                  <select style={sel} value={accF.timezone || 'America/New_York'} onChange={e=>setAccF({...accF,timezone:e.target.value})}>
-                    {ADMIN_TIMEZONES.map(tz => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
-                  </select>
-                  <p style={{fontSize:11,color:'#849884',margin:'4px 0 0',fontStyle:'italic'}}>Horas que teclees en citas y datos importados se interpretan en esta zona. Los correos al paciente siempre usan la zona del paciente y Miami como referencia, sin importar esta elección.</p>
-                </Field>
+                <div style={{background:'#f0f5f0',border:'1px solid #c8ddc8',borderRadius:10,padding:'12px 14px',marginBottom:10}}>
+                  <div style={{fontSize:11,color:'#4a7a4a',fontWeight:500,textTransform:'uppercase',letterSpacing:'.4px',marginBottom:8}}>Zonas horarias</div>
+                  <Field label="Panel administrativo (la que usted ve)">
+                    <select style={sel} value={accF.timezone || 'America/New_York'} onChange={e=>setAccF({...accF,timezone:e.target.value})}>
+                      {ADMIN_TIMEZONES.map(tz => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
+                    </select>
+                    <p style={{fontSize:11,color:'#849884',margin:'4px 0 0',fontStyle:'italic'}}>Las horas que teclee en citas y las importadas de Google Calendar se interpretan en esta zona.</p>
+                  </Field>
+                  <Field label="Mostrada en correos al paciente">
+                    <select style={sel} value={accF.email_display_tz || 'America/New_York'} onChange={e=>setAccF({...accF,email_display_tz:e.target.value})}>
+                      {ADMIN_TIMEZONES.map(tz => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
+                    </select>
+                    <p style={{fontSize:11,color:'#849884',margin:'4px 0 0',fontStyle:'italic'}}>Zona que aparece en los correos automáticos. Si el paciente tiene una zona distinta (por estado US), se mostrará también como referencia.</p>
+                  </Field>
+                  <Field label="Mostrada en el formulario público">
+                    <select style={sel} value={accF.form_display_tz || 'America/New_York'} onChange={e=>setAccF({...accF,form_display_tz:e.target.value})}>
+                      {ADMIN_TIMEZONES.map(tz => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
+                    </select>
+                    <p style={{fontSize:11,color:'#849884',margin:'4px 0 0',fontStyle:'italic'}}>Zona que el visitante ve al reservar. Internamente los horarios siguen en la zona del negocio; esta preferencia solo controla qué etiqueta aparece y cómo se convierten las horas en pantalla.</p>
+                  </Field>
+                </div>
                 <div style={{background:'#f0f5f0',border:'1px solid #c8ddc8',borderRadius:10,padding:'10px 14px',fontSize:12,color:'#4a7a4a',marginBottom:8}}>
                   El horario laboral y las excepciones se gestionan ahora en <strong>Disponibilidad</strong>.
                 </div>
@@ -1163,7 +1182,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                   <button onClick={()=>setEditAcc(false)} style={btnS}>Cancelar</button>
                   <button onClick={async ()=>{
                     setAccount({...accF});setEditAcc(false);show('Cuenta actualizada. Recarga para ver las horas en la nueva zona.');
-                    try{await updateProfile({...accF, timezone: accF.timezone, working_hours: workingHours})}catch(e){show('Error al guardar cuenta')}
+                    try{await updateProfile({...accF, timezone: accF.timezone, email_display_tz: accF.email_display_tz, form_display_tz: accF.form_display_tz, working_hours: workingHours})}catch(e){show('Error al guardar cuenta')}
                   }} style={btnP}>{I.check} Guardar</button>
                 </div>
               </Modal>

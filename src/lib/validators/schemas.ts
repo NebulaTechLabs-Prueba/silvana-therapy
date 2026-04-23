@@ -128,6 +128,8 @@ export const updateProfileSchema = z.object({
   direccion: z.string().max(300),
   bio: z.string().max(2000),
   timezone: z.enum(ADMIN_TZ_VALUES).optional(),
+  email_display_tz: z.enum(ADMIN_TZ_VALUES).optional(),
+  form_display_tz: z.enum(ADMIN_TZ_VALUES).optional(),
   working_hours: z.record(z.object({
     enabled: z.boolean(),
     ranges: z.array(z.object({

@@ -137,30 +137,39 @@ export function convertTime(
 // en supabase/migrations/003_admin_timezone.sql.
 
 export interface AdminTzOption {
-  value: string;  // IANA TZ
-  label: string;  // Etiqueta para el dropdown
+  value: string;       // IANA TZ
+  label: string;       // Etiqueta completa para el dropdown
+  shortLabel: string;  // Etiqueta corta para correos y formulario (ej. "hora Miami")
 }
 
 export const ADMIN_TIMEZONES: AdminTzOption[] = [
-  { value: 'America/New_York',               label: 'Miami / Nueva York (EST/EDT)' },
-  { value: 'America/Chicago',                label: 'Centro EE.UU. (CST/CDT)' },
-  { value: 'America/Denver',                 label: 'Montaña EE.UU. (MST/MDT)' },
-  { value: 'America/Los_Angeles',            label: 'Pacífico EE.UU. (PST/PDT)' },
-  { value: 'America/Argentina/Mendoza',      label: 'Argentina — Mendoza' },
-  { value: 'America/Argentina/Buenos_Aires', label: 'Argentina — Buenos Aires' },
-  { value: 'America/Argentina/Cordoba',      label: 'Argentina — Córdoba' },
-  { value: 'America/Mexico_City',            label: 'México' },
-  { value: 'America/Bogota',                 label: 'Colombia' },
-  { value: 'America/Lima',                   label: 'Perú' },
-  { value: 'America/Santiago',               label: 'Chile' },
-  { value: 'America/Caracas',                label: 'Venezuela' },
-  { value: 'America/Guayaquil',              label: 'Ecuador' },
-  { value: 'America/La_Paz',                 label: 'Bolivia' },
-  { value: 'America/Asuncion',               label: 'Paraguay' },
-  { value: 'America/Montevideo',             label: 'Uruguay' },
-  { value: 'America/Sao_Paulo',              label: 'Brasil' },
-  { value: 'Europe/Madrid',                  label: 'España' },
+  { value: 'America/New_York',               label: 'Miami / Nueva York (EST/EDT)',   shortLabel: 'Miami' },
+  { value: 'America/Chicago',                label: 'Centro EE.UU. (CST/CDT)',         shortLabel: 'Centro EE.UU.' },
+  { value: 'America/Denver',                 label: 'Montaña EE.UU. (MST/MDT)',        shortLabel: 'Montaña EE.UU.' },
+  { value: 'America/Los_Angeles',            label: 'Pacífico EE.UU. (PST/PDT)',       shortLabel: 'Pacífico EE.UU.' },
+  { value: 'America/Argentina/Mendoza',      label: 'Argentina — Mendoza',              shortLabel: 'Argentina' },
+  { value: 'America/Argentina/Buenos_Aires', label: 'Argentina — Buenos Aires',         shortLabel: 'Argentina' },
+  { value: 'America/Argentina/Cordoba',      label: 'Argentina — Córdoba',              shortLabel: 'Argentina' },
+  { value: 'America/Mexico_City',            label: 'México',                           shortLabel: 'México' },
+  { value: 'America/Bogota',                 label: 'Colombia',                         shortLabel: 'Colombia' },
+  { value: 'America/Lima',                   label: 'Perú',                             shortLabel: 'Perú' },
+  { value: 'America/Santiago',               label: 'Chile',                            shortLabel: 'Chile' },
+  { value: 'America/Caracas',                label: 'Venezuela',                        shortLabel: 'Venezuela' },
+  { value: 'America/Guayaquil',              label: 'Ecuador',                          shortLabel: 'Ecuador' },
+  { value: 'America/La_Paz',                 label: 'Bolivia',                          shortLabel: 'Bolivia' },
+  { value: 'America/Asuncion',               label: 'Paraguay',                         shortLabel: 'Paraguay' },
+  { value: 'America/Montevideo',             label: 'Uruguay',                          shortLabel: 'Uruguay' },
+  { value: 'America/Sao_Paulo',              label: 'Brasil',                           shortLabel: 'Brasil' },
+  { value: 'Europe/Madrid',                  label: 'España',                           shortLabel: 'España' },
 ];
+
+/**
+ * Devuelve el shortLabel de una TZ (útil para etiquetas en emails/form).
+ * Si la TZ no está en la lista, devuelve la propia TZ como fallback.
+ */
+export function tzShortLabel(tz: string): string {
+  return ADMIN_TIMEZONES.find(t => t.value === tz)?.shortLabel || tz;
+}
 
 /**
  * Format a UTC timestamp (ISO string or Date) into wall-clock date + time

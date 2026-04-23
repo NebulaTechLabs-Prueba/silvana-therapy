@@ -216,7 +216,8 @@ El schema vive en un **único baseline**: [`supabase/migrations/001_baseline.sql
 | Archivo | Propósito |
 |---|---|
 | `002_imported_service.sql` | Añade `services.is_internal` (bool) para marcar servicios que no deben aparecer en páginas públicas, y semilla el servicio "Importado de Google Calendar" usado como placeholder por el import de eventos desde Google Calendar cuando el servicio original se desconoce. |
-| `003_admin_timezone.sql` | Añade `admin_settings.admin_timezone` (TEXT, default `America/New_York`) con CHECK constraint sobre lista de IANA TZs permitidas. Silvana elige la zona en Mi Cuenta; el panel lee/escribe fechas de booking en esa zona. Los emails al cliente siguen usando TZ del cliente + Miami como referencia, independiente de esta preferencia. |
+| `003_admin_timezone.sql` | Añade `admin_settings.admin_timezone` (TEXT, default `America/New_York`) con CHECK constraint sobre lista de IANA TZs permitidas. Silvana elige la zona en Mi Cuenta; el panel lee/escribe fechas de booking en esa zona. |
+| `004_display_timezones.sql` | Añade `admin_settings.email_display_tz` y `form_display_tz` (mismo set de TZs permitidas). `email_display_tz` controla la zona mostrada como referencia en los correos automáticos al paciente (default `America/New_York`, editable en Mi Cuenta). `form_display_tz` controla la zona visible en el formulario público de reserva (slots y labels). Los slots siguen generados en `BASE_TZ` (Miami) internamente, solo cambia el display. Extiende `get_public_contact()` RPC para incluir `form_display_tz`. |
 
 ### Futuros cambios de schema
 
