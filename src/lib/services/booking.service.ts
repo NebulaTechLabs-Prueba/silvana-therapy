@@ -10,35 +10,56 @@ const supabase = createAdminClient();
 // ─── Create Booking (Public) ──────────────────────────────
 
 export async function createBooking(dto: CreateBookingDTO): Promise<Booking> {
-  // 1. Upsert client (find by email or create)
-  const { data: existingClient } = await supabase
-    .from('clients')
-    .select('id')
-    .eq('email', dto.email)
-    .single();
+  // 1. Normalizar contacto + validar (paridad con chk_clients_contact_present
+  //    en DB). Email y phone son opcionales individualmente pero al menos
+  //    uno debe estar presente.
+  const clientEmail = dto.email && dto.email.trim() !== ''
+    ? dto.email.trim().toLowerCase()
+    : null;
+  const clientPhone = dto.phone && dto.phone.trim() !== '' ? dto.phone.trim() : null;
+  if (!clientEmail && !clientPhone) {
+    throw new Error('Debe proporcionar al menos un correo o un teléfono');
+  }
+
+  // 2. Find-or-create client. Matcheo por email si lo hay, si no por phone.
+  let existingClient: { id: string } | null = null;
+  if (clientEmail) {
+    const res = await supabase
+      .from('clients')
+      .select('id')
+      .eq('email', clientEmail)
+      .maybeSingle();
+    existingClient = res.data as { id: string } | null;
+  }
+  if (!existingClient && clientPhone) {
+    const res = await supabase
+      .from('clients')
+      .select('id')
+      .eq('phone', clientPhone)
+      .maybeSingle();
+    existingClient = res.data as { id: string } | null;
+  }
 
   let clientId: string;
 
   if (existingClient) {
     clientId = existingClient.id;
-    // Update client info and mark as returning
-    await supabase
-      .from('clients')
-      .update({
-        full_name: dto.full_name,
-        phone: dto.phone || null,
-        country: dto.country || null,
-        reason: dto.reason || null,
-        is_returning: true,
-      })
-      .eq('id', clientId);
+    const update: Record<string, unknown> = {
+      full_name: dto.full_name,
+      country: dto.country || null,
+      reason: dto.reason || null,
+      is_returning: true,
+    };
+    if (clientEmail) update.email = clientEmail;
+    if (clientPhone) update.phone = clientPhone;
+    await supabase.from('clients').update(update).eq('id', clientId);
   } else {
     const { data: newClient, error } = await supabase
       .from('clients')
       .insert({
         full_name: dto.full_name,
-        email: dto.email,
-        phone: dto.phone || null,
+        email: clientEmail,
+        phone: clientPhone,
         country: dto.country || null,
         reason: dto.reason || null,
       })
@@ -123,8 +144,8 @@ export async function createBooking(dto: CreateBookingDTO): Promise<Booking> {
       await sendNewBookingNotification({
         adminEmail: settings.notification_email,
         clientName: dto.full_name,
-        clientEmail: dto.email,
-        clientPhone: dto.phone,
+        clientEmail: clientEmail || '',
+        clientPhone: clientPhone || undefined,
         reason: dto.reason,
         preferredDate: dto.preferred_date,
         isFirstSession: booking.is_first_session,
@@ -137,10 +158,13 @@ export async function createBooking(dto: CreateBookingDTO): Promise<Booking> {
     }
   }
 
-  // 4. Notify client via email
+  // 4. Notify client via email (si proporcionó email; si no, sendEmail
+  //    en el adapter hace no-op). No-op vs omit aquí es equivalente
+  //    pero dejamos la llamada para que los logs de info registren el
+  //    intent.
   try {
     await sendBookingReceivedEmail({
-      clientEmail: dto.email,
+      clientEmail: clientEmail || '',
       clientName: dto.full_name,
       serviceName: booking.service?.name || 'Consulta',
       preferredDate: dto.preferred_date,

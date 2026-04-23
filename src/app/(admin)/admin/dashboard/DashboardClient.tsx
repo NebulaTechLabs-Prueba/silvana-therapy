@@ -284,7 +284,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
   /* Google Calendar import */
   const [gcImpModal, setGcImpModal] = useState(false);
   const [gcImpLoading, setGcImpLoading] = useState(false);
-  const [gcImpEvents, setGcImpEvents] = useState<(ScannedEvent & {selected:boolean; serviceId:string; clientName:string; clientEmail:string; status:'pending'|'confirmed'})[]>([]);
+  const [gcImpEvents, setGcImpEvents] = useState<(ScannedEvent & {selected:boolean; serviceId:string; clientName:string; clientEmail:string; clientPhone:string; status:'pending'|'confirmed'})[]>([]);
   const [gcImpFrom, setGcImpFrom] = useState(() => { const d=new Date(); d.setDate(d.getDate()-30); return d.toISOString().slice(0,10); });
   const [gcImpTo, setGcImpTo] = useState(() => { const d=new Date(); d.setDate(d.getDate()+60); return d.toISOString().slice(0,10); });
   const [gcImpError, setGcImpError] = useState('');
@@ -305,6 +305,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
         serviceId: defaultServiceId,
         clientName: e.attendeeName || '',
         clientEmail: e.attendeeEmail || '',
+        clientPhone: '',
         status: 'confirmed' as const,
       }));
       setGcImpEvents(mapped);
@@ -318,8 +319,14 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
   const gcImpCommit = async () => {
     const selected = gcImpEvents.filter(e => e.selected && !e.alreadyImported);
     if (selected.length === 0) { show('No hay eventos seleccionados'); return; }
-    const missing = selected.filter(e => !e.clientName.trim() || !e.clientEmail.trim() || !e.serviceId);
-    if (missing.length > 0) { setGcImpError(`${missing.length} evento(s) sin nombre/email/servicio`); return; }
+    // Exigimos al menos un canal de contacto (email o teléfono) por evento,
+    // paridad con chk_clients_contact_present en DB.
+    const missing = selected.filter(e =>
+      !e.clientName.trim() ||
+      !e.serviceId ||
+      (!e.clientEmail.trim() && !e.clientPhone.trim())
+    );
+    if (missing.length > 0) { setGcImpError(`${missing.length} evento(s) sin nombre/servicio o sin correo ni teléfono`); return; }
     setGcImpLoading(true); setGcImpError('');
     try {
       const items = selected.map(e => ({
@@ -329,7 +336,8 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
         startIso: e.startIso,
         durationMin: e.durationMin,
         clientName: e.clientName,
-        clientEmail: e.clientEmail,
+        clientEmail: e.clientEmail || undefined,
+        clientPhone: e.clientPhone || undefined,
         serviceId: e.serviceId,
         status: e.status,
       }));
@@ -858,6 +866,10 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
     if (!isValidName(resF.paciente)) { show('Nombre del paciente inválido'); return; }
     if (resF.email && !isValidEmail(resF.email)) { show('Email inválido'); return; }
     if (resF.telefono && !normalizePhone(resF.telefono)) { show('Teléfono inválido — incluye código de país (+1, +54)'); return; }
+    // Al menos uno de los dos canales de contacto debe existir.
+    const hasEmail = !!resF.email?.trim();
+    const hasPhone = !!resF.telefono?.trim();
+    if (!hasEmail && !hasPhone) { show('El paciente necesita al menos correo o teléfono'); return; }
     if (!resF.serviceId) { show('Selecciona un servicio'); return; }
     if (!eResId && resF.fecha < todayISO) { show('No se pueden crear citas con fecha pasada'); return; }
     if (eResId) {
@@ -1625,7 +1637,11 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                       {/* WhatsApp quick-send */}
                       <div style={{marginTop:10}}>
                         <div style={{fontSize:10,color:'#849884',fontWeight:500,textTransform:'uppercase',letterSpacing:'.4px',marginBottom:6,textAlign:'center'}}>Enviar WhatsApp</div>
-                        {(() => {
+                        {!selRes.telefono?.trim() ? (
+                          <div style={{fontSize:10,color:'#b08050',background:'#fff8e1',padding:'6px 9px',borderRadius:7,border:'1px solid #ffe0b2'}}>
+                            El paciente no tiene teléfono registrado.{selRes.email ? ' Usa correo como canal.' : ''}
+                          </div>
+                        ) : (() => {
                           const phoneOk = !!normalizePhone(selRes.telefono);
                           return (
                             <>
@@ -1648,9 +1664,9 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                       {/* Email manual resend — abre mailto: con plantilla */}
                       <div style={{marginTop:10}}>
                         <div style={{fontSize:10,color:'#849884',fontWeight:500,textTransform:'uppercase',letterSpacing:'.4px',marginBottom:6,textAlign:'center'}}>Reenviar correo</div>
-                        {!selRes.email ? (
+                        {!selRes.email?.trim() ? (
                           <div style={{fontSize:10,color:'#b08050',background:'#fff8e1',padding:'6px 9px',borderRadius:7,border:'1px solid #ffe0b2'}}>
-                            El cliente no tiene email registrado.
+                            El paciente no tiene correo registrado.{selRes.telefono ? ' Usa WhatsApp como canal.' : ''}
                           </div>
                         ) : (
                           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:5}}>
@@ -1695,9 +1711,12 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
 
               <Modal dark={dm} open={resModal} onClose={()=>{setResModal(false);setEResId(null)}} title={eResId?'Editar Cita':'Nueva Cita'} width={520}>
                 <Field label="Paciente"><input style={inp} value={resF.paciente} onChange={e=>setResF({...resF,paciente:sanitizeName(e.target.value)})} maxLength={80} placeholder="Nombre completo"/></Field>
+                <div style={{fontSize:11,color:'#849884',fontStyle:'italic',margin:'0 0 6px'}}>
+                  Correo o teléfono — al menos uno es obligatorio. Sin correo no se envían notificaciones por email.
+                </div>
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'0 14px'}}>
-                  <Field label="Email"><input style={inp} type="email" value={resF.email} onChange={e=>setResF({...resF,email:e.target.value})} placeholder="correo@mail.com"/></Field>
-                  <Field label="Teléfono"><input style={inp} value={resF.telefono} onChange={e=>setResF({...resF,telefono:sanitizePhoneInput(e.target.value)})} maxLength={22} placeholder="+1 000 000 0000"/></Field>
+                  <Field label="Email (opcional)"><input style={inp} type="email" value={resF.email} onChange={e=>setResF({...resF,email:e.target.value})} placeholder="correo@mail.com"/></Field>
+                  <Field label="Teléfono (opcional)"><input style={inp} value={resF.telefono} onChange={e=>setResF({...resF,telefono:sanitizePhoneInput(e.target.value)})} maxLength={22} placeholder="+1 000 000 0000"/></Field>
                   <Field label="Ubicación"><select style={sel} value={resF.pais} onChange={e=>setResF({...resF,pais:e.target.value})}>{UBICACIONES.map(p=><option key={p} value={p}>{p||'— Sin ubicación —'}</option>)}</select></Field>
                 </div>
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'0 14px'}}>
@@ -1849,19 +1868,32 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                               <div style={{fontSize:11,color:'#849884',marginTop:2}}>{dstr} · {ev.durationMin} min{ev.attendeeEmail?' · '+ev.attendeeEmail:''}</div>
                             </div>
                           </div>
-                          {!ev.alreadyImported && ev.selected && (
-                            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 160px 130px',gap:8,marginLeft:26}}>
-                              <input style={{...inp,marginBottom:0}} placeholder="Nombre cliente" value={ev.clientName} onChange={e=>{const v=e.target.value;setGcImpEvents(p=>p.map((x,i)=>i===idx?{...x,clientName:v}:x))}}/>
-                              <input style={{...inp,marginBottom:0}} placeholder="Email cliente" value={ev.clientEmail} onChange={e=>{const v=e.target.value;setGcImpEvents(p=>p.map((x,i)=>i===idx?{...x,clientEmail:v}:x))}}/>
-                              <select style={{...sel,marginBottom:0}} value={ev.serviceId} onChange={e=>{const v=e.target.value;setGcImpEvents(p=>p.map((x,i)=>i===idx?{...x,serviceId:v}:x))}}>
-                                {services.map((s:any) => <option key={s.id} value={s.id}>{s.nombre || s.name}</option>)}
-                              </select>
-                              <select style={{...sel,marginBottom:0}} value={ev.status} onChange={e=>{const v=e.target.value as 'pending'|'confirmed';setGcImpEvents(p=>p.map((x,i)=>i===idx?{...x,status:v}:x))}}>
-                                <option value="confirmed">Confirmada</option>
-                                <option value="pending">Pendiente</option>
-                              </select>
-                            </div>
-                          )}
+                          {!ev.alreadyImported && ev.selected && (() => {
+                            const noEmail = !ev.clientEmail.trim();
+                            const noPhone = !ev.clientPhone.trim();
+                            const noContact = noEmail && noPhone;
+                            return (
+                              <div style={{marginLeft:26}}>
+                                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 160px 130px',gap:8}}>
+                                  <input style={{...inp,marginBottom:0}} placeholder="Nombre cliente" value={ev.clientName} onChange={e=>{const v=e.target.value;setGcImpEvents(p=>p.map((x,i)=>i===idx?{...x,clientName:v}:x))}}/>
+                                  <input style={{...inp,marginBottom:0}} placeholder="Email (opcional)" value={ev.clientEmail} onChange={e=>{const v=e.target.value;setGcImpEvents(p=>p.map((x,i)=>i===idx?{...x,clientEmail:v}:x))}}/>
+                                  <input style={{...inp,marginBottom:0}} placeholder="Teléfono (opcional)" value={ev.clientPhone} onChange={e=>{const v=sanitizePhoneInput(e.target.value);setGcImpEvents(p=>p.map((x,i)=>i===idx?{...x,clientPhone:v}:x))}} maxLength={22}/>
+                                  <select style={{...sel,marginBottom:0}} value={ev.serviceId} onChange={e=>{const v=e.target.value;setGcImpEvents(p=>p.map((x,i)=>i===idx?{...x,serviceId:v}:x))}}>
+                                    {services.map((s:any) => <option key={s.id} value={s.id}>{s.nombre || s.name}</option>)}
+                                  </select>
+                                  <select style={{...sel,marginBottom:0}} value={ev.status} onChange={e=>{const v=e.target.value as 'pending'|'confirmed';setGcImpEvents(p=>p.map((x,i)=>i===idx?{...x,status:v}:x))}}>
+                                    <option value="confirmed">Confirmada</option>
+                                    <option value="pending">Pendiente</option>
+                                  </select>
+                                </div>
+                                <div style={{display:'flex',gap:6,marginTop:6,flexWrap:'wrap'}}>
+                                  {noContact && <span style={{fontSize:10,padding:'2px 7px',background:'#FFEBEE',color:'#C62828',borderRadius:8}}>⚠️ Requiere correo o teléfono</span>}
+                                  {noEmail && !noContact && <span style={{fontSize:10,padding:'2px 7px',background:'#FFF8E1',color:'#B08050',borderRadius:8}}>📧 Sin correo — contactar por WhatsApp</span>}
+                                  {noPhone && !noContact && !noEmail && <span style={{fontSize:10,padding:'2px 7px',background:'#FFF8E1',color:'#B08050',borderRadius:8}}>📱 Sin teléfono</span>}
+                                </div>
+                              </div>
+                            );
+                          })()}
                         </div>
                       );
                     })}

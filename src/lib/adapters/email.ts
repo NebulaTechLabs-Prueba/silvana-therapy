@@ -119,6 +119,13 @@ interface EmailParams {
 }
 
 async function sendEmail(params: EmailParams): Promise<void> {
+  // Clientes sin correo (migración 005 los hizo posibles): no hay nada
+  // que enviar. Log informativo y salir. El caller ya sabe que este
+  // canal es opcional y usa WhatsApp como fallback.
+  if (!params.to || !params.to.trim()) {
+    console.info('[Email] destinatario vacío — omitiendo envío (cliente sin correo)');
+    return;
+  }
   const cfg = await resolveConfig();
   if (!cfg) {
     console.warn('[Email] SMTP no configurado — omitiendo envío a', params.to);

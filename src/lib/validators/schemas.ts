@@ -8,15 +8,20 @@ export const createBookingSchema = z.object({
     .min(2, 'El nombre debe tener al menos 2 caracteres')
     .max(100, 'El nombre es demasiado largo')
     .regex(/^[^\d]+$/, 'El nombre no puede contener números'),
+  // Email y phone son opcionales individualmente, pero el refine de abajo
+  // exige al menos uno (paridad con chk_clients_contact_present en DB).
   email: z
     .string()
     .email('Email inválido')
-    .max(255),
+    .max(255)
+    .optional()
+    .or(z.literal('')),
   phone: z
     .string()
     .max(20)
     .regex(/^[^a-zA-Z]*$/, 'El teléfono no puede contener letras')
-    .optional(),
+    .optional()
+    .or(z.literal('')),
   country: z
     .string()
     .max(100)
@@ -43,7 +48,10 @@ export const createBookingSchema = z.object({
     .string()
     .max(10)
     .optional(),
-});
+}).refine(
+  (d) => (d.email && d.email.trim() !== '') || (d.phone && d.phone.trim() !== ''),
+  { message: 'Proporciona al menos un correo o un teléfono', path: ['email'] }
+);
 
 // ─── Admin: Accept Booking ────────────────────────────────
 
@@ -179,8 +187,10 @@ export const upsertInvoiceSchema = z.object({
 export const upsertBookingDashboardSchema = z.object({
   id: z.string().uuid().optional(),
   paciente: z.string().min(1).max(200).regex(/^[^\d]+$/, 'El nombre no puede contener números'),
-  email: z.string().email().max(320),
-  telefono: z.string().max(30).regex(/^[^a-zA-Z]*$/, 'El teléfono no puede contener letras'),
+  // email y telefono opcionales individualmente, exigimos al menos uno
+  // vía refine (paridad con chk_clients_contact_present en DB).
+  email: z.string().email().max(320).optional().or(z.literal('')),
+  telefono: z.string().max(30).regex(/^[^a-zA-Z]*$/, 'El teléfono no puede contener letras').optional().or(z.literal('')),
   fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida'),
   hora: z.string().regex(/^\d{2}:\d{2}$/, 'Hora inválida'),
   duracion: z.number().int().min(1).max(480),
@@ -189,7 +199,10 @@ export const upsertBookingDashboardSchema = z.object({
   estado: z.string().max(50),
   pais: z.string().max(100).optional(),
   serviceId: z.string().uuid().optional(),
-});
+}).refine(
+  (d) => (d.email && d.email.trim() !== '') || (d.telefono && d.telefono.trim() !== ''),
+  { message: 'El paciente necesita al menos correo o teléfono', path: ['email'] }
+);
 
 // ─── Dashboard: Payment Method ───────────────────────────
 
