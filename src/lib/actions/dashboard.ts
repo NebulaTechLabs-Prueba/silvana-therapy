@@ -3,7 +3,7 @@
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { revalidatePath } from 'next/cache';
-import { getClientTime } from '@/lib/utils/timezone';
+import { getClientTime, combineToUtc, formatInTz } from '@/lib/utils/timezone';
 import { sendInvoiceEmail, sendBookingConfirmedEmail, sendBookingCancelledEmail } from '@/lib/adapters/email';
 import { createCalendarEvent, updateCalendarEvent, deleteCalendarEvent } from '@/lib/adapters/google-calendar';
 import {
@@ -39,6 +39,7 @@ export async function updateProfile(raw: {
   telefono: string;
   direccion: string;
   bio: string;
+  timezone?: string;
   working_hours?: Record<string, { enabled: boolean; ranges: { start: string; end: string }[] }>;
 }) {
   const parsed = updateProfileSchema.safeParse(raw);
@@ -56,6 +57,9 @@ export async function updateProfile(raw: {
   };
   if (data.working_hours) {
     update.working_hours = data.working_hours;
+  }
+  if (data.timezone) {
+    update.admin_timezone = data.timezone;
   }
   const { error } = await supabase
     .from('admin_settings')
@@ -360,6 +364,17 @@ export async function upsertBooking(raw: {
   const data = parsed.data;
   const supabase = await getSupabase();
 
+  // Admin's preferred timezone (set in Mi Cuenta). The fecha+hora that
+  // Silvana types are wall-clock values in THIS TZ — we combine them to
+  // an absolute UTC instant before touching the DB. Fallback to Miami
+  // preserves old behavior for rows created before the preference existed.
+  const { data: tzSettings } = await supabase
+    .from('admin_settings')
+    .select('admin_timezone')
+    .limit(1)
+    .single();
+  const adminTz = (tzSettings?.admin_timezone as string) || 'America/New_York';
+
   // For bookings, the dashboard uses a simplified view.
   // We need to find-or-create the client, then upsert the booking.
   // First, find or create client
@@ -392,13 +407,28 @@ export async function upsertBooking(raw: {
     clientId = newClient.id;
   }
 
-  // Build the preferred_date from fecha + hora (Eastern time)
-  const preferredDate = `${data.fecha}T${data.hora}:00`;
+  // Build preferred_date as a proper UTC instant from the admin's wall-clock
+  // input. Prior code wrote `${fecha}T${hora}:00` (no TZ suffix), which
+  // Postgres parsed per session TZ — stored the literal number in UTC and
+  // then display/emails misaligned whenever admin's TZ wasn't UTC.
+  const preferredDate = combineToUtc(data.fecha, data.hora, adminTz);
+  if (!preferredDate) return { success: false, error: 'Fecha/hora inválidas' };
 
-  // Compute client-local time if state differs from Florida (base)
-  const clientLocalTime = data.pais && data.pais !== 'Florida' && data.pais !== 'Otro' && data.fecha && data.hora
-    ? getClientTime(data.fecha, data.hora, data.pais)
-    : null;
+  // Compute client-local time if state differs from Florida (base).
+  // getClientTime interprets the input as wall-clock in base TZ (Miami),
+  // so we need the Miami wall-clock equivalent of the UTC instant.
+  let clientLocalTime: string | null = null;
+  if (data.pais && data.pais !== 'Florida' && data.pais !== 'Otro' && data.fecha && data.hora) {
+    // If the admin's TZ IS Miami, inputs are already Miami wall clock.
+    // Otherwise, re-project the UTC instant into Miami wall clock first.
+    let miamiFecha = data.fecha;
+    let miamiHora = data.hora;
+    if (adminTz !== 'America/New_York') {
+      const miamiWall = formatInTz(preferredDate, 'America/New_York');
+      if (miamiWall) { miamiFecha = miamiWall.date; miamiHora = miamiWall.time; }
+    }
+    clientLocalTime = getClientTime(miamiFecha, miamiHora, data.pais);
+  }
 
   // Use provided serviceId, fall back to name match, then first service
   let serviceId = data.serviceId;
@@ -423,14 +453,20 @@ export async function upsertBooking(raw: {
   };
   const bookingStatus = statusMap[data.estado] || 'pending';
 
-  // Check for time slot conflicts (skip cancelled/rejected)
+  // Check for time slot conflicts (skip cancelled/rejected).
+  // Day boundary computed in admin TZ and converted to UTC so it aligns with
+  // how preferred_date is stored.
   if (bookingStatus !== 'cancelled' && bookingStatus !== 'rejected') {
+    const dayStartUtc = combineToUtc(data.fecha, '00:00', adminTz);
+    const nextDay = new Date(new Date(data.fecha + 'T00:00:00Z').getTime() + 86400000).toISOString().slice(0, 10);
+    const dayEndUtc = combineToUtc(nextDay, '00:00', adminTz);
+
     const { data: conflicts } = await supabase
       .from('bookings')
       .select('id, preferred_date, service:services(duration_min)')
       .not('status', 'in', '("cancelled","rejected")')
-      .gte('preferred_date', data.fecha + 'T00:00:00')
-      .lt('preferred_date', data.fecha + 'T23:59:59');
+      .gte('preferred_date', dayStartUtc!)
+      .lt('preferred_date', dayEndUtc!);
 
     if (conflicts && conflicts.length > 0) {
       const [rh, rm] = data.hora.split(':').map(Number);
@@ -438,13 +474,13 @@ export async function upsertBooking(raw: {
       const reqEnd = reqStart + Number(data.duracion);
       for (const ex of conflicts) {
         if (data.id && ex.id === data.id) continue; // skip self on edit
-        // Extract time from string directly — avoids Date TZ issues
-        const exTimeStr = String(ex.preferred_date || '');
-        const exTimePart = exTimeStr.includes('T') ? exTimeStr.split('T')[1].slice(0, 5) : '';
-        if (!exTimePart) continue;
-        const [eh, em] = exTimePart.split(':').map(Number);
+        // Project stored UTC back to admin wall-clock before comparing.
+        const exWall = formatInTz(ex.preferred_date as string, adminTz);
+        if (!exWall) continue;
+        const [eh, em] = exWall.time.split(':').map(Number);
         const exStart = eh * 60 + em;
-        const exDur = (ex.service as any)?.duration_min || 60;
+        const svc = Array.isArray(ex.service) ? ex.service[0] : ex.service;
+        const exDur = (svc as { duration_min?: number } | null)?.duration_min || 60;
         const exEnd = exStart + exDur;
         if (reqStart < exEnd && reqEnd > exStart) {
           return { success: false, error: 'Ya existe una reserva en ese horario. Cambia la hora o la fecha.' };

@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { logoutAction } from "@/lib/actions/auth";
 import { updateProfile, updateAuthEmail, updateAuthPassword, updateNotepad, updateNickname, updateContactInfo, upsertService, deleteService, toggleServiceActive, upsertInvoice, deleteInvoice, sendInvoiceNotification, upsertBooking, deleteBooking, updateBookingStatus, upsertPaymentMethod, deletePaymentMethod, togglePaymentMethodActive, upsertAdminLink, deleteAdminLink, updateSecurityQuestion, linkPaymentLinkToBooking, unlinkPaymentLinkFromBooking, upsertAvailabilityException, deleteAvailabilityException, updateIntegrations, updateWaTemplates, updateEmailNotifications } from '@/lib/actions/dashboard';
 import { scanGoogleEvents, importGoogleEvents, type ScannedEvent } from '@/lib/actions/google-import';
-import { getClientTime } from '@/lib/utils/timezone';
+import { getClientTime, formatInTz, combineToUtc, ADMIN_TIMEZONES } from '@/lib/utils/timezone';
 import { escapeHtml } from '@/lib/utils/escapeHtml';
 import { normalizePhone, buildWaLink } from '@/lib/utils/phone';
 import { renderTemplate, WA_TEMPLATE_EVENTS, WA_TEMPLATE_LABELS, WA_TEMPLATE_VARS } from '@/lib/utils/templates';
@@ -228,6 +228,11 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
     window.history.replaceState({}, '', url.toString());
   }, []);
 
+  // Admin's preferred timezone for reading/writing booking datetimes in the panel.
+  // Source of truth lives in admin_settings.admin_timezone (migration 003).
+  // Bookings persist in UTC; this TZ is only a display/input concern.
+  const adminTz = initialSettings?.admin_timezone || 'America/New_York';
+
   const [account, setAccount] = useState({
     nombre: initialSettings?.nombre || userName || 'Lda. Silvana López',
     especialidad: initialSettings?.especialidad || 'Psicoterapia Online',
@@ -235,7 +240,8 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
     email: initialSettings?.email || userEmail,
     telefono: initialSettings?.telefono || '+54 9 11 5678-1234',
     direccion: initialSettings?.direccion || 'Consulta Online',
-    bio: initialSettings?.bio || 'Licenciada en Psicología, especialista en psicoterapia online. Acompaño procesos de bienestar emocional desde un enfoque cálido y personalizado.'
+    bio: initialSettings?.bio || 'Licenciada en Psicología, especialista en psicoterapia online. Acompaño procesos de bienestar emocional desde un enfoque cálido y personalizado.',
+    timezone: initialSettings?.admin_timezone || 'America/New_York',
   });
   // Multi-range working_hours: { day: {enabled, ranges: [{start,end}]} } máx 3 por día
   const DAY_KEYS = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'];
@@ -677,14 +683,17 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
     if (initialBookings && initialBookings.length > 0) {
       const statusToEs = {pending:'pendiente',confirmed:'confirmada',cancelled:'cancelada',completed:'completada',rejected:'rechazada',accepted:'aceptada',payment_pending:'pago pendiente',rescheduled:'reagendada',expired:'expirada'};
       return initialBookings.map(b => {
-        const dt = b.preferred_date ? new Date(b.preferred_date) : null;
+        // Format booking datetime in the admin's preferred TZ (Miami by default,
+        // or whatever Silvana set in Mi Cuenta). DB stores UTC; we only transform
+        // for display. toISOString().slice() would give UTC — wrong.
+        const wall = formatInTz(b.preferred_date, adminTz);
         return {
           id: b.id,
           paciente: b.client?.full_name || '',
           email: b.client?.email || '',
           telefono: b.client?.phone || '',
-          fecha: dt ? dt.toISOString().slice(0, 10) : '',
-          hora: dt ? dt.toISOString().slice(11, 16) : '',
+          fecha: wall?.date || '',
+          hora: wall?.time || '',
           duracion: b.service?.duration_min || 60,
           tipo: b.service?.name || '',
           serviceId: b.service_id || '',
@@ -1078,7 +1087,13 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                   <button onClick={()=>{setEditAcc(true);setAccF({...account})}} style={btnP}>{I.edit} Editar</button>
                 </div>
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'14px 26px'}}>
-                  {[['Email',account.email],['Teléfono',account.telefono],['Dirección',account.direccion],['Cédula',account.cedula]].map(([l,v],i) => (
+                  {[
+                    ['Email',account.email],
+                    ['Teléfono',account.telefono],
+                    ['Dirección',account.direccion],
+                    ['Cédula',account.cedula],
+                    ['Zona horaria', ADMIN_TIMEZONES.find(t => t.value === account.timezone)?.label || account.timezone],
+                  ].map(([l,v],i) => (
                     <div key={i}><div style={{fontSize:10,color:'#849884',fontWeight:500,textTransform:'uppercase',letterSpacing:'.5px',marginBottom:2}}>{l}</div><div style={{fontSize:14,fontWeight:400}}>{v}</div></div>
                   ))}
                 </div>
@@ -1135,14 +1150,20 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                 </div>
                 <Field label="Dirección"><input style={inp} value={accF.direccion} onChange={e=>setAccF({...accF,direccion:e.target.value})}/></Field>
                 <Field label="Biografía"><textarea style={{...inp,minHeight:70,resize:'vertical'}} value={accF.bio} onChange={e=>setAccF({...accF,bio:e.target.value})}/></Field>
+                <Field label="Zona horaria del panel">
+                  <select style={sel} value={accF.timezone || 'America/New_York'} onChange={e=>setAccF({...accF,timezone:e.target.value})}>
+                    {ADMIN_TIMEZONES.map(tz => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
+                  </select>
+                  <p style={{fontSize:11,color:'#849884',margin:'4px 0 0',fontStyle:'italic'}}>Horas que teclees en citas y datos importados se interpretan en esta zona. Los correos al paciente siempre usan la zona del paciente y Miami como referencia, sin importar esta elección.</p>
+                </Field>
                 <div style={{background:'#f0f5f0',border:'1px solid #c8ddc8',borderRadius:10,padding:'10px 14px',fontSize:12,color:'#4a7a4a',marginBottom:8}}>
                   El horario laboral y las excepciones se gestionan ahora en <strong>Disponibilidad</strong>.
                 </div>
                 <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:4}}>
                   <button onClick={()=>setEditAcc(false)} style={btnS}>Cancelar</button>
                   <button onClick={async ()=>{
-                    setAccount({...accF});setEditAcc(false);show('Cuenta actualizada');
-                    try{await updateProfile({...accF, working_hours: workingHours})}catch(e){show('Error al guardar cuenta')}
+                    setAccount({...accF});setEditAcc(false);show('Cuenta actualizada. Recarga para ver las horas en la nueva zona.');
+                    try{await updateProfile({...accF, timezone: accF.timezone, working_hours: workingHours})}catch(e){show('Error al guardar cuenta')}
                   }} style={btnP}>{I.check} Guardar</button>
                 </div>
               </Modal>
@@ -1798,7 +1819,8 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                   <div style={{maxHeight:'55vh',overflowY:'auto',border:'1px solid '+(dm?'#2a2a2a':'#e2ede2'),borderRadius:10}}>
                     {gcImpEvents.map((ev,idx) => {
                       const dt = ev.startIso ? new Date(ev.startIso) : null;
-                      const dstr = dt ? dt.toLocaleString('es-ES',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '—';
+                      // Render event start in admin's preferred TZ, not browser TZ.
+                      const dstr = dt ? dt.toLocaleString('es-ES',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',timeZone:adminTz}) : '—';
                       return (
                         <div key={ev.eventId} style={{padding:'12px 14px',borderBottom:idx<gcImpEvents.length-1?'1px solid '+(dm?'#2a2a2a':'#e2ede2'):'none',background:ev.alreadyImported?(dm?'#1e1e1e':'#f5f5f5'):(dm?'#161616':'#fff'),opacity:ev.alreadyImported?.7:1}}>
                           <div style={{display:'flex',alignItems:'flex-start',gap:10,marginBottom:8}}>

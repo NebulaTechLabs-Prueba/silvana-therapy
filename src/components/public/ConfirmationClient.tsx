@@ -66,10 +66,10 @@ export default function ConfirmationClient() {
         </span>
 
         <h1 className="font-serif text-clamp-conf font-light text-text-dark mb-2">
-          ¡Tu cita está confirmada!
+          ¡Solicitud recibida!
         </h1>
         <p className="text-[0.9rem] text-text-mid">
-          Descarga tu comprobante y guárdalo como respaldo.
+          Silvana revisará tu solicitud y te enviará la confirmación por correo en breve. Guarda este comprobante como respaldo.
         </p>
       </div>
 

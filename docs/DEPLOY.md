@@ -127,6 +127,22 @@ pm2 logs silvana --lines 30
 - Si `source` falla con error de sintaxis, **detente y corrige antes de restartear**: el source se aborta a mitad del archivo y las vars posteriores quedan sin cargar.
 - Caso observado: `EMAIL_FROM=Silvana López <noreply@silvanalopez.com>` sin comillas rompe el source (`<` es redirección en bash). Solución: siempre envolver con `"..."` → `EMAIL_FROM="Silvana López <noreply@silvanalopez.com>"`.
 
+### NEXT_SERVER_ACTIONS_ENCRYPTION_KEY
+
+Next.js 14 cifra los IDs de Server Actions con una key que **se regenera en cada build** si no está fijada. Consecuencia: cualquier pestaña del panel abierta ANTES del deploy envía IDs viejos y el servidor responde `Failed to find Server Action "x"` — el action no ejecuta, silenciosamente.
+
+Fix: fijar la variable en `.env.local` del droplet, UNA SOLA VEZ, y no rotarla.
+
+```bash
+openssl rand -hex 32
+# Pegar salida como:
+#   NEXT_SERVER_ACTIONS_ENCRYPTION_KEY=<hex>
+```
+
+Rebuildear + restartear con el ritual estándar. A partir de ahí los deploys no rompen sesiones abiertas.
+
+Síntomas si se olvida: errores `Failed to find Server Action` en `pm2 logs silvana --err`, typicamente cada vez que Silvana (u otro admin) interactúa con el panel tras un deploy sin haber recargado.
+
 ### Precedencia DB > env para SMTP
 
 El código del panel lee la config SMTP de `admin_settings` primero y solo cae a las env vars si la tabla está vacía. Consecuencia: si la fila en DB tiene credenciales, editar `SMTP_*` en `.env.local` **no tiene efecto visible** hasta que se vacíe la fila. Al hacer el swap a Silvana, decidir una sola fuente de verdad (normalmente el panel) y no mezclar.
@@ -149,6 +165,7 @@ Se hace en este orden (DB primero, código después) para evitar errores 500 por
 |---|---|
 | `001_baseline.sql` | Schema base consolidado (enums, tablas, RLS, triggers, seed de `admin_settings`) |
 | `002_imported_service.sql` | Añade columna `services.is_internal` y seed del servicio "Importado de Google Calendar" (placeholder para eventos importados desde Google Calendar cuyo servicio original se desconoce; oculto en `/services` y `/booking`) |
+| `003_admin_timezone.sql` | Añade columna `admin_settings.admin_timezone` + CHECK con lista de TZs IANA permitidas. Permite que Silvana opere el panel en su zona (ej. Argentina/Mendoza) mientras el negocio sigue siendo Miami. Default `America/New_York` preserva comportamiento previo |
 
 ---
 
