@@ -433,12 +433,18 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
           {selDate && <SumRow label="Fecha" value={formatDate(selDate)} />}
           {selTime && <SumRow label={`Hora ${formTzLabel}`} value={`${toFormTz(selDate, selTime)} hs`} />}
           {selTime && pais && pais !== 'Florida' && pais !== 'Otro' && selDate && (() => {
+            const formDisp = toFormTz(selDate, selTime);
             const localT = getClientTime(selDate, selTime, pais);
-            return localT ? <SumRow label={`Hora ${pais}`} value={`${localT} hs`} /> : null;
+            // Si la hora local coincide con la del form, el SumRow
+            // "Hora {formTz}" arriba ya la muestra — no duplicamos.
+            if (!localT || localT === formDisp) return null;
+            return <SumRow label={`Hora ${pais}`} value={`${localT} hs`} />;
           })()}
           {selTime && pais === 'Otro' && selDate && (() => {
+            const formDisp = toFormTz(selDate, selTime);
             const fb = getClientTimeFallback(selDate, selTime);
-            return fb ? <SumRow label={`Hora ${fb.label}`} value={`${fb.time} hs`} /> : null;
+            if (!fb || fb.time === formDisp) return null;
+            return <SumRow label={`Hora ${fb.label}`} value={`${fb.time} hs`} />;
           })()}
           {hasSur && (
             <>
@@ -706,10 +712,21 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
                 const fallback = pais === 'Otro' && selDate && selTime
                   ? getClientTimeFallback(selDate, selTime)
                   : null;
-                if (localT) {
+                // Si la hora local coincide con la del formulario (mismo
+                // offset efectivo — ej. Chile y Miami ambos UTC-4 en
+                // abril, aunque IANA distintos), mostramos solo la del
+                // país para no duplicar info.
+                if (localT && localT !== formDisplay) {
                   return (
                     <span className="text-[0.72rem] text-green-deep">
                       {formDisplay} hs hora {formTzLabel} — {localT} hs hora {pais}
+                    </span>
+                  );
+                }
+                if (localT && localT === formDisplay) {
+                  return (
+                    <span className="text-[0.72rem] text-text-light">
+                      {formDisplay} hs — coincide con tu zona ({pais})
                     </span>
                   );
                 }
@@ -720,7 +737,7 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
                     </span>
                   );
                 }
-                if (fallback) {
+                if (fallback && fallback.time !== formDisplay) {
                   return (
                     <span className="text-[0.72rem] text-green-deep">
                       {formDisplay} hs hora {formTzLabel} — {fallback.time} hs {fallback.label}
@@ -782,7 +799,7 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
                   }
                   return (
                     <span className="text-[0.72rem] text-text-light">
-                      Recibirás un enlace de pago tras agendar
+                      Los detalles de pago se coordinan al confirmar la reserva
                     </span>
                   );
                 })()}
@@ -833,10 +850,14 @@ export default function BookingFormClient({ serviceId: propServiceId, serviceNam
                 const fb = pais === 'Otro' && selDate
                   ? getClientTimeFallback(selDate, selTime)
                   : null;
+                // No duplicamos la misma hora en dos filas si las zonas
+                // coinciden en offset en esa fecha.
+                const showLocal = localT && localT !== formDisplay;
+                const showFb = fb && fb.time !== formDisplay;
                 return (<>
                   <ReviewRow label={`Hora ${formTzLabel}`} value={`${formDisplay} hs`} />
-                  {localT && <ReviewRow label={`Hora ${pais}`} value={`${localT} hs`} />}
-                  {fb && <ReviewRow label={`Hora ${fb.label}`} value={`${fb.time} hs`} />}
+                  {showLocal && <ReviewRow label={`Hora ${pais}`} value={`${localT} hs`} />}
+                  {showFb && <ReviewRow label={`Hora ${fb!.label}`} value={`${fb!.time} hs`} />}
                 </>);
               })()}
               <ReviewRow label="Duración" value={`${svcDuration} min`} />

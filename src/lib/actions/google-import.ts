@@ -27,8 +27,12 @@ export type ScannedEvent = {
   eventId: string;
   title: string;
   description: string | null;
-  startIso: string;              // ISO with timezone
+  startIso: string;              // ISO with timezone (instante canónico)
   endIso: string;
+  /** TZ nativa del evento en Google Calendar (ej. 'America/Argentina/Mendoza').
+   *  Útil para avisar al admin en el preview si su admin_timezone del panel
+   *  difiere. No afecta el instante guardado (startIso ya es canónico). */
+  sourceTz: string | null;
   durationMin: number;
   attendeeEmail: string | null;  // first non-organizer attendee
   attendeeName: string | null;
@@ -86,6 +90,10 @@ export async function scanGoogleEvents(
         description: ev.description || null,
         startIso: start,
         endIso: end,
+        // El timeZone nativo del evento en Google. Permite avisar en el
+        // preview si difiere del admin_timezone del panel. Para eventos
+        // all-day Google no lo manda; queda null.
+        sourceTz: ev.start?.timeZone || null,
         durationMin,
         attendeeEmail: firstAttendee?.email || null,
         attendeeName: firstAttendee?.displayName || null,

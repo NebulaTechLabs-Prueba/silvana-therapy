@@ -129,24 +129,31 @@ export const LOCATION_OPTIONS = {
 export const COUNTRY_TIMEZONES = US_STATE_TIMEZONES;
 
 /**
- * Convert a time from base timezone (Eastern) to a target location's
- * timezone. La ubicación puede ser un estado US o un país (ver
- * LOCATION_TIMEZONES).
+ * Convert a wall-clock time in a source timezone to the target
+ * location's timezone. La ubicación puede ser un estado US o un país
+ * (ver LOCATION_TIMEZONES).
  *
- * @param date  ISO date string YYYY-MM-DD (needed for DST accuracy)
- * @param time  HH:MM in Eastern time
+ * @param date      ISO date string YYYY-MM-DD (needed for DST accuracy)
+ * @param time      HH:MM wall-clock en `sourceTz`
  * @param location  State name o país en LOCATION_TIMEZONES
- * @returns HH:MM in the target timezone, or null if no conversion possible
+ * @param sourceTz  IANA TZ en la que `time` está expresado (default
+ *                  BASE_TZ = Miami). El panel admin usa `admin_timezone`
+ *                  como sourceTz porque las horas del panel ya vienen
+ *                  formateadas en esa zona; el form público pasa el
+ *                  default porque sus slots son Miami wall-clock.
+ * @returns HH:MM en la zona de `location`, o null si las zonas coinciden
+ *          (sin conversión útil) o la ubicación no está mapeada.
  */
 export function getClientTime(
   date: string,
   time: string,
   location: string,
+  sourceTz: string = BASE_TZ,
 ): string | null {
   const targetTz = LOCATION_TIMEZONES[location];
-  if (!targetTz || targetTz === BASE_TZ) return null;
+  if (!targetTz || targetTz === sourceTz) return null;
 
-  return convertTime(date, time, BASE_TZ, targetTz);
+  return convertTime(date, time, sourceTz, targetTz);
 }
 
 /**
