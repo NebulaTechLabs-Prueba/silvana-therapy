@@ -85,14 +85,24 @@ export default function ConfirmationClient({ formTz = BASE_TZ }: Props) {
         <Row label="Servicio" value={data.service.title} />
         <Row label="Profesional" value="Lda. Silvana López" />
         <Row label="Fecha" value={dateStr} />
-        <Row label={`Hora ${formTzLabel}`} value={data.time ? `${(formTzIsBase ? data.time : convertTime(data.date, data.time, BASE_TZ, formTz))} hs` : '—'} />
+        {(() => {
+          const formDisp = data.time
+            ? (formTzIsBase ? data.time : convertTime(data.date, data.time, BASE_TZ, formTz))
+            : '';
+          return <Row label={`Hora ${formTzLabel}`} value={data.time ? `${formDisp} hs` : '—'} />;
+        })()}
         {data.form.pais && data.form.pais !== 'Florida' && data.form.pais !== 'Otro' && data.date && data.time && (() => {
+          const formDisp = formTzIsBase ? data.time : convertTime(data.date, data.time, BASE_TZ, formTz);
           const localT = getClientTime(data.date, data.time, data.form.pais!);
-          return localT ? <Row label={`Hora ${data.form.pais}`} value={`${localT} hs`} /> : null;
+          // Ocultar si coincide con la fila anterior (mismo offset en esa fecha).
+          if (!localT || localT === formDisp) return null;
+          return <Row label={`Hora ${data.form.pais}`} value={`${localT} hs`} />;
         })()}
         {data.form.pais === 'Otro' && data.date && data.time && (() => {
+          const formDisp = formTzIsBase ? data.time : convertTime(data.date, data.time, BASE_TZ, formTz);
           const fb = getClientTimeFallback(data.date, data.time);
-          return fb ? <Row label={`Hora ${fb.label}`} value={`${fb.time} hs`} /> : null;
+          if (!fb || fb.time === formDisp) return null;
+          return <Row label={`Hora ${fb.label}`} value={`${fb.time} hs`} />;
         })()}
         {data.form.pais === 'Florida' && data.time && formTzIsBase && (
           <Row label="Zona horaria" value="Miami, FL (misma zona)" />

@@ -886,7 +886,12 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
 
   /* Reserva ops */
   const saveRes = async () => {
-    if (!resF.paciente || !resF.fecha || !resF.hora) return;
+    // Antes este primer check hacía un `return` silencioso: si el admin
+    // hacía click en Crear con alguno de estos campos vacíos, el botón
+    // parecía no responder. Ahora mostramos qué falta.
+    if (!resF.paciente?.trim()) { show('Escribe el nombre del paciente'); return; }
+    if (!resF.fecha) { show('Selecciona una fecha'); return; }
+    if (!resF.hora) { show('Selecciona una hora'); return; }
     if (!isValidName(resF.paciente)) { show('Nombre del paciente inválido'); return; }
     if (resF.email && !isValidEmail(resF.email)) { show('Email inválido'); return; }
     if (resF.telefono && !normalizePhone(resF.telefono)) { show('Teléfono inválido — incluye código de país (+1, +54)'); return; }
@@ -896,15 +901,47 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
     if (!hasEmail && !hasPhone) { show('El paciente necesita al menos correo o teléfono'); return; }
     if (!resF.serviceId) { show('Selecciona un servicio'); return; }
     if (!eResId && resF.fecha < todayISO) { show('No se pueden crear citas con fecha pasada'); return; }
+    // upsertBooking retorna {success: false, error} en fallos de server
+    // en vez de throw. Revisamos la respuesta para no tragarnos errores.
+    const commonPayload = {paciente: resF.paciente, email: resF.email, telefono: resF.telefono, fecha: resF.fecha, hora: resF.hora, duracion: Number(resF.duracion), tipo: resF.tipo, notas: resF.notas, estado: resF.estado, pais: resF.pais, serviceId: resF.serviceId};
     if (eResId) {
       setReservas(p => p.map(r => r.id === eResId ? {...r,...resF,duracion:Number(resF.duracion)} : r));
-      show('Cita actualizada');
-      try { await upsertBooking({id: eResId, paciente: resF.paciente, email: resF.email, telefono: resF.telefono, fecha: resF.fecha, hora: resF.hora, duracion: Number(resF.duracion), tipo: resF.tipo, notas: resF.notas, estado: resF.estado, pais: resF.pais, serviceId: resF.serviceId}); router.refresh(); } catch(e) { show('Error al guardar cita'); }
+      try {
+        const res = await upsertBooking({id: eResId, ...commonPayload});
+        if (res && (res as {success?: boolean}).success === false) {
+          show('Error al guardar: ' + ((res as {error?: string}).error || 'desconocido'));
+          return;
+        }
+        show('Cita actualizada');
+        router.refresh();
+      } catch(e) { show('Error al guardar cita: ' + ((e as Error).message || 'desconocido')); return; }
     } else {
-      const nid = Math.max(0,...reservas.map(r=>r.id))+1;
+      // ID temporal para optimistic update local. Antes usábamos
+      // Math.max(0, ...reservas.map(r=>r.id))+1, pero los ids de
+      // Supabase son UUIDs (strings) — Math.max de strings retorna
+      // NaN, y la reserva local quedaba con id=NaN. Al clickear Editar
+      // en esa fila, eResId=NaN y el JSX `{eResId && ...}` terminaba
+      // renderizando literal "NaN" en el modal. El ID se reemplaza
+      // al router.refresh() con el UUID real del DB.
+      const nid = typeof crypto !== 'undefined' && crypto.randomUUID
+        ? 'local-' + crypto.randomUUID()
+        : 'local-' + Date.now() + '-' + Math.random().toString(36).slice(2);
       setReservas(p => [...p,{...resF,id:nid,duracion:Number(resF.duracion)}]);
-      show('Cita creada');
-      try { await upsertBooking({paciente: resF.paciente, email: resF.email, telefono: resF.telefono, fecha: resF.fecha, hora: resF.hora, duracion: Number(resF.duracion), tipo: resF.tipo, notas: resF.notas, estado: resF.estado, pais: resF.pais, serviceId: resF.serviceId}); router.refresh(); } catch(e) { show('Error al guardar cita'); }
+      try {
+        const res = await upsertBooking(commonPayload);
+        if (res && (res as {success?: boolean}).success === false) {
+          show('Error al crear: ' + ((res as {error?: string}).error || 'desconocido'));
+          // Revertir el optimistic update porque el server rechazó.
+          setReservas(p => p.filter(r => r.id !== nid));
+          return;
+        }
+        show('Cita creada');
+        router.refresh();
+      } catch(e) {
+        show('Error al crear cita: ' + ((e as Error).message || 'desconocido'));
+        setReservas(p => p.filter(r => r.id !== nid));
+        return;
+      }
     }
     setResModal(false); setEResId(null);
     setResF({paciente:'',email:'',telefono:'',fecha:'',hora:'',duracion:60,tipo:'',serviceId:'',notas:'',estado:'pendiente',pais:''});
@@ -1657,7 +1694,14 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                         </div>
                       ))}
                       {selRes.pais && selRes.pais !== 'Florida' && selRes.pais !== 'Otro' && selRes.fecha && selRes.hora && (() => {
-                        const localT = getClientTime(selRes.fecha, selRes.hora, selRes.pais);
+                        // selRes.hora viene ya formateada en admin_timezone (ver mapeo de
+                        // initialBookings), así que pasamos adminTz como sourceTz para que
+                        // la conversión al país del cliente parta de la TZ correcta.
+                        // Si el resultado coincide con la hora del admin (ej. Argentina y
+                        // Uruguay, ambos UTC-3 aunque con IANA distintos), ocultamos la
+                        // fila para no mostrar info redundante.
+                        const localT = getClientTime(selRes.fecha, selRes.hora, selRes.pais, adminTz);
+                        if (localT === selRes.hora) return null;
                         return localT ? (
                           <div style={{display:'flex',alignItems:'center',gap:9,marginBottom:10}}>
                             <span style={{color:'#4a7a4a',display:'flex',flexShrink:0}}>{I.clock}</span>
@@ -1772,7 +1816,12 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                   <Field label="Duración"><input style={{...inp,background:'#f0f5f0',cursor:'default'}} value={`${resF.duracion} min`} readOnly title="La duración se establece desde el servicio"/></Field>
                 </div>
                 {resF.pais && resF.pais !== 'Florida' && resF.pais !== 'Otro' && resF.fecha && resF.hora && (() => {
-                  const localTime = getClientTime(resF.fecha, resF.hora, resF.pais);
+                  // resF.hora está en admin_timezone (el admin la teclea en su zona o la
+                  // recibe ya formateada al abrir para editar). Pasamos adminTz como
+                  // sourceTz para que la conversión al país del cliente sea correcta.
+                  // Si coincide con la hora del admin (misma TZ efectiva), ocultamos.
+                  const localTime = getClientTime(resF.fecha, resF.hora, resF.pais, adminTz);
+                  if (localTime === resF.hora) return null;
                   const adminZonaLabel = ADMIN_TIMEZONES.find(t=>t.value===adminTz)?.shortLabel || 'Miami';
                   return localTime ? (
                     <div style={{background:'#f0f7f0',border:'1px solid #c8dcc8',borderRadius:12,padding:'10px 14px',marginBottom:8,display:'flex',alignItems:'center',gap:10}}>
@@ -1813,7 +1862,13 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                   );
                 })()}
                 {/* Comprobantes asociados */}
-                {eResId && (() => {
+                {/* Usamos `eResId ? ... : null` en lugar de `eResId && ...`
+                    porque el `&&` devuelve el operando izquierdo si es
+                    falsy: null/false/undefined renderizan vacío, pero
+                    NaN o 0 se stringifican literalmente ("NaN"/"0") y
+                    aparecen visibles en pantalla. El ternario con null
+                    explícito es defensivo. */}
+                {eResId ? (() => {
                   const linkedInvs = invoices.filter(inv => inv.bookingId === eResId || inv.booking_id === eResId);
                   const bookingSvcForInv = services.find(s=>s.id===resF.serviceId);
                   const hasActivePayMethods = metodos.some(m => m.activo);
@@ -1851,7 +1906,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                       ) : null}
                     </div>
                   );
-                })()}
+                })() : null}
                 <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
                   <button onClick={()=>{setResModal(false);setEResId(null)}} style={btnS}>Cancelar</button>
                   <button onClick={saveRes} style={btnP}>{I.check} {eResId?'Actualizar':'Crear'}</button>
@@ -1905,15 +1960,30 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
                   <div style={{maxHeight:'55vh',overflowY:'auto',border:'1px solid '+(dm?'#2a2a2a':'#e2ede2'),borderRadius:10}}>
                     {gcImpEvents.map((ev,idx) => {
                       const dt = ev.startIso ? new Date(ev.startIso) : null;
-                      // Render event start in admin's preferred TZ, not browser TZ.
+                      // La hora primaria se muestra en admin_timezone (lo que
+                      // Silvana verá en el panel tras importar). Si el TZ nativo
+                      // del evento en Google Calendar es distinto al del panel,
+                      // mostramos también la hora original para que verifique.
+                      const adminLabel = ADMIN_TIMEZONES.find(t=>t.value===adminTz)?.shortLabel || 'Miami';
                       const dstr = dt ? dt.toLocaleString('es-ES',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',timeZone:adminTz}) : '—';
+                      const origTz = (ev as any).sourceTz as string | null;
+                      const showOrig = origTz && origTz !== adminTz && dt;
+                      const origStr = showOrig ? dt!.toLocaleString('es-ES',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',timeZone:origTz!}) : null;
+                      const origLabel = showOrig ? (ADMIN_TIMEZONES.find(t=>t.value===origTz)?.shortLabel || origTz) : null;
                       return (
                         <div key={ev.eventId} style={{padding:'12px 14px',borderBottom:idx<gcImpEvents.length-1?'1px solid '+(dm?'#2a2a2a':'#e2ede2'):'none',background:ev.alreadyImported?(dm?'#1e1e1e':'#f5f5f5'):(dm?'#161616':'#fff'),opacity:ev.alreadyImported?.7:1}}>
                           <div style={{display:'flex',alignItems:'flex-start',gap:10,marginBottom:8}}>
                             <input type="checkbox" checked={ev.selected} disabled={ev.alreadyImported} onChange={e=>{const v=e.target.checked;setGcImpEvents(p=>p.map((x,i)=>i===idx?{...x,selected:v}:x))}} style={{marginTop:4}}/>
                             <div style={{flex:1,minWidth:0}}>
                               <div style={{fontSize:13,fontWeight:500,color:dm?'#e8e8e8':'#2a3528'}}>{ev.title}{ev.alreadyImported && <span style={{fontSize:10,marginLeft:8,padding:'2px 7px',background:'#e8f5e9',color:'#2e7d32',borderRadius:8}}>Ya importado</span>}</div>
-                              <div style={{fontSize:11,color:'#849884',marginTop:2}}>{dstr} · {ev.durationMin} min{ev.attendeeEmail?' · '+ev.attendeeEmail:''}</div>
+                              <div style={{fontSize:11,color:'#849884',marginTop:2}}>
+                                {dstr} · hora {adminLabel} · {ev.durationMin} min{ev.attendeeEmail?' · '+ev.attendeeEmail:''}
+                              </div>
+                              {showOrig && (
+                                <div style={{fontSize:10,color:'#b08050',marginTop:2,fontStyle:'italic'}}>
+                                  Original en Google Calendar: {origStr} hora {origLabel}
+                                </div>
+                              )}
                             </div>
                           </div>
                           {!ev.alreadyImported && ev.selected && (() => {
