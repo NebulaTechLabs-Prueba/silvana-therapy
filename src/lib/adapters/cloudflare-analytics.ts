@@ -31,7 +31,7 @@ export function isCloudflareConfigured(): boolean {
 
 async function gqlRequest<T>(query: string, variables: Record<string, unknown>, apiToken: string): Promise<T> {
   const ctl = new AbortController();
-  const timeout = setTimeout(() => ctl.abort(), 8000);
+  const timeout = setTimeout(() => ctl.abort(), 20000);
   try {
     const res = await fetch(CF_GRAPHQL_ENDPOINT, {
       method: 'POST',
