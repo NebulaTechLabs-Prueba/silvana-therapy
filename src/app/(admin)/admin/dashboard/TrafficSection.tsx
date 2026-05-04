@@ -137,7 +137,7 @@ export default function TrafficSection(props: Props) {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
         <ListCard
           title="Páginas más visitadas"
-          rows={data.topPages.slice(0, 10).map((p) => ({ label: p.path, value: p.pageviews }))}
+          rows={data.topPages.slice(0, 10).map((p) => ({ label: friendlyPath(p.path), value: p.pageviews }))}
           emptyText="Sin datos todavía"
           CARD={CARD}
           txMain={txMain}
@@ -342,4 +342,23 @@ function niceCeil(n: number): number {
 function formatDateShort(ymd: string): string {
   const [, m, d] = ymd.split('-');
   return `${d}/${m}`;
+}
+
+function friendlyPath(path: string): string {
+  const clean = path.replace(/\/+$/, '') || '/';
+  const map: Record<string, string> = {
+    '/': 'Inicio',
+    '/services': 'Servicios',
+    '/booking': 'Reservar cita',
+    '/booking/confirmation': 'Confirmación de reserva',
+    '/booking/error': 'Error de reserva',
+    '/login': 'Iniciar sesión',
+  };
+  if (map[clean]) return `${map[clean]}  ·  ${clean}`;
+  if (clean.startsWith('/services/')) {
+    const slug = clean.slice('/services/'.length);
+    const pretty = slug.replace(/-/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
+    return `Servicio: ${pretty}  ·  ${clean}`;
+  }
+  return clean;
 }
