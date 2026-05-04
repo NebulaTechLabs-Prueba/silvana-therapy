@@ -12,6 +12,7 @@ import { normalizePhone, buildWaLink } from '@/lib/utils/phone';
 import { renderTemplate, WA_TEMPLATE_EVENTS, WA_TEMPLATE_LABELS, WA_TEMPLATE_VARS } from '@/lib/utils/templates';
 import { sanitizeName, sanitizePhoneInput, isValidName, isValidEmail } from '@/lib/utils/sanitize';
 import { useBreakpoint } from '@/lib/hooks/useBreakpoint';
+import TrafficSection from './TrafficSection';
 
 interface DashboardClientProps {
   userEmail: string;
@@ -62,6 +63,7 @@ const I = {
   clockNav: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>,
   plug: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 2v6"/><path d="M15 2v6"/><path d="M6 8h12v4a6 6 0 0 1-12 0z"/><path d="M12 18v4"/></svg>,
   globe: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>,
+  chart: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>,
 };
 
 /* ═══ HELPERS ═══ */
@@ -1075,6 +1077,7 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
     {key:'facturas',label:'Comprobantes',icon:I.invoice},
     {key:'reservas',label:'Calendario',icon:I.calendar},
     {key:'disponibilidad',label:'Disponibilidad',icon:I.clockNav},
+    {key:'trafico',label:'Tráfico',icon:I.chart},
     {key:'pagos',label:'Métodos de Pago',icon:I.credit},
     {key:'integraciones',label:'Integraciones',icon:I.plug},
     {key:'config',label:'Configuración',icon:I.gear},
@@ -2230,6 +2233,19 @@ export default function SilvanaDashboard({ userEmail, userName, initialSettings,
               </Modal>
 
             </div>
+          )}
+
+          {/* TRÁFICO (Cloudflare Web Analytics) */}
+          {section === 'trafico' && (
+            <TrafficSection
+              dm={dm}
+              CARD={CARD}
+              txMain={txMain}
+              txSub={txSub}
+              borderC={borderC}
+              bgSub={bgSub}
+              btnS={btnS}
+            />
           )}
 
           {/* MÉTODOS DE PAGO */}
